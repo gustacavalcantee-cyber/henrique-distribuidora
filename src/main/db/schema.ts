@@ -113,3 +113,17 @@ export const itensPedidoRelations = relations(itensPedido, ({ one }) => ({
   pedido: one(pedidos, { fields: [itensPedido.pedido_id], references: [pedidos.id] }),
   produto: one(produtos, { fields: [itensPedido.produto_id], references: [produtos.id] }),
 }))
+
+export const precosRelations = relations(precos, ({ one }) => ({
+  produto: one(produtos, { fields: [precos.produto_id], references: [produtos.id] }),
+  loja: one(lojas, { fields: [precos.loja_id], references: [lojas.id] }),
+}))
+
+export const custosRelations = relations(custos, ({ one }) => ({
+  produto: one(produtos, { fields: [custos.produto_id], references: [produtos.id] }),
+}))
+
+export const despesasRelations = relations(despesas, ({ one }) => ({
+  rede: one(redes, { fields: [despesas.rede_id], references: [redes.id] }),
+  loja: one(lojas, { fields: [despesas.loja_id], references: [lojas.id] }),
+}))

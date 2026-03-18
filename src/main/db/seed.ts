@@ -2,7 +2,7 @@
 import { getDb } from './client'
 import { redes, lojas, produtos, configuracoes } from './schema'
 
-export async function seedIfEmpty() {
+export function seedIfEmpty() {
   const db = getDb()
 
   // Only seed if no redes exist
