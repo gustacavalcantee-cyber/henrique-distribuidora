@@ -2,7 +2,6 @@ import { ipcMain } from 'electron'
 import { IPC } from '../../shared/ipc-channels'
 import {
   listPedidos,
-  getPedidoItens,
   salvarPedido,
   deletePedido,
   checkDuplicate,

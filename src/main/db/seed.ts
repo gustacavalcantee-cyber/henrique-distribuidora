@@ -1,6 +1,6 @@
 // src/main/db/seed.ts
 import { getDb } from './client'
-import { redes, lojas, produtos, configuracoes } from './schema'
+import { redes, produtos, configuracoes } from './schema'
 
 export function seedIfEmpty() {
   const db = getDb()

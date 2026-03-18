@@ -1,4 +1,4 @@
-import { eq, and, gte, lte, like, isNull } from 'drizzle-orm'
+import { eq, and, gte, lte, like, isNull, type SQL } from 'drizzle-orm'
 import { getDb } from '../db/client'
 import { pedidos, itensPedido, precos, custos, lojas } from '../db/schema'
 import type { SalvarPedidoInput, LancamentoRow } from '../../shared/types'
@@ -43,7 +43,7 @@ export interface PedidoFilters {
 
 export function listPedidos(filters: PedidoFilters = {}) {
   const db = getDb()
-  const conditions = []
+  const conditions: SQL<unknown>[] = []
   if (filters.rede_id) conditions.push(eq(pedidos.rede_id, filters.rede_id))
   if (filters.loja_id) conditions.push(eq(pedidos.loja_id, filters.loja_id))
   if (filters.data_inicio) conditions.push(gte(pedidos.data_pedido, filters.data_inicio))
@@ -134,7 +134,7 @@ export function getLancamentosParaData(rede_id: number, data_pedido: string): La
     if (pedido) {
       const itens = db.select().from(itensPedido).where(eq(itensPedido.pedido_id, pedido.id)).all()
       for (const item of itens) {
-        quantidades[item.produto_id] = item.quantidade
+        if (item.produto_id !== null) quantidades[item.produto_id] = item.quantidade
       }
     }
 
