@@ -49,11 +49,34 @@ export function Lancamentos() {
     ))
   }, [setRows])
 
-  // Handle OC number change
+  // Handle OC number change — auto-sequences empty rows below
   const handleOcChange = useCallback((lojaId: number, value: string) => {
-    setRows(prev => prev.map(row =>
-      row.loja_id === lojaId ? { ...row, numero_oc: value } : row
-    ))
+    setRows(prev => {
+      const idx = prev.findIndex(r => r.loja_id === lojaId)
+      if (idx === -1) return prev
+      const updated = [...prev]
+      updated[idx] = { ...updated[idx], numero_oc: value }
+
+      // Detect numeric suffix and auto-fill subsequent empty rows
+      const match = value.match(/^(.*?)(\d+)$/)
+      if (match) {
+        const prefix = match[1]
+        const numStr = match[2]
+        const baseNum = parseInt(numStr, 10)
+        const pad = numStr.length
+        let step = 1
+        for (let i = idx + 1; i < updated.length; i++) {
+          if (!updated[i].numero_oc) {
+            updated[i] = {
+              ...updated[i],
+              numero_oc: prefix + String(baseNum + step).padStart(pad, '0'),
+            }
+          }
+          step++
+        }
+      }
+      return updated
+    })
   }, [setRows])
 
   // Autosave when leaving a cell
@@ -154,7 +177,7 @@ export function Lancamentos() {
                   {/* OC number */}
                   <td className="border px-1 py-0.5">
                     <input
-                      className="w-full px-1 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-400 rounded"
+                      className="w-full px-1 py-0.5 text-sm text-slate-800 bg-white focus:outline-none focus:ring-1 focus:ring-emerald-400 rounded"
                       placeholder="OC"
                       value={row.numero_oc}
                       onChange={e => handleOcChange(row.loja_id, e.target.value)}
@@ -169,7 +192,7 @@ export function Lancamentos() {
                   {produtos.map(p => (
                     <td key={p.id} className="border px-1 py-0.5">
                       <input
-                        className="w-full px-1 py-0.5 text-sm text-center focus:outline-none focus:ring-1 focus:ring-blue-400 rounded"
+                        className="w-full px-1 py-0.5 text-sm text-center text-slate-800 bg-white focus:outline-none focus:ring-1 focus:ring-emerald-400 rounded"
                         type="number"
                         step={p.unidade === 'KG' ? '0.1' : '1'}
                         min="0"

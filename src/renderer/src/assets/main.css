@@ -9,6 +9,8 @@ html, body, #root {
   margin: 0;
   padding: 0;
   overflow: hidden;
+  /* Override electron-vite scaffold white text default */
+  color: #1e293b;
 }
 
 #root {
