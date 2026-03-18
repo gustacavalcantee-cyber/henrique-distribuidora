@@ -26,6 +26,7 @@ export function Dashboard() {
   const [pedidosHoje, setPedidosHoje] = useState<Pedido[]>([])
   const [financeiro, setFinanceiro] = useState<FinanceiroSummary | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   const today = format(new Date(), 'yyyy-MM-dd')
   const now = new Date()
@@ -40,6 +41,9 @@ export function Dashboard() {
       setPedidosHoje(pedidos)
       setFinanceiro(fin)
       setLoading(false)
+    }).catch((err: Error) => {
+      setError(err.message)
+      setLoading(false)
     })
   }, [])
 
@@ -52,6 +56,10 @@ export function Dashboard() {
         <h2 className="text-2xl font-bold text-gray-900">Dashboard</h2>
         <p className="text-gray-500 text-sm">{formatDate(today)}</p>
       </div>
+
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded p-4 text-sm text-red-700 font-mono">{error}</div>
+      )}
 
       {loading ? <div className="text-gray-500">Carregando...</div> : (
         <>
