@@ -5,7 +5,7 @@ import { registerProdutosHandlers } from './produtos'
 import { registerPrecosHandlers } from './precos'
 import { registerCustosHandlers } from './custos'
 import { registerConfiguracoesHandlers } from './configuracoes'
-// import { registerPedidosHandlers } from './pedidos'
+import { registerPedidosHandlers } from './pedidos'
 // import { registerPrintHandlers } from './print'
 // import { registerDespesasHandlers } from './despesas'
 // import { registerRelatoriosHandlers } from './relatorios'
@@ -18,4 +18,5 @@ export function registerAllHandlers() {
   registerPrecosHandlers()
   registerCustosHandlers()
   registerConfiguracoesHandlers()
+  registerPedidosHandlers()
 }
