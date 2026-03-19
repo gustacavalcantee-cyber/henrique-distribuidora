@@ -5,6 +5,7 @@ import { Printer, ChevronUp, ChevronDown, X, Plus, Pencil, Check, Share2 } from 
 import type { Rede, Produto, LancamentoRow, Preco } from '../../../shared/types'
 import { IPC } from '../../../shared/ipc-channels'
 import { useLancamentos } from '../hooks/useLancamentos'
+import { useRowProdutos } from '../hooks/useRowProdutos'
 import { EstoqueTab } from './EstoqueTab'
 
 function today() {
@@ -24,10 +25,16 @@ export function Lancamentos() {
   const [editMode, setEditMode] = useState(false)
 
   // Per-row product management (lojaId -> Set<prodId>)
-  const [rowProdIds, setRowProdIds] = useState<Record<number, Set<number>>>({})
-  const [showRowProdMenu, setShowRowProdMenu] = useState<number | null>(null)
-  const [rowProdSearch, setRowProdSearch] = useState('')
-  const [rowProdMenuPos, setRowProdMenuPos] = useState<{ top: number; left: number } | null>(null)
+  const {
+    rowProdIds,
+    showRowProdMenu, setShowRowProdMenu,
+    rowProdSearch, setRowProdSearch,
+    rowProdMenuPos, setRowProdMenuPos,
+    resetRowProdIds,
+    handleToggleRowProd,
+    handleRemoveColumn,
+    handleToggleGlobalProd,
+  } = useRowProdutos({ activeRedeId, rows, produtos })
 
   // Last OC base for placeholder computation
   const [lastOcBase, setLastOcBase] = useState<{ prefix: string; num: number; pad: number } | null>(null)
@@ -88,31 +95,6 @@ export function Lancamentos() {
     }
   }, [rows])
 
-  // Initialize rowProdIds from localStorage/existing data when rows+produtos are ready
-  useEffect(() => {
-    if (!activeRedeId || rows.length === 0 || produtos.length === 0) return
-    setRowProdIds(prev => {
-      const next = { ...prev }
-      for (const row of rows) {
-        if (next[row.loja_id] !== undefined) continue // already set this session
-        const key = `row_prods_${activeRedeId}_${row.loja_id}`
-        const saved = localStorage.getItem(key)
-        if (saved) {
-          const ids: number[] = JSON.parse(saved)
-          next[row.loja_id] = new Set(ids.filter(id => produtos.some(p => p.id === id)))
-        } else {
-          // Always show all rede products + any extra products that have quantities in existing orders
-          const redeProds = produtos.filter(p => p.rede_id === activeRedeId).map(p => p.id)
-          const fromOrder = Object.entries(row.quantidades)
-            .filter(([, qty]) => qty != null)
-            .map(([id]) => Number(id))
-          next[row.loja_id] = new Set([...redeProds, ...fromOrder])
-        }
-      }
-      return next
-    })
-  }, [activeRedeId, rows, produtos])
-
   // Fetch last OC for this rede to compute placeholders
   useEffect(() => {
     if (!activeRedeId) return
@@ -129,54 +111,9 @@ export function Lancamentos() {
     isFirstLoad.current = true
     allRowsRef.current = []
     setShowAddMenu(false)
-    setShowRowProdMenu(null)
     setShowGlobalProdMenu(false)
-    setRowProdIds({}) // force re-read from localStorage
+    resetRowProdIds()
   }, [activeRedeId, dataPedido])
-
-  // Toggle a product for a specific row — persists immediately
-  const handleToggleRowProd = useCallback((lojaId: number, prodId: number) => {
-    if (!activeRedeId) return
-    setRowProdIds(prev => {
-      const current = new Set(prev[lojaId] ?? [])
-      current.has(prodId) ? current.delete(prodId) : current.add(prodId)
-      const next = { ...prev, [lojaId]: current }
-      localStorage.setItem(`row_prods_${activeRedeId}_${lojaId}`, JSON.stringify([...current]))
-      return next
-    })
-  }, [activeRedeId])
-
-  // Remove a product column from ALL rows
-  const handleRemoveColumn = useCallback((prodId: number) => {
-    if (!activeRedeId) return
-    setRowProdIds(prev => {
-      const next = { ...prev }
-      for (const lojaId of Object.keys(next).map(Number)) {
-        const s = new Set(next[lojaId])
-        s.delete(prodId)
-        next[lojaId] = s
-        localStorage.setItem(`row_prods_${activeRedeId}_${lojaId}`, JSON.stringify([...s]))
-      }
-      return next
-    })
-  }, [activeRedeId])
-
-  // Toggle a product for ALL rows — used by the global "Produto" button
-  const handleToggleGlobalProd = useCallback((prodId: number) => {
-    if (!activeRedeId) return
-    setRowProdIds(prev => {
-      const inAll = rows.length > 0 && rows.every(row => prev[row.loja_id]?.has(prodId))
-      const addToAll = !inAll
-      const next = { ...prev }
-      for (const row of rows) {
-        const s = new Set(next[row.loja_id] ?? [])
-        addToAll ? s.add(prodId) : s.delete(prodId)
-        next[row.loja_id] = s
-        localStorage.setItem(`row_prods_${activeRedeId}_${row.loja_id}`, JSON.stringify([...s]))
-      }
-      return next
-    })
-  }, [activeRedeId, rows])
 
   const handleQuantidadeChange = useCallback((lojaId: number, produtoId: number, value: string) => {
     const qty = value === '' ? null : Number(value)
