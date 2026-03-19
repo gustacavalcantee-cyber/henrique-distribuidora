@@ -10,6 +10,7 @@ import { useOcNumbers } from '../hooks/useOcNumbers'
 import { ShareModal } from '../components/Lancamentos/ShareModal'
 import { ProdutoRowMenu } from '../components/Lancamentos/ProdutoRowMenu'
 import { LancamentosTable } from '../components/Lancamentos/LancamentosTable'
+import { LancamentosHeader } from '../components/Lancamentos/LancamentosHeader'
 import { EstoqueTab } from './EstoqueTab'
 
 function today() {
@@ -210,101 +211,24 @@ export function Lancamentos() {
   return (
     <div className="flex flex-col gap-4" onClick={closeAll}>
       {/* Header */}
-      <div className="flex items-center gap-4">
-        <h2 className="text-2xl font-bold text-gray-900">Lançamentos</h2>
-        <div className="flex items-center gap-2">
-          <label className="text-sm text-gray-600">Data:</label>
-          <input
-            type="date"
-            value={dataPedido}
-            onChange={e => setDataPedido(e.target.value)}
-            className="border rounded px-2 py-1 text-sm"
-          />
-        </div>
-
-        {/* Restore hidden store */}
-        {editMode && hiddenRows.length > 0 && (
-          <div className="relative">
-            <button
-              onClick={e => { e.stopPropagation(); setShowAddMenu(v => !v); setShowGlobalProdMenu(false) }}
-              className="flex items-center gap-1 px-3 py-1 text-sm bg-emerald-600 text-white rounded hover:bg-emerald-700"
-            >
-              <Plus size={14} />
-              Adicionar loja
-            </button>
-            {showAddMenu && (
-              <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded shadow-lg z-10 min-w-40" onClick={e => e.stopPropagation()}>
-                {hiddenRows.map(r => (
-                  <button key={r.loja_id} onClick={() => handleRestoreRow(r.loja_id)} className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-100">
-                    {r.loja_nome}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Edit mode toggle */}
-        <button
-          onClick={e => { e.stopPropagation(); setEditMode(v => !v) }}
-          className={`flex items-center gap-1 px-3 py-1 text-sm rounded font-medium ${editMode ? 'bg-green-600 text-white hover:bg-green-700' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-        >
-          {editMode ? <><Check size={14} /> Concluído</> : <><Pencil size={14} /> Editar</>}
-        </button>
-
-        {/* Global "Produto" button — adds/removes a product from ALL stores */}
-        {editMode ? <div className="relative">
-          <button
-            onClick={e => { e.stopPropagation(); setShowGlobalProdMenu(v => !v); setShowAddMenu(false); setGlobalProdSearch('') }}
-            className="flex items-center gap-1 px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
-          >
-            <Plus size={14} />
-            Produto
-          </button>
-          {showGlobalProdMenu && (
-            <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded shadow-lg z-20 w-64" onClick={e => e.stopPropagation()}>
-              <div className="px-3 py-1.5 border-b border-gray-100 bg-gray-50 text-xs font-semibold text-gray-500">
-                Adicionar para todas as lojas
-              </div>
-              <div className="p-1.5 border-b border-gray-100">
-                <input
-                  autoFocus
-                  className="w-full px-2 py-1 text-sm border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-400"
-                  placeholder="Buscar produto..."
-                  value={globalProdSearch}
-                  onChange={e => setGlobalProdSearch(e.target.value)}
-                />
-              </div>
-              <div className="max-h-64 overflow-y-auto">
-                {[...produtos]
-                  .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
-                  .filter((p, i, arr) => arr.findIndex(x => x.nome === p.nome && x.unidade === p.unidade) === i)
-                  .filter(p => p.nome.toLowerCase().includes(globalProdSearch.toLowerCase()))
-                  .map(p => {
-                    const inAll = rows.length > 0 && rows.every(row => rowProdIds[row.loja_id]?.has(p.id))
-                    const inSome = rows.some(row => rowProdIds[row.loja_id]?.has(p.id))
-                    return (
-                      <button
-                        key={p.id}
-                        onClick={() => handleToggleGlobalProd(p.id)}
-                        className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 border-b border-gray-50"
-                      >
-                        <span className={`w-4 text-center text-xs font-bold flex-shrink-0 ${inAll ? 'text-blue-500' : inSome ? 'text-blue-300' : 'text-gray-300'}`}>
-                          {inAll ? '✓' : inSome ? '–' : '+'}
-                        </span>
-                        <span className="flex-1 text-left">{p.nome}</span>
-                        <span className="text-xs text-gray-400">{p.unidade}</span>
-                      </button>
-                    )
-                  })}
-                {produtos.filter(p => p.nome.toLowerCase().includes(globalProdSearch.toLowerCase())).length === 0 && (
-                  <p className="px-3 py-2 text-xs text-gray-400">Nenhum produto encontrado.</p>
-                )}
-              </div>
-            </div>
-          )}
-        </div> : null}
-      </div>
+      <LancamentosHeader
+        dataPedido={dataPedido}
+        editMode={editMode}
+        hiddenRows={hiddenRows}
+        showAddMenu={showAddMenu}
+        showGlobalProdMenu={showGlobalProdMenu}
+        globalProdSearch={globalProdSearch}
+        rows={rows}
+        produtos={produtos}
+        rowProdIds={rowProdIds}
+        onDateChange={setDataPedido}
+        onToggleEditMode={() => setEditMode(v => !v)}
+        onToggleAddMenu={() => { setShowAddMenu(v => !v); setShowGlobalProdMenu(false) }}
+        onRestoreRow={handleRestoreRow}
+        onToggleGlobalProdMenu={() => { setShowGlobalProdMenu(v => !v); setShowAddMenu(false); setGlobalProdSearch('') }}
+        onGlobalProdSearch={setGlobalProdSearch}
+        onToggleGlobalProd={handleToggleGlobalProd}
+      />
 
       {/* Rede tabs */}
       <div className="border-b border-gray-200">
