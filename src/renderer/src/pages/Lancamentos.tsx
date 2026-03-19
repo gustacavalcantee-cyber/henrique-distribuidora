@@ -1,7 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { createPortal } from 'react-dom'
 import { format } from 'date-fns'
-import { Printer, ChevronUp, ChevronDown, X, Plus, Pencil, Check, Share2 } from 'lucide-react'
 import type { Rede, Produto, LancamentoRow, Preco } from '../../../shared/types'
 import { IPC } from '../../../shared/ipc-channels'
 import { useLancamentos } from '../hooks/useLancamentos'
