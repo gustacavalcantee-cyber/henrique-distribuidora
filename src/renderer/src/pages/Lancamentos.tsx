@@ -9,6 +9,7 @@ import { useRowProdutos } from '../hooks/useRowProdutos'
 import { useOcNumbers } from '../hooks/useOcNumbers'
 import { ShareModal } from '../components/Lancamentos/ShareModal'
 import { ProdutoRowMenu } from '../components/Lancamentos/ProdutoRowMenu'
+import { LancamentosTable } from '../components/Lancamentos/LancamentosTable'
 import { EstoqueTab } from './EstoqueTab'
 
 function today() {
@@ -370,225 +371,61 @@ export function Lancamentos() {
       {activeRedeId !== -1 && (loading ? (
         <div className="text-gray-500">Carregando...</div>
       ) : (
-        <div style={{ overflowX: 'auto', width: '100%' }}>
-        <table className="text-sm border-collapse" style={{ minWidth: 'max-content' }}>
-            <thead>
-              {/* Totals row */}
-              <tr className="bg-gray-100">
-                <th className="border px-2 py-1 text-left text-xs text-gray-500 w-28">TOTAL</th>
-                <th className="border px-2 py-1 w-32"></th>
-                {visibleProdutos.map(p => (
-                  <th key={p.id} className="border px-2 py-1 text-center font-bold w-24">
-                    {totals[p.id] != null ? (Math.round(totals[p.id] * 100) / 100).toLocaleString('pt-BR', { maximumFractionDigits: 2 }) : ''}
-                  </th>
-                ))}
-                <th className="border px-2 py-1 w-36"></th>
-              </tr>
-              {/* Apply-to-all row — only in edit mode */}
-              {editMode ? <tr className="bg-emerald-50">
-                <th className="border px-2 py-1 text-left text-xs text-emerald-700 font-semibold w-28">TODAS</th>
-                <th className="border px-2 py-1 w-32 text-xs text-emerald-600 font-normal text-left">Aplicar a todas</th>
-                {visibleProdutos.map(p => (
-                  <th key={p.id} className="border px-1 py-0.5 w-24">
-                    <input
-                      className="w-full px-1 py-0.5 text-sm text-center text-emerald-800 bg-emerald-100 focus:outline-none focus:ring-1 focus:ring-emerald-400 rounded placeholder-emerald-300"
-                      type="number"
-                      step={p.unidade === 'KG' ? '0.1' : '1'}
-                      min="0"
-                      placeholder="—"
-                      onChange={e => {
-                        const qty = e.target.value === '' ? null : Number(e.target.value)
-                        setRows(prev => prev.map(row => {
-                          if (!rowProdIds[row.loja_id]?.has(p.id)) return row
-                          return { ...row, quantidades: { ...row.quantidades, [p.id]: qty } }
-                        }))
-                      }}
-                    />
-                  </th>
-                ))}
-                <th className="border px-2 py-1 w-36"></th>
-              </tr> : null}
-              {/* Header row */}
-              <tr className="bg-gray-50">
-                <th className="border px-2 py-1 text-left text-xs text-gray-600">NOTA</th>
-                <th className="border px-2 py-1 text-left text-xs text-gray-600">LOJA</th>
-                {visibleProdutos.map(p => (
-                  <th key={p.id} className="border px-1 py-1 text-center text-xs text-gray-600 uppercase">
-                    <div className="flex items-center justify-center gap-1">
-                      <span>{p.nome}</span>
-                      {editMode && (
-                        <button
-                          onClick={() => handleRemoveColumn(p.id)}
-                          title="Remover de todas as lojas"
-                          className="text-gray-300 hover:text-red-400 leading-none"
-                        >
-                          <X size={11} />
-                        </button>
-                      )}
-                    </div>
-                    <div className="text-gray-400 font-normal">{p.unidade}</div>
-                  </th>
-                ))}
-                <th className="border px-2 py-1 text-xs text-gray-600">AÇÕES</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map(row => (
-                <tr key={row.loja_id} className="hover:bg-gray-50">
-                  {/* OC number */}
-                  <td className="border px-1 py-0.5">
-                    <input
-                      className={`w-full px-1 py-0.5 text-sm bg-white focus:outline-none focus:ring-1 focus:ring-emerald-400 rounded ${autoFilledOcIds.has(row.loja_id) ? 'text-gray-400' : 'text-slate-800'}`}
-                      placeholder={ocPlaceholders[row.loja_id] ?? 'OC'}
-                      value={row.numero_oc}
-                      onChange={e => handleOcChange(row.loja_id, e.target.value)}
-                      onBlur={() => handleCellBlur(row)}
-                    />
-                  </td>
-                  {/* Store name */}
-                  <td className="border px-1 py-0.5 font-medium text-gray-700 whitespace-nowrap">
-                    {editingLojaId === row.loja_id ? (
-                      <input
-                        autoFocus
-                        className="w-full px-1 py-0.5 text-sm text-slate-800 bg-white border border-emerald-400 focus:outline-none focus:ring-1 focus:ring-emerald-400 rounded"
-                        value={editingLojaNome}
-                        onChange={e => setEditingLojaNome(e.target.value)}
-                        onBlur={() => handleSaveLojaNome(row.loja_id)}
-                        onKeyDown={e => {
-                          if (e.key === 'Enter') handleSaveLojaNome(row.loja_id)
-                          if (e.key === 'Escape') setEditingLojaId(null)
-                        }}
-                      />
-                    ) : (
-                      <span
-                        className="block px-1 py-0.5 cursor-pointer hover:bg-gray-100 rounded"
-                        title="Clique duplo para editar"
-                        onDoubleClick={() => { setEditingLojaId(row.loja_id); setEditingLojaNome(row.loja_nome) }}
-                      >
-                        {row.loja_nome}
-                      </span>
-                    )}
-                  </td>
-                  {/* Quantity cells */}
-                  {visibleProdutos.map(p => {
-                    const isActive = rowProdIds[row.loja_id]?.has(p.id)
-                    const qty = row.quantidades[p.id]
-                    return (
-                      <td key={p.id} className="border px-1 py-0.5">
-                        {isActive ? (
-                          <input
-                            className="w-full px-1 py-0.5 text-sm text-center text-slate-800 bg-white focus:outline-none focus:ring-1 focus:ring-emerald-400 rounded"
-                            type="number"
-                            step={p.unidade === 'KG' ? '0.1' : '1'}
-                            min="0"
-                            value={qty ?? ''}
-                            onChange={e => handleQuantidadeChange(row.loja_id, p.id, e.target.value)}
-                            onBlur={() => handleCellBlur(row)}
-                            onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
-                          />
-                        ) : editMode ? (
-                          <button
-                            className="w-full h-6 flex items-center justify-center text-gray-200 hover:text-blue-400 hover:bg-blue-50 rounded"
-                            title="Adicionar para esta loja"
-                            onClick={e => { e.stopPropagation(); handleToggleRowProd(row.loja_id, p.id) }}
-                          >
-                            <Plus size={10} />
-                          </button>
-                        ) : null}
-                      </td>
-                    )
-                  })}
-                  {/* Actions */}
-                  <td className="border px-1 py-0.5">
-                    <div className="flex items-center gap-1">
-                      {editMode && (
-                        <>
-                          <button
-                            onClick={e => {
-                              e.stopPropagation()
-                              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-                              const pickerW = 288
-                              const pickerH = 400
-                              const rawLeft = rect.left - 150
-                              const left = Math.min(window.innerWidth - pickerW - 4, Math.max(4, rawLeft))
-                              const top = rect.bottom + 4 + pickerH > window.innerHeight
-                                ? Math.max(4, rect.top - pickerH - 4)
-                                : rect.bottom + 4
-                              setRowProdMenuPos({ top, left })
-                              const lojaId = row.loja_id
-                              setShowRowProdMenu(showRowProdMenu === lojaId ? null : lojaId)
-                              setRowProdSearch('')
-                              setShowGlobalProdMenu(false)
-                              setShowAddMenu(false)
-                              const draft: Record<number, string> = {}
-                              for (const p of produtos) {
-                                const pr = precos.find(x => x.produto_id === p.id && x.loja_id === lojaId && x.vigencia_fim === null)
-                                if (pr) draft[p.id] = String(pr.preco_venda)
-                              }
-                              setRowInlinePriceDraft(draft)
-                            }}
-                            title="Gerenciar produtos desta loja"
-                            className={`flex items-center gap-0.5 px-1 py-0.5 text-xs rounded ${
-                              (rowProdIds[row.loja_id]?.size ?? 0) === 0
-                                ? 'bg-blue-100 text-blue-600 hover:bg-blue-200'
-                                : 'text-gray-400 hover:text-blue-500 hover:bg-blue-50'
-                            }`}
-                          >
-                            <Plus size={12} />
-                            {(rowProdIds[row.loja_id]?.size ?? 0) === 0 && <span>Produtos</span>}
-                          </button>
-                          <button onClick={() => handleMoveUp(row.loja_id)} title="Mover para cima" className="p-0.5 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded">
-                            <ChevronUp size={14} />
-                          </button>
-                          <button onClick={() => handleMoveDown(row.loja_id)} title="Mover para baixo" className="p-0.5 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded">
-                            <ChevronDown size={14} />
-                          </button>
-                        </>
-                      )}
-                      <button
-                        onClick={() => handlePrint(row)}
-                        disabled={!row.pedido_id}
-                        title="Imprimir"
-                        className="flex items-center gap-1 px-2 py-1 text-xs bg-gray-700 text-white rounded hover:bg-gray-900 disabled:opacity-40 disabled:cursor-not-allowed"
-                      >
-                        <Printer size={12} />
-                        Imprimir
-                      </button>
-                      <button
-                        onClick={() => handleShare(row)}
-                        disabled={!row.pedido_id || shareLoading}
-                        title="Compartilhar nota como imagem"
-                        className="flex items-center gap-1 px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed"
-                      >
-                        <Share2 size={12} />
-                        {shareLoading ? 'Gerando...' : 'Enviar'}
-                      </button>
-                      {editMode && (
-                        <button onClick={() => handleDeleteRow(row.loja_id)} title="Remover da lista" className="p-0.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded">
-                          <X size={14} />
-                        </button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {rows.length === 0 && (
-                <tr>
-                  <td colSpan={visibleProdutos.length + 3} className="text-center text-gray-400 py-8">
-                    Nenhuma loja cadastrada para esta rede.
-                  </td>
-                </tr>
-              )}
-              {rows.length > 0 && visibleProdutos.length === 0 && (
-                <tr>
-                  <td colSpan={3} className="text-center text-gray-400 py-6 text-sm">
-                    Clique em <strong>+</strong> em AÇÕES para adicionar produtos a cada loja.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+        <LancamentosTable
+          rows={rows}
+          visibleProdutos={visibleProdutos}
+          totals={totals}
+          rowProdIds={rowProdIds}
+          editMode={editMode}
+          autoFilledOcIds={autoFilledOcIds}
+          ocPlaceholders={ocPlaceholders}
+          editingLojaId={editingLojaId}
+          editingLojaNome={editingLojaNome}
+          shareLoading={shareLoading}
+          onQuantidadeChange={handleQuantidadeChange}
+          onOcChange={handleOcChange}
+          onCellBlur={handleCellBlur}
+          onMoveUp={handleMoveUp}
+          onMoveDown={handleMoveDown}
+          onDeleteRow={handleDeleteRow}
+          onRemoveColumn={handleRemoveColumn}
+          onToggleRowProd={handleToggleRowProd}
+          onSaveLojaNome={handleSaveLojaNome}
+          onPrint={handlePrint}
+          onShare={handleShare}
+          onOpenRowProdMenu={(e, lojaId) => {
+            e.stopPropagation()
+            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+            const pickerW = 288; const pickerH = 400
+            const rawLeft = rect.left - 150
+            const left = Math.min(window.innerWidth - pickerW - 4, Math.max(4, rawLeft))
+            const top = rect.bottom + 4 + pickerH > window.innerHeight
+              ? Math.max(4, rect.top - pickerH - 4) : rect.bottom + 4
+            setRowProdMenuPos({ top, left })
+            setShowRowProdMenu(showRowProdMenu === lojaId ? null : lojaId)
+            setRowProdSearch('')
+            setShowGlobalProdMenu(false)
+            setShowAddMenu(false)
+            const draft: Record<number, string> = {}
+            for (const p of produtos) {
+              const pr = precos.find(x => x.produto_id === p.id && x.loja_id === lojaId && x.vigencia_fim === null)
+              if (pr) draft[p.id] = String(pr.preco_venda)
+            }
+            setRowInlinePriceDraft(draft)
+          }}
+          onEditLoja={(lojaId, nome) => { setEditingLojaId(lojaId); setEditingLojaNome(nome) }}
+          onEditLojaNameChange={setEditingLojaNome}
+          onEditLojaKeyDown={(e, lojaId) => {
+            if (e.key === 'Enter') handleSaveLojaNome(lojaId)
+            if (e.key === 'Escape') setEditingLojaId(null)
+          }}
+          onApplyAll={(prodId, qty) => {
+            setRows(prev => prev.map(row => {
+              if (!rowProdIds[row.loja_id]?.has(prodId)) return row
+              return { ...row, quantidades: { ...row.quantidades, [prodId]: qty } }
+            }))
+          }}
+        />
       ))}
 
       <ShareModal
