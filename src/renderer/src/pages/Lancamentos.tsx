@@ -6,6 +6,7 @@ import type { Rede, Produto, LancamentoRow, Preco } from '../../../shared/types'
 import { IPC } from '../../../shared/ipc-channels'
 import { useLancamentos } from '../hooks/useLancamentos'
 import { useRowProdutos } from '../hooks/useRowProdutos'
+import { useOcNumbers } from '../hooks/useOcNumbers'
 import { EstoqueTab } from './EstoqueTab'
 
 function today() {
@@ -36,11 +37,7 @@ export function Lancamentos() {
     handleToggleGlobalProd,
   } = useRowProdutos({ activeRedeId, rows, produtos })
 
-  // Last OC base for placeholder computation
-  const [lastOcBase, setLastOcBase] = useState<{ prefix: string; num: number; pad: number } | null>(null)
-
-  // Track which loja_ids have auto-filled (not manually typed) OC values
-  const [autoFilledOcIds, setAutoFilledOcIds] = useState<Set<number>>(new Set())
+  const { ocPlaceholders, autoFilledOcIds, handleOcChange, resetAutoFill } = useOcNumbers({ activeRedeId, rows, setRows })
 
   // Share preview modal
   const [sharePreview, setSharePreview] = useState<{ image: string; pedidoId: number } | null>(null)
@@ -95,17 +92,6 @@ export function Lancamentos() {
     }
   }, [rows])
 
-  // Fetch last OC for this rede to compute placeholders
-  useEffect(() => {
-    if (!activeRedeId) return
-    window.electron.invoke<string | null>(IPC.PEDIDOS_LAST_OC, activeRedeId).then(lastOc => {
-      if (!lastOc) { setLastOcBase(null); return }
-      const match = lastOc.match(/^(.*?)(\d+)$/)
-      if (!match) { setLastOcBase(null); return }
-      setLastOcBase({ prefix: match[1], num: parseInt(match[2], 10), pad: match[2].length })
-    })
-  }, [activeRedeId])
-
   // Reset on rede/date change
   useEffect(() => {
     isFirstLoad.current = true
@@ -113,6 +99,7 @@ export function Lancamentos() {
     setShowAddMenu(false)
     setShowGlobalProdMenu(false)
     resetRowProdIds()
+    resetAutoFill()
   }, [activeRedeId, dataPedido])
 
   const handleQuantidadeChange = useCallback((lojaId: number, produtoId: number, value: string) => {
@@ -122,27 +109,6 @@ export function Lancamentos() {
         ? { ...row, quantidades: { ...row.quantidades, [produtoId]: qty } }
         : row
     ))
-  }, [setRows])
-
-  const handleOcChange = useCallback((lojaId: number, value: string) => {
-    setAutoFilledOcIds(prev => { const s = new Set(prev); s.delete(lojaId); return s })
-    setRows(prev => {
-      const idx = prev.findIndex(r => r.loja_id === lojaId)
-      if (idx === -1) return prev
-      const updated = [...prev]
-      updated[idx] = { ...updated[idx], numero_oc: value }
-      const match = value.match(/^(.*?)(\d+)$/)
-      if (match) {
-        const prefix = match[1]
-        const numStr = match[2]
-        const baseNum = parseInt(numStr, 10)
-        const pad = numStr.length
-        for (let i = idx + 1; i < updated.length; i++) {
-          updated[i] = { ...updated[i], numero_oc: prefix + String(baseNum + (i - idx)).padStart(pad, '0') }
-        }
-      }
-      return updated
-    })
   }, [setRows])
 
   const handleCellBlur = useCallback(async (row: LancamentoRow) => {
@@ -235,42 +201,6 @@ export function Lancamentos() {
   }
 
   const hiddenRows = allRowsRef.current.filter(r => !rows.find(v => v.loja_id === r.loja_id))
-
-  // Compute next OC placeholder for each empty-OC row
-  const ocPlaceholders = (() => {
-    let baseNum = lastOcBase?.num ?? 0
-    let basePrefix = lastOcBase?.prefix ?? ''
-    let basePad = lastOcBase?.pad ?? 5
-    for (const row of rows) {
-      if (!row.numero_oc) continue
-      const m = row.numero_oc.match(/^(.*?)(\d+)$/)
-      if (m) {
-        const n = parseInt(m[2], 10)
-        if (n >= baseNum) { baseNum = n; basePrefix = m[1]; basePad = m[2].length }
-      }
-    }
-    if (baseNum === 0) return {} as Record<number, string>
-    const result: Record<number, string> = {}
-    let counter = 1
-    for (const row of rows) {
-      if (!row.numero_oc) { result[row.loja_id] = basePrefix + String(baseNum + counter).padStart(basePad, '0'); counter++ }
-    }
-    return result
-  })()
-
-  // Auto-fill OC for rows that have no value but have a computed placeholder
-  useEffect(() => {
-    if (!activeRedeId || Object.keys(ocPlaceholders).length === 0) return
-    const newAutoIds = new Set<number>()
-    setRows(prev => prev.map(row => {
-      if (row.numero_oc) return row
-      const placeholder = ocPlaceholders[row.loja_id]
-      if (!placeholder) return row
-      newAutoIds.add(row.loja_id)
-      return { ...row, numero_oc: placeholder }
-    }))
-    setAutoFilledOcIds(prev => new Set([...prev, ...newAutoIds]))
-  }, [JSON.stringify(ocPlaceholders)])
 
   const closeAll = () => { setShowAddMenu(false); setShowGlobalProdMenu(false); setShowRowProdMenu(null) }
 
