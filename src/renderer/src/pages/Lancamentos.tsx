@@ -42,7 +42,7 @@ export function Lancamentos() {
     handleToggleGlobalProd,
   } = useRowProdutos({ activeRedeId, rows, produtos })
 
-  const { ocPlaceholders, autoFilledOcIds, handleOcChange, resetAutoFill } = useOcNumbers({ activeRedeId, rows, setRows })
+  const { ocPlaceholders, handleOcChange } = useOcNumbers({ activeRedeId, rows, setRows })
 
   // Share preview modal
   const [sharePreview, setSharePreview] = useState<{ image: string; pedidoId: number } | null>(null)
@@ -104,7 +104,6 @@ export function Lancamentos() {
     setShowAddMenu(false)
     setShowGlobalProdMenu(false)
     resetRowProdIds()
-    resetAutoFill()
   }, [activeRedeId, dataPedido])
 
   // Carrega layout salvo para esta rede
@@ -116,12 +115,16 @@ export function Lancamentos() {
 
   const handleQuantidadeChange = useCallback((lojaId: number, produtoId: number, value: string) => {
     const qty = value === '' ? null : Number(value)
-    setRows(prev => prev.map(row =>
-      row.loja_id === lojaId
-        ? { ...row, quantidades: { ...row.quantidades, [produtoId]: qty } }
-        : row
-    ))
-  }, [setRows])
+    setRows(prev => prev.map(row => {
+      if (row.loja_id !== lojaId) return row
+      const updatedRow = { ...row, quantidades: { ...row.quantidades, [produtoId]: qty } }
+      // Auto-fill OC from placeholder when user enters first quantity
+      if (value !== '' && !row.numero_oc && ocPlaceholders[lojaId]) {
+        updatedRow.numero_oc = ocPlaceholders[lojaId]
+      }
+      return updatedRow
+    }))
+  }, [setRows, ocPlaceholders])
 
   // Enrich row with all active products so they appear in print even without a quantity
   const enrichRow = useCallback((row: LancamentoRow) => {
@@ -134,10 +137,26 @@ export function Lancamentos() {
   }, [rowProdIds])
 
   const handleCellBlur = useCallback(async (row: LancamentoRow) => {
-    if (!activeRedeId || !row.numero_oc) return
-    await saveRow(enrichRow(row), activeRedeId, dataPedido)
+    if (!activeRedeId) return
+
+    // Check if all quantities are empty/null
+    const enriched = enrichRow(row)
+    const hasAnyQty = Object.values(enriched.quantidades).some(q => q != null && q > 0)
+
+    if (!hasAnyQty && row.pedido_id) {
+      // All quantities cleared — cancel this store's order
+      await window.electron.invoke(IPC.PEDIDOS_DELETE, row.pedido_id)
+      // Clear OC so placeholder reappears
+      setRows(prev => prev.map(r =>
+        r.loja_id === row.loja_id ? { ...r, numero_oc: '', pedido_id: null } : r
+      ))
+      return
+    }
+
+    if (!row.numero_oc) return
+    await saveRow(enriched, activeRedeId, dataPedido)
     await load(true)
-  }, [activeRedeId, dataPedido, saveRow, load, enrichRow])
+  }, [activeRedeId, dataPedido, saveRow, load, enrichRow, setRows])
 
   const handleMoveUp = useCallback((lojaId: number) => {
     setRows(prev => {
@@ -343,7 +362,6 @@ export function Lancamentos() {
           visibleProdutos,
           rowProdIds,
           editMode,
-          autoFilledOcIds,
           ocPlaceholders,
           editingLojaId,
           editingLojaNome,

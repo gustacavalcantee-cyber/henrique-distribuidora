@@ -10,7 +10,6 @@ interface UseOcNumbersArgs {
 
 export function useOcNumbers({ activeRedeId, rows, setRows }: UseOcNumbersArgs) {
   const [lastOcBase, setLastOcBase] = useState<{ prefix: string; num: number; pad: number } | null>(null)
-  const [autoFilledOcIds, setAutoFilledOcIds] = useState<Set<number>>(new Set())
 
   // Busca o ultimo OC desta rede para montar o placeholder
   useEffect(() => {
@@ -48,23 +47,8 @@ export function useOcNumbers({ activeRedeId, rows, setRows }: UseOcNumbersArgs) 
     return result
   })()
 
-  // Auto-preenche OC nas linhas vazias quando ha placeholders disponiveis
-  useEffect(() => {
-    if (!activeRedeId || Object.keys(ocPlaceholders).length === 0) return
-    const newAutoIds = new Set<number>()
-    setRows(prev => prev.map(row => {
-      if (row.numero_oc) return row
-      const placeholder = ocPlaceholders[row.loja_id]
-      if (!placeholder) return row
-      newAutoIds.add(row.loja_id)
-      return { ...row, numero_oc: placeholder }
-    }))
-    setAutoFilledOcIds(prev => new Set([...prev, ...newAutoIds]))
-  }, [JSON.stringify(ocPlaceholders)])
-
   // Atualiza OC de uma linha e propaga sequencia para as seguintes
   const handleOcChange = useCallback((lojaId: number, value: string) => {
-    setAutoFilledOcIds(prev => { const s = new Set(prev); s.delete(lojaId); return s })
     setRows(prev => {
       const idx = prev.findIndex(r => r.loja_id === lojaId)
       if (idx === -1) return prev
@@ -84,9 +68,5 @@ export function useOcNumbers({ activeRedeId, rows, setRows }: UseOcNumbersArgs) 
     })
   }, [setRows])
 
-  const resetAutoFill = useCallback(() => {
-    setAutoFilledOcIds(new Set())
-  }, [])
-
-  return { ocPlaceholders, autoFilledOcIds, handleOcChange, resetAutoFill }
+  return { ocPlaceholders, handleOcChange }
 }
