@@ -5,13 +5,18 @@ import { autoUpdater } from 'electron-updater'
 import { runMigrations } from './db/migrate'
 import { seedIfEmpty } from './db/seed'
 import { registerAllHandlers } from './handlers'
+import { setDownloadedUpdatePath } from './handlers/atualizacao'
 import { IPC } from '../shared/ipc-channels'
 
 let mainWindow: BrowserWindow | null = null
 
+let downloadedUpdatePath: string | null = null
+
 function setupAutoUpdater(): void {
   autoUpdater.autoDownload = true
-  autoUpdater.autoInstallOnAppQuit = true
+  // No macOS, não usamos quitAndInstall (Squirrel.Mac requer Apple Developer ID)
+  // O DMG baixado é aberto no Finder para instalação manual
+  autoUpdater.autoInstallOnAppQuit = process.platform !== 'darwin'
 
   if (is.dev) return
 
@@ -24,6 +29,9 @@ function setupAutoUpdater(): void {
   })
 
   autoUpdater.on('update-downloaded', (info) => {
+    const filePath = (info as unknown as { downloadedFile?: string }).downloadedFile ?? null
+    downloadedUpdatePath = filePath
+    setDownloadedUpdatePath(filePath)
     mainWindow?.webContents.send(IPC.UPDATE_DOWNLOADED, { version: info.version })
   })
 
