@@ -30,6 +30,7 @@ nsis:
   createDesktopShortcut: always
 mac:
   identity: null
+  artifactName: ${name}-${version}-${arch}-mac.${ext}
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
     - NSCameraUsageDescription: Application requests access to the device's camera.
@@ -41,8 +42,6 @@ mac:
       arch: [arm64]
     - target: zip
       arch: [arm64]
-zip:
-  artifactName: ${name}-${version}-${arch}-mac.${ext}
 dmg:
   artifactName: ${name}-${version}-${arch}.${ext}
   contents:
