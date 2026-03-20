@@ -13,7 +13,6 @@ function setupAutoUpdater(): void {
   autoUpdater.autoDownload = true
   autoUpdater.autoInstallOnAppQuit = true
 
-  // In dev, don't check for updates
   if (is.dev) return
 
   autoUpdater.on('update-available', (info) => {
@@ -32,7 +31,7 @@ function setupAutoUpdater(): void {
     mainWindow?.webContents.send(IPC.UPDATE_ERROR, { message: err.message })
   })
 
-  // Check on startup, then every 4 hours
+  // Verifica ao abrir e a cada 4 horas
   autoUpdater.checkForUpdates().catch(() => {})
   setInterval(() => autoUpdater.checkForUpdates().catch(() => {}), 4 * 60 * 60 * 1000)
 }

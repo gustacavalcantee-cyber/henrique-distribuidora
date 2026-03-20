@@ -1,7 +1,7 @@
 /**
  * afterAllArtifactBuild.js
- * Runs after electron-builder finishes all artifacts.
- * Copies DMG and EXE to the Google Drive releases/ folder automatically.
+ * Copia DMG/EXE para Google Drive releases/ e gera update-info.json (backup secundário).
+ * GitHub Releases continua como fonte principal de atualização.
  */
 
 const fs = require('fs')
@@ -15,9 +15,9 @@ function findGoogleDriveReleasesPath() {
     for (const entry of fs.readdirSync(cloudStorage)) {
       if (!entry.startsWith('GoogleDrive-')) continue
       for (const driveName of ['Meu Drive', 'My Drive']) {
-        const releasesPath = path.join(cloudStorage, entry, driveName, 'Programa', 'releases')
         const programaPath = path.join(cloudStorage, entry, driveName, 'Programa')
         if (fs.existsSync(programaPath)) {
+          const releasesPath = path.join(programaPath, 'releases')
           fs.mkdirSync(releasesPath, { recursive: true })
           return releasesPath
         }
@@ -39,17 +39,15 @@ function findGoogleDriveReleasesPath() {
       return null
     }
 
-    // Registro
     try {
       const r = execSync('reg query "HKCU\\Software\\Google\\DriveFS" /v DefaultMountPoint', { encoding: 'utf8', stdio: ['pipe','pipe','pipe'] })
       const m = r.match(/DefaultMountPoint\s+REG_SZ\s+(.+)/)
-      if (m) { const found = tryBase(m[1].trim()); if (found) return found }
+      if (m) { const f = tryBase(m[1].trim()); if (f) return f }
     } catch {}
 
-    // Letras A-Z
     for (const l of 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')) {
-      const found = tryBase(`${l}:\\`)
-      if (found) return found
+      const f = tryBase(`${l}:\\`)
+      if (f) return f
     }
   }
   return null
@@ -63,24 +61,50 @@ exports.default = async function(buildResult) {
     return
   }
 
+  const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf-8'))
+  const version = pkg.version
   const extensions = ['.dmg', '.exe', '.yml', '.blockmap']
+
   let copied = 0
+  let macFile = ''
+  let winFile = ''
 
   for (const artifactPath of buildResult.artifactPaths) {
     const ext = path.extname(artifactPath).toLowerCase()
+    const basename = path.basename(artifactPath)
     if (!extensions.includes(ext)) continue
 
-    const dest = path.join(releasesPath, path.basename(artifactPath))
+    const dest = path.join(releasesPath, basename)
     try {
       fs.copyFileSync(artifactPath, dest)
-      console.log(`[afterBuild] Copiado para Google Drive: ${path.basename(artifactPath)}`)
+      console.log(`[afterBuild] ✅ ${basename}`)
       copied++
+      if (ext === '.dmg') macFile = basename
+      if (ext === '.exe' && basename.includes('setup')) winFile = basename
     } catch (e) {
-      console.warn(`[afterBuild] Erro ao copiar ${path.basename(artifactPath)}: ${e.message}`)
+      console.warn(`[afterBuild] Erro ao copiar ${basename}: ${e.message}`)
     }
   }
 
-  if (copied > 0) {
-    console.log(`[afterBuild] ✅ ${copied} arquivo(s) salvo(s) em: ${releasesPath}`)
+  // Preserva win_file de versão anterior se não temos um novo (build foi só no Mac)
+  const infoPath = path.join(releasesPath, 'update-info.json')
+  if (!winFile && fs.existsSync(infoPath)) {
+    try {
+      const prev = JSON.parse(fs.readFileSync(infoPath, 'utf-8'))
+      if (prev.win_file) winFile = prev.win_file
+    } catch {}
   }
+
+  // Gera update-info.json no Drive (backup/referência)
+  const updateInfo = {
+    version,
+    notes: '',
+    mac_file: macFile,
+    win_file: winFile,
+    updated_at: new Date().toISOString(),
+  }
+  fs.writeFileSync(infoPath, JSON.stringify(updateInfo, null, 2))
+
+  console.log(`[afterBuild] 📦 ${copied} arquivo(s) + update-info.json → v${version}`)
+  console.log(`[afterBuild] 📁 ${releasesPath}`)
 }
