@@ -872,7 +872,6 @@ td.subtotal-val { font-weight:bold; font-size:10.5pt; text-align:right; backgrou
 
 function PorProdutoTab() {
   const { data: redes } = useIpc<Rede[]>(IPC.REDES_LIST)
-  const { data: todosProdutos } = useIpc<{ id: number; nome: string; unidade: string; rede_id: number | null }[]>(IPC.PRODUTOS_LIST)
   const now = new Date()
   const [redeId, setRedeId] = useState<number | ''>('')
   const [mes, setMes] = useState(now.getMonth() + 1)
@@ -882,11 +881,18 @@ function PorProdutoTab() {
   const [agruparPor, setAgruparPor] = useState<'loja' | 'franqueado'>('loja')
   const [resultado, setResultado] = useState<ProdutoRelatorioResult[] | null>(null)
   const [loading, setLoading] = useState(false)
+  const [produtosDaRede, setProdutosDaRede] = useState<{ id: number; nome: string; unidade: string }[]>([])
 
-  const produtosDaRede = (todosProdutos ?? []).filter(p => p.rede_id === redeId || redeId === '')
   const todosChecked = produtosDaRede.length > 0 && produtosSelecionados.length === produtosDaRede.length
 
-  useEffect(() => { setProdutosSelecionados([]); setResultado(null) }, [redeId])
+  useEffect(() => {
+    setProdutosSelecionados([])
+    setResultado(null)
+    if (redeId === '') { setProdutosDaRede([]); return }
+    window.electron.invoke<{ id: number; nome: string; unidade: string }[]>(
+      IPC.PRODUTOS_COM_PEDIDOS_NA_REDE, Number(redeId)
+    ).then(setProdutosDaRede).catch(() => setProdutosDaRede([]))
+  }, [redeId])
 
   function toggleProduto(id: number) {
     setProdutosSelecionados(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])

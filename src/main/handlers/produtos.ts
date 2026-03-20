@@ -1,7 +1,7 @@
 import { ipcMain } from 'electron'
-import { eq, or, isNull, and } from 'drizzle-orm'
+import { eq, or, isNull, and, inArray } from 'drizzle-orm'
 import { getDb } from '../db/client'
-import { produtos } from '../db/schema'
+import { produtos, pedidos, itensPedido } from '../db/schema'
 import { IPC } from '../../shared/ipc-channels'
 
 export function registerProdutosHandlers() {
@@ -28,5 +28,27 @@ export function registerProdutosHandlers() {
 
   ipcMain.handle(IPC.PRODUTOS_DELETE, (_event, id: number) => {
     return getDb().delete(produtos).where(eq(produtos.id, id)).returning().all()[0]
+  })
+
+  // Returns distinct products that have appeared in actual orders for a given rede
+  ipcMain.handle(IPC.PRODUTOS_COM_PEDIDOS_NA_REDE, (_event, rede_id: number) => {
+    const db = getDb()
+    // Get distinct produto_ids from itens_pedido joined with pedidos filtered by rede_id
+    const rows = db
+      .select({ produto_id: itensPedido.produto_id })
+      .from(itensPedido)
+      .innerJoin(pedidos, eq(itensPedido.pedido_id, pedidos.id))
+      .where(eq(pedidos.rede_id, rede_id))
+      .all()
+
+    const ids = [...new Set(rows.map((r) => r.produto_id).filter((id): id is number => id !== null))]
+    if (ids.length === 0) return []
+
+    return db
+      .select()
+      .from(produtos)
+      .where(and(eq(produtos.ativo, 1), inArray(produtos.id, ids)))
+      .orderBy(produtos.ordem_exibicao)
+      .all()
   })
 }
