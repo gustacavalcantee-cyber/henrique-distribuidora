@@ -51,7 +51,6 @@ linux:
 appImage:
   artifactName: ${name}-${version}.${ext}
 afterPack: build/afterPack.js
-npmRebuild: false
 publish:
   provider: generic
   url: https://example.com/auto-updates
