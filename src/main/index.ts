@@ -10,8 +10,6 @@ import { IPC } from '../shared/ipc-channels'
 
 let mainWindow: BrowserWindow | null = null
 
-let downloadedUpdatePath: string | null = null
-
 function setupAutoUpdater(): void {
   autoUpdater.autoDownload = true
   // No macOS, não usamos quitAndInstall (Squirrel.Mac requer Apple Developer ID)
@@ -30,7 +28,6 @@ function setupAutoUpdater(): void {
 
   autoUpdater.on('update-downloaded', (info) => {
     const filePath = (info as unknown as { downloadedFile?: string }).downloadedFile ?? null
-    downloadedUpdatePath = filePath
     setDownloadedUpdatePath(filePath)
     mainWindow?.webContents.send(IPC.UPDATE_DOWNLOADED, { version: info.version })
   })
