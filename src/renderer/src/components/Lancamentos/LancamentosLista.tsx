@@ -6,7 +6,6 @@ interface LancamentosListaProps {
   visibleProdutos: Produto[]
   rowProdIds: Record<number, Set<number>>
   editMode: boolean
-  autoFilledOcIds: Set<number>
   ocPlaceholders: Record<number, string>
   editingLojaId: number | null
   editingLojaNome: string
@@ -27,7 +26,7 @@ interface LancamentosListaProps {
 
 export function LancamentosLista({
   rows, visibleProdutos, rowProdIds, editMode,
-  autoFilledOcIds, ocPlaceholders, editingLojaId, editingLojaNome, shareLoading,
+  ocPlaceholders, editingLojaId, editingLojaNome, shareLoading,
   onQuantidadeChange, onOcChange, onCellBlur, onDeleteRow, onToggleRowProd,
   onSaveLojaNome, onPrint, onShare, onOpenRowProdMenu,
   onEditLoja, onEditLojaNameChange, onEditLojaKeyDown,
@@ -49,7 +48,7 @@ export function LancamentosLista({
           <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-t-lg border-b flex-wrap">
             {/* OC */}
             <input
-              className={`w-24 px-2 py-1 text-sm border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-emerald-400 bg-white ${autoFilledOcIds.has(row.loja_id) ? 'text-gray-400' : 'text-slate-800'}`}
+              className="w-24 px-2 py-1 text-sm text-slate-800 border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-emerald-400 bg-white"
               placeholder={ocPlaceholders[row.loja_id] ?? 'OC'}
               value={row.numero_oc}
               onChange={e => onOcChange(row.loja_id, e.target.value)}

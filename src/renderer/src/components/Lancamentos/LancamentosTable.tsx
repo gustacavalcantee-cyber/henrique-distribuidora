@@ -7,7 +7,6 @@ interface LancamentosTableProps {
   totals: Record<number, number>
   rowProdIds: Record<number, Set<number>>
   editMode: boolean
-  autoFilledOcIds: Set<number>
   ocPlaceholders: Record<number, string>
   editingLojaId: number | null
   editingLojaNome: string
@@ -32,7 +31,7 @@ interface LancamentosTableProps {
 
 export function LancamentosTable({
   rows, visibleProdutos, totals, rowProdIds, editMode,
-  autoFilledOcIds, ocPlaceholders, editingLojaId, editingLojaNome,
+  ocPlaceholders, editingLojaId, editingLojaNome,
   shareLoading,
   onQuantidadeChange, onOcChange, onCellBlur, onMoveUp, onMoveDown,
   onDeleteRow, onRemoveColumn, onToggleRowProd, onSaveLojaNome,
@@ -111,7 +110,7 @@ export function LancamentosTable({
               {/* Campo OC */}
               <td className="border px-1 py-0.5">
                 <input
-                  className={`w-full px-1 py-0.5 text-sm bg-white focus:outline-none focus:ring-1 focus:ring-emerald-400 rounded ${autoFilledOcIds.has(row.loja_id) ? 'text-gray-400' : 'text-slate-800'}`}
+                  className="w-full px-1 py-0.5 text-sm text-slate-800 bg-white focus:outline-none focus:ring-1 focus:ring-emerald-400 rounded"
                   placeholder={ocPlaceholders[row.loja_id] ?? 'OC'}
                   value={row.numero_oc}
                   onChange={e => onOcChange(row.loja_id, e.target.value)}
@@ -142,13 +141,14 @@ export function LancamentosTable({
               </td>
 
               {/* Células de quantidade */}
-              {visibleProdutos.map(p => {
+              {visibleProdutos.map((p, prodIndex) => {
                 const isActive = rowProdIds[row.loja_id]?.has(p.id)
                 const qty = row.quantidades[p.id]
                 return (
                   <td key={p.id} className="border px-1 py-0.5">
                     {isActive ? (
                       <input
+                        data-cell-id={`${row.loja_id}-${prodIndex}`}
                         className="w-full px-1 py-0.5 text-sm text-center text-slate-800 bg-white focus:outline-none focus:ring-1 focus:ring-emerald-400 rounded"
                         type="number"
                         step={p.unidade === 'KG' ? '0.1' : '1'}
@@ -156,7 +156,28 @@ export function LancamentosTable({
                         value={qty ?? ''}
                         onChange={e => onQuantidadeChange(row.loja_id, p.id, e.target.value)}
                         onBlur={() => onCellBlur(row)}
-                        onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') { (e.target as HTMLInputElement).blur(); return }
+                          if (e.key === 'Tab') {
+                            e.preventDefault()
+                            const forward = !e.shiftKey
+                            const totalProd = visibleProdutos.length
+                            const rowIndex = rows.findIndex(r => r.loja_id === row.loja_id)
+                            let pi = prodIndex
+                            let ri = rowIndex
+                            // Loop until we find an existing input element (skip inactive cells)
+                            for (let attempts = 0; attempts < rows.length * totalProd; attempts++) {
+                              if (forward) { pi++; if (pi >= totalProd) { pi = 0; ri++ } }
+                              else { pi--; if (pi < 0) { pi = totalProd - 1; ri-- } }
+                              if (ri < 0 || ri >= rows.length) break
+                              const nextLojaId = rows[ri].loja_id
+                              const next = document.querySelector<HTMLInputElement>(
+                                `[data-cell-id="${nextLojaId}-${pi}"]`
+                              )
+                              if (next) { next.focus(); break }
+                            }
+                          }
+                        }}
                       />
                     ) : editMode ? (
                       <button
