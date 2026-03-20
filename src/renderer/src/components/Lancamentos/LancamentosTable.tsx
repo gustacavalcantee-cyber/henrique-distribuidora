@@ -40,7 +40,7 @@ export function LancamentosTable({
   onEditLojaKeyDown, onApplyAll,
 }: LancamentosTableProps) {
   return (
-    <div style={{ overflowX: 'auto', width: '100%' }}>
+    <div style={{ overflowX: 'auto', width: '100%', minWidth: 0 }}>
       <table className="text-sm border-collapse" style={{ minWidth: 'max-content' }}>
         <thead>
           {/* Linha de totais */}

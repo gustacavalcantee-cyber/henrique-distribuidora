@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm'
+import { eq, inArray } from 'drizzle-orm'
 import { getDb } from '../db/client'
 import { pedidos, itensPedido, produtos, lojas, redes, configuracoes } from '../db/schema'
 
@@ -27,34 +27,92 @@ export function getPrintData(pedidoId: number): PrintData {
 
   const loja = db.select().from(lojas).where(eq(lojas.id, pedido.loja_id!)).all()[0]
   const rede = db.select().from(redes).where(eq(redes.id, pedido.rede_id!)).all()[0]
-  const itens = db.select().from(itensPedido).where(eq(itensPedido.pedido_id, pedidoId)).all()
-
-  // Get all products for this rede (to show all products, even those with no quantity)
-  const todosProdutos = db.select().from(produtos)
-    .where(eq(produtos.rede_id, pedido.rede_id!))
-    .orderBy(produtos.ordem_exibicao)
-    .all()
 
   const configNome = db.select().from(configuracoes).where(eq(configuracoes.chave, 'nome_fornecedor')).all()[0]
   const configTel = db.select().from(configuracoes).where(eq(configuracoes.chave, 'telefone')).all()[0]
 
-  const linhas = todosProdutos.map(p => {
-    const item = itens.find(i => i.produto_id === p.id)
-    const quantidade = item?.quantidade ?? null
-    const precoUnit = item?.preco_unit ?? 0
-    const total = quantidade != null ? quantidade * precoUnit : null
-    return { nome: p.nome, unidade: p.unidade, quantidade, precoUnit, total }
-  })
+  // Rede-specific products — the print template for this rede
+  let redeProds = db
+    .select({ id: produtos.id, nome: produtos.nome, unidade: produtos.unidade })
+    .from(produtos)
+    .where(eq(produtos.rede_id, pedido.rede_id!))
+    .orderBy(produtos.nome)
+    .all()
+
+  // If rede has no registered products, build template from all products ever ordered in this rede
+  if (redeProds.length === 0) {
+    const allRedeOrderIds = db.select({ id: pedidos.id }).from(pedidos)
+      .where(eq(pedidos.rede_id, pedido.rede_id!)).all().map(p => p.id)
+    if (allRedeOrderIds.length > 0) {
+      const allRedeItems = db.select({ produto_id: itensPedido.produto_id }).from(itensPedido)
+        .where(inArray(itensPedido.pedido_id, allRedeOrderIds)).all()
+      const uniqueProdIds = [...new Set(allRedeItems.map(i => i.produto_id).filter(Boolean) as number[])]
+      if (uniqueProdIds.length > 0) {
+        redeProds = db.select({ id: produtos.id, nome: produtos.nome, unidade: produtos.unidade })
+          .from(produtos).where(inArray(produtos.id, uniqueProdIds)).orderBy(produtos.nome).all()
+      }
+    }
+  }
+
+  // Ordered items joined with product info (captures any product regardless of rede_id)
+  const orderedWithInfo = db
+    .select({
+      produto_id: itensPedido.produto_id,
+      quantidade: itensPedido.quantidade,
+      preco_unit: itensPedido.preco_unit,
+      nome: produtos.nome,
+      unidade: produtos.unidade,
+    })
+    .from(itensPedido)
+    .innerJoin(produtos, eq(itensPedido.produto_id, produtos.id))
+    .where(eq(itensPedido.pedido_id, pedidoId))
+    .all()
+
+  // Index ordered items by product ID and by uppercase name (fallback for global/rede mismatch)
+  const itensById = new Map(orderedWithInfo.map(i => [i.produto_id, i]))
+  const itensByName = new Map(orderedWithInfo.map(i => [i.nome.toUpperCase(), i]))
+
+  // Build lines: rede template first, matching ordered items by ID then by name
+  const coveredNames = new Set<string>()
+  const linhas: PrintData['linhas'] = []
+
+  for (const prod of redeProds) {
+    const nameKey = prod.nome.toUpperCase()
+    const item = itensById.get(prod.id) ?? itensByName.get(nameKey)
+    coveredNames.add(nameKey)
+    linhas.push({
+      nome: nameKey,
+      unidade: prod.unidade,
+      quantidade: item?.quantidade ?? null,
+      precoUnit: item?.preco_unit ?? 0,
+      total: item != null ? item.quantidade * item.preco_unit : null,
+    })
+  }
+
+  // Add any ordered products not covered by the rede template
+  for (const item of orderedWithInfo) {
+    if (!coveredNames.has(item.nome.toUpperCase())) {
+      linhas.push({
+        nome: item.nome.toUpperCase(),
+        unidade: item.unidade,
+        quantidade: item.quantidade,
+        precoUnit: item.preco_unit,
+        total: item.quantidade * item.preco_unit,
+      })
+    }
+  }
+
+    linhas.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
 
   const totalGeral = linhas.reduce((sum, l) => sum + (l.total ?? 0), 0)
   const [y, m, d] = pedido.data_pedido.split('-')
   const dataFormatada = `${d}/${m}/${y}`
 
   return {
-    nomeFornecedor: configNome?.valor ?? 'HENRIQUE',
+    nomeFornecedor: (configNome?.valor ?? 'HENRIQUE').toUpperCase(),
     telefone: configTel?.valor ?? '',
-    redeNome: rede?.nome ?? '',
-    lojaNome: loja?.nome ?? '',
+    redeNome: rede?.nome?.toUpperCase() ?? '',
+    lojaNome: loja?.nome?.toUpperCase() ?? '',
     numerOc: pedido.numero_oc,
     data: dataFormatada,
     linhas,
@@ -62,95 +120,205 @@ export function getPrintData(pedidoId: number): PrintData {
   }
 }
 
-function formatMoney(value: number): string {
+function fmt(value: number): string {
   return value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
-function formatQty(value: number | null, unidade: string): string {
-  if (value === null) return '-'
-  return unidade === 'KG' ? value.toFixed(1) : String(value)
+function fmtQty(value: number | null, unidade: string): string {
+  if (value === null || value === 0) return '-'
+  if (unidade === 'KG') return value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  return String(value)
 }
 
-export function generatePrintHtml(data: PrintData): string {
-  // Build product rows — pad to at least 12 rows
-  const MIN_ROWS = 12
-  const extraRows = Math.max(0, MIN_ROWS - data.linhas.length)
-
-  const tableRows = data.linhas.map(l => `
+export function generateShareHtml(data: PrintData): string {
+  // Identical styles to generatePrintHtml — single via at A5 portrait size (148mm × 190mm)
+  const dataRows = data.linhas.map(l => `
     <tr>
-      <td class="td-produto">${l.nome}</td>
-      <td class="td-qty">${formatQty(l.quantidade, l.unidade)}</td>
-      <td class="td-un">${l.unidade}</td>
-      <td class="td-preco">${l.precoUnit > 0 ? formatMoney(l.precoUnit) : '-'}</td>
-      <td class="td-total">${l.total != null ? formatMoney(l.total) : '-'}</td>
-    </tr>
-  `).join('')
+      <td class="c-prod">${l.nome}</td>
+      <td class="c-qty">${fmtQty(l.quantidade, l.unidade)}</td>
+      <td class="c-un">${l.unidade}</td>
+      <td class="c-val">${l.precoUnit > 0 ? fmt(l.precoUnit) : '-'}</td>
+      <td class="c-tot">${l.total != null ? fmt(l.total) : '-'}</td>
+    </tr>`).join('\n')
 
-  const emptyRows = Array(extraRows).fill(`
+  return `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: Arial, sans-serif;
+  font-size: 10pt;
+  background: #fff;
+  width: 148mm;
+  height: 190mm;
+}
+
+.via {
+  width: 148mm;
+  height: 190mm;
+  display: flex;
+  flex-direction: column;
+  font-size: 9.5pt;
+  padding: 6mm 7mm;
+  box-sizing: border-box;
+}
+
+.h1 {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 0.5mm;
+}
+.h-nome { font-size: 18pt; font-weight: bold; }
+.oc-box {
+  border: 1.5px solid #000;
+  padding: 1mm 4mm;
+  font-size: 11pt;
+  font-weight: bold;
+  text-align: center;
+  min-width: 30mm;
+}
+.h2 { font-size: 9pt; margin-bottom: 1.5mm; padding-left: 1mm; }
+.h3 {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2mm;
+  padding-bottom: 1.5mm;
+  border-bottom: 1px solid #000;
+}
+.h-rede-loja { font-size: 11pt; font-weight: bold; padding-left: 1mm; }
+.date-box {
+  border: 1px solid #000;
+  padding: 1mm 3mm;
+  font-size: 11pt;
+  font-weight: bold;
+  min-width: 24mm;
+  text-align: center;
+}
+
+.table-outer {
+  flex: 1;
+  border: 1px solid #000;
+  overflow: hidden;
+  min-height: 0;
+}
+table { width: 100%; border-collapse: collapse; }
+th, td { border: none; padding: 0.8mm 1.5mm; font-size: 9.5pt; }
+thead tr { border-bottom: 1px solid #000; }
+th { background: #fff; }
+th.c-prod { text-align: left; font-weight: bold; }
+th.c-qty, th.c-un, th.c-val, th.c-tot { text-align: center; font-weight: normal; }
+.c-prod { width: 42%; text-align: left; }
+.c-qty  { width: 14%; text-align: right; }
+.c-un   { width: 10%; text-align: center; }
+.c-val  { width: 16%; text-align: right; }
+.c-tot  { width: 18%; text-align: right; }
+
+.foot-total { display: flex; justify-content: flex-end; margin-top: 1.5mm; }
+.ft-label, .ft-val { border: 2px solid #000; padding: 1mm 3mm; font-size: 12pt; font-weight: bold; }
+.ft-val { min-width: 26mm; text-align: right; border-left: none; }
+.foot-bottom {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  margin-top: auto;
+  padding-top: 4mm;
+  gap: 6mm;
+}
+.ft-data { font-size: 9pt; white-space: nowrap; }
+.sig-line { flex: 1; padding-top: 20mm; border-bottom: 1px solid #000; }
+</style>
+</head>
+<body>
+<div class="via">
+  <div class="h1">
+    <span class="h-nome">${data.nomeFornecedor}</span>
+    <div class="oc-box">${data.numerOc}</div>
+  </div>
+  <div class="h2">FONE: ${data.telefone}</div>
+  <div class="h3">
+    <span class="h-rede-loja">${data.redeNome}&nbsp;&nbsp;&nbsp;${data.lojaNome}</span>
+    <div class="date-box">${data.data}</div>
+  </div>
+  <div class="table-outer">
+    <table>
+      <thead>
+        <tr>
+          <th class="c-prod">PRODUTO</th>
+          <th class="c-qty">Quantidade</th>
+          <th class="c-un">Unidade</th>
+          <th class="c-val">Valor</th>
+          <th class="c-tot">TOTAL</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${dataRows}
+      </tbody>
+    </table>
+  </div>
+  <div class="foot-total">
+    <span class="ft-label">TOTAL</span>
+    <span class="ft-val">${fmt(data.totalGeral)}</span>
+  </div>
+  <div class="foot-bottom">
+    <span class="ft-data">DATA&nbsp;&nbsp;_______ / _______ / _______</span>
+    <div class="sig-line"></div>
+  </div>
+</div>
+</body>
+</html>`
+}
+
+export function generatePrintHtml(data: PrintData, preview = false): string {
+  const dataRows = data.linhas.map(l => `
     <tr>
-      <td class="td-produto">&nbsp;</td>
-      <td class="td-qty">&nbsp;</td>
-      <td class="td-un">&nbsp;</td>
-      <td class="td-preco">&nbsp;</td>
-      <td class="td-total">&nbsp;</td>
-    </tr>
-  `).join('')
+      <td class="c-prod">${l.nome}</td>
+      <td class="c-qty">${fmtQty(l.quantidade, l.unidade)}</td>
+      <td class="c-un">${l.unidade}</td>
+      <td class="c-val">${l.precoUnit > 0 ? fmt(l.precoUnit) : '-'}</td>
+      <td class="c-tot">${l.total != null ? fmt(l.total) : '-'}</td>
+    </tr>`).join('\n')
 
-  // One via (half of the page)
   function via(): string {
-    return `
-      <div class="via">
-        <div class="header">
-          <div class="header-main">
-            <div class="header-nome">${data.nomeFornecedor}</div>
-            <div class="header-tel">Fone: ${data.telefone}</div>
-          </div>
-          <div class="header-info">
-            <div class="info-box">
-              <span class="info-label">REDE</span>
-              <span class="info-value">${data.redeNome}</span>
-            </div>
-            <div class="info-box">
-              <span class="info-label">LOJA</span>
-              <span class="info-value">${data.lojaNome}</span>
-            </div>
-            <div class="info-box">
-              <span class="info-label">OC</span>
-              <span class="info-value">${data.numerOc}</span>
-            </div>
-            <div class="info-box">
-              <span class="info-label">DATA</span>
-              <span class="info-value">${data.data}</span>
-            </div>
-          </div>
-        </div>
-        <table class="table-produtos">
-          <thead>
-            <tr>
-              <th class="td-produto">PRODUTO</th>
-              <th class="td-qty">Qtd</th>
-              <th class="td-un">Un</th>
-              <th class="td-preco">Valor</th>
-              <th class="td-total">TOTAL</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${tableRows}
-            ${emptyRows}
-          </tbody>
-        </table>
-        <div class="footer">
-          <div class="footer-total">
-            <span class="footer-label">TOTAL</span>
-            <span class="footer-value">R$ ${formatMoney(data.totalGeral)}</span>
-          </div>
-          <div class="footer-assinatura">
-            <div class="assinatura-linha"></div>
-            <div class="assinatura-texto">Assinatura / Carimbo</div>
-          </div>
-        </div>
-      </div>
-    `
+    return `<div class="via">
+  <div class="h1">
+    <span class="h-nome">${data.nomeFornecedor}</span>
+    <div class="oc-box">${data.numerOc}</div>
+  </div>
+  <div class="h2">FONE: ${data.telefone}</div>
+  <div class="h3">
+    <span class="h-rede-loja">${data.redeNome}&nbsp;&nbsp;&nbsp;${data.lojaNome}</span>
+    <div class="date-box">${data.data}</div>
+  </div>
+  <div class="table-outer">
+    <table>
+      <thead>
+        <tr>
+          <th class="c-prod">PRODUTO</th>
+          <th class="c-qty">Quantidade</th>
+          <th class="c-un">Unidade</th>
+          <th class="c-val">Valor</th>
+          <th class="c-tot">TOTAL</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${dataRows}
+      </tbody>
+    </table>
+  </div>
+  <div class="foot-total">
+    <span class="ft-label">TOTAL</span>
+    <span class="ft-val">${fmt(data.totalGeral)}</span>
+  </div>
+  <div class="foot-bottom">
+    <span class="ft-data">DATA&nbsp;&nbsp;_______ / _______ / _______</span>
+    <div class="sig-line"></div>
+  </div>
+</div>`
   }
 
   return `<!DOCTYPE html>
@@ -158,81 +326,214 @@ export function generatePrintHtml(data: PrintData): string {
 <head>
 <meta charset="UTF-8">
 <style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: Arial, sans-serif; font-size: 10px; }
+* { margin: 0; padding: 0; box-sizing: border-box; }
 
-  @page { size: A4 landscape; margin: 8mm; }
+body {
+  font-family: Arial, sans-serif;
+  font-size: 10pt;
+  background: ${preview ? '#e5e7eb' : '#fff'};
+}
 
-  .page { display: flex; gap: 4mm; width: 100%; }
+/* Preview toolbar */
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  background: #1e293b;
+}
+.btn-print {
+  padding: 6px 18px;
+  background: #16a34a;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: bold;
+  cursor: pointer;
+}
+.btn-print:hover { background: #15803d; }
+.btn-close {
+  padding: 6px 14px;
+  background: #475569;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.btn-close:hover { background: #334155; }
 
-  .via {
-    flex: 1;
-    border: 1px solid #000;
-    display: flex;
-    flex-direction: column;
-    padding: 3mm;
-  }
+/* Page wrapper */
+.page-wrap {
+  padding: ${preview ? '12px' : '0'};
+}
 
-  .header { margin-bottom: 3mm; }
-  .header-main { text-align: center; margin-bottom: 2mm; }
-  .header-nome { font-size: 16px; font-weight: bold; }
-  .header-tel { font-size: 10px; }
+/* Two A5 copies side by side on A4 landscape */
+.page {
+  display: flex;
+  flex-direction: row;
+  gap: 0;
+  background: #fff;
+  width: ${preview ? '277mm' : '100%'};
+  height: ${preview ? '190mm' : '100%'};
+  ${preview ? 'margin: 0 auto;' : ''}
+}
 
-  .header-info { display: flex; gap: 2mm; flex-wrap: wrap; }
-  .info-box {
-    border: 1px solid #000;
-    padding: 1mm 2mm;
-    flex: 1;
-    min-width: 40mm;
-  }
-  .info-label { font-size: 8px; color: #666; display: block; }
-  .info-value { font-size: 11px; font-weight: bold; }
+/* Each copy — A5 size (148mm × 210mm), content padded inside */
+.via {
+  width: 50%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  font-size: 9.5pt;
+  padding: 6mm 7mm;
+  box-sizing: border-box;
+}
 
-  .table-produtos {
-    width: 100%;
-    border-collapse: collapse;
-    flex: 1;
-    margin-bottom: 3mm;
-  }
-  .table-produtos th, .table-produtos td {
-    border: 1px solid #000;
-    padding: 1mm 1.5mm;
-    text-align: left;
-  }
-  .table-produtos th { background: #f0f0f0; font-weight: bold; text-align: center; }
-  .td-produto { width: 45%; }
-  .td-qty { width: 12%; text-align: center; }
-  .td-un { width: 8%; text-align: center; }
-  .td-preco { width: 15%; text-align: right; }
-  .td-total { width: 20%; text-align: right; }
+/* Header rows */
+.h1 {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 0.5mm;
+}
+.h-nome {
+  font-size: 18pt;
+  font-weight: bold;
+}
+.oc-box {
+  border: 1.5px solid #000;
+  padding: 1mm 4mm;
+  font-size: 11pt;
+  font-weight: bold;
+  text-align: center;
+  min-width: 30mm;
+}
+.h2 {
+  font-size: 9pt;
+  margin-bottom: 1.5mm;
+  padding-left: 1mm;
+}
+.h3 {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2mm;
+  padding-bottom: 1.5mm;
+  border-bottom: 1px solid #000;
+}
+.h-rede-loja {
+  font-size: 11pt;
+  font-weight: bold;
+  padding-left: 1mm;
+}
+.date-box {
+  border: 1px solid #000;
+  padding: 1mm 3mm;
+  font-size: 11pt;
+  font-weight: bold;
+  min-width: 24mm;
+  text-align: center;
+}
 
-  .footer { display: flex; justify-content: space-between; align-items: flex-end; gap: 4mm; }
-  .footer-total {
-    border: 2px solid #000;
-    padding: 2mm 4mm;
-    display: flex;
-    align-items: center;
-    gap: 3mm;
-  }
-  .footer-label { font-size: 12px; font-weight: bold; }
-  .footer-value { font-size: 14px; font-weight: bold; }
+/* Table outer border box */
+.table-outer {
+  flex: 1;
+  border: 1px solid #000;
+  overflow: hidden;
+  min-height: 0;
+}
 
-  .footer-assinatura { flex: 1; }
-  .assinatura-linha { border-bottom: 1px solid #000; margin-bottom: 1mm; }
-  .assinatura-texto { font-size: 8px; color: #666; text-align: center; }
+/* Table */
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+th, td {
+  border: none;
+  padding: 0.8mm 1.5mm;
+  font-size: 9.5pt;
+}
+/* Only a separator under the header row */
+thead tr { border-bottom: 1px solid #000; }
 
-  .divider {
-    width: 1px;
-    background: #ccc;
-    border-left: 1px dashed #999;
-  }
+th { background: #fff; }
+th.c-prod { text-align: left; font-weight: bold; }
+th.c-qty, th.c-un, th.c-val, th.c-tot { text-align: center; font-weight: normal; }
+
+.c-prod { width: 42%; text-align: left; }
+.c-qty  { width: 14%; text-align: right; }
+.c-un   { width: 10%; text-align: center; }
+.c-val  { width: 16%; text-align: right; }
+.c-tot  { width: 18%; text-align: right; }
+
+/* Footer total */
+.foot-total {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 1.5mm;
+}
+.ft-label, .ft-val {
+  border: 2px solid #000;
+  padding: 1mm 3mm;
+  font-size: 12pt;
+  font-weight: bold;
+}
+.ft-val {
+  min-width: 26mm;
+  text-align: right;
+  border-left: none;
+}
+
+/* Footer data/signature — pushed to bottom by margin-top: auto */
+.foot-bottom {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  margin-top: auto;
+  padding-top: 4mm;
+  gap: 6mm;
+}
+.ft-data {
+  font-size: 9pt;
+  white-space: nowrap;
+}
+.sig-line {
+  flex: 1;
+  padding-top: 20mm;
+  border-bottom: 1px solid #000;
+}
+
+/* Divider between copies */
+.div-line {
+  border-left: 1px dashed #999;
+  align-self: stretch;
+}
+
+/* Print styles */
+@media print {
+  @page { size: A4 landscape; margin: 0; }
+  body { background: #fff; }
+  .toolbar { display: none; }
+  .page-wrap { padding: 0; }
+  .page { width: 297mm; height: 210mm; flex-direction: row; }
+  .via { width: 50%; height: 210mm; padding: 8mm 9mm; }
+}
 </style>
 </head>
+<script>document.addEventListener('keydown', function(e){ if(e.key==='Escape') window.close(); });</script>
 <body>
-<div class="page">
-  ${via()}
-  <div class="divider"></div>
-  ${via()}
+${preview ? `<div class="toolbar">
+  <button class="btn-print" onclick="window.print()">🖨️ Imprimir</button>
+  <button class="btn-close" onclick="window.close()">✕ Fechar</button>
+</div>` : ''}
+<div class="page-wrap">
+  <div class="page">
+    ${via()}
+    <div class="div-line"></div>
+    ${via()}
+  </div>
 </div>
 </body>
 </html>`

@@ -1,4 +1,4 @@
-import { Component, type ReactNode } from 'react'
+import { Component, useState, type ReactNode } from 'react'
 import { Routes, Route } from 'react-router-dom'
 import { Layout } from './components/Layout'
 import { Dashboard } from './pages/Dashboard'
@@ -7,6 +7,8 @@ import { Historico } from './pages/Historico'
 import { Relatorios } from './pages/Relatorios'
 import { Despesas } from './pages/Despesas'
 import { Cadastros } from './pages/Cadastros'
+import { Atualizacao } from './pages/Atualizacao'
+import { SplashScreen } from './components/SplashScreen'
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: string | null }> {
   state = { error: null }
@@ -27,6 +29,8 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: string |
 }
 
 export default function App() {
+  const [showSplash, setShowSplash] = useState(true)
+
   if (!window.electron) {
     return (
       <div className="flex items-center justify-center h-screen bg-gray-100">
@@ -37,6 +41,7 @@ export default function App() {
 
   return (
     <ErrorBoundary>
+      {showSplash && <SplashScreen onDone={() => setShowSplash(false)} />}
       <Routes>
         <Route path="/" element={<Layout />}>
           <Route index element={<ErrorBoundary><Dashboard /></ErrorBoundary>} />
@@ -45,6 +50,7 @@ export default function App() {
           <Route path="relatorios" element={<ErrorBoundary><Relatorios /></ErrorBoundary>} />
           <Route path="despesas" element={<ErrorBoundary><Despesas /></ErrorBoundary>} />
           <Route path="cadastros" element={<ErrorBoundary><Cadastros /></ErrorBoundary>} />
+          <Route path="atualizacao" element={<ErrorBoundary><Atualizacao /></ErrorBoundary>} />
         </Route>
       </Routes>
     </ErrorBoundary>

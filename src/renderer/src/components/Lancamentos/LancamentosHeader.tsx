@@ -1,5 +1,7 @@
-import { Plus, Pencil, Check } from 'lucide-react'
+import { Plus, Pencil, Check, Table2, List, LayoutGrid } from 'lucide-react'
 import type { Produto, LancamentoRow } from '../../../../shared/types'
+
+export type LayoutMode = 'tabela' | 'lista' | 'cards'
 
 interface LancamentosHeaderProps {
   dataPedido: string
@@ -11,6 +13,7 @@ interface LancamentosHeaderProps {
   rows: LancamentoRow[]
   produtos: Produto[]
   rowProdIds: Record<number, Set<number>>
+  layoutMode: LayoutMode
   onDateChange: (v: string) => void
   onToggleEditMode: () => void
   onToggleAddMenu: () => void
@@ -18,13 +21,14 @@ interface LancamentosHeaderProps {
   onToggleGlobalProdMenu: () => void
   onGlobalProdSearch: (v: string) => void
   onToggleGlobalProd: (prodId: number) => void
+  onLayoutChange: (mode: LayoutMode) => void
 }
 
 export function LancamentosHeader({
   dataPedido, editMode, hiddenRows, showAddMenu, showGlobalProdMenu,
-  globalProdSearch, rows, produtos, rowProdIds,
+  globalProdSearch, rows, produtos, rowProdIds, layoutMode,
   onDateChange, onToggleEditMode, onToggleAddMenu, onRestoreRow,
-  onToggleGlobalProdMenu, onGlobalProdSearch, onToggleGlobalProd,
+  onToggleGlobalProdMenu, onGlobalProdSearch, onToggleGlobalProd, onLayoutChange,
 }: LancamentosHeaderProps) {
   return (
     <div className="flex items-center gap-4">
@@ -81,6 +85,28 @@ export function LancamentosHeader({
       >
         {editMode ? <><Check size={14} /> Concluído</> : <><Pencil size={14} /> Editar</>}
       </button>
+
+      {/* Seletor de layout — ao lado do Editar */}
+      <div className="flex items-center gap-0.5 border border-gray-200 rounded p-0.5 bg-gray-50">
+        {([
+          { mode: 'tabela', Icon: Table2, title: 'Tabela' },
+          { mode: 'lista',  Icon: List,   title: 'Lista'  },
+          { mode: 'cards',  Icon: LayoutGrid, title: 'Cards' },
+        ] as const).map(({ mode, Icon, title }) => (
+          <button
+            key={mode}
+            title={title}
+            onClick={e => { e.stopPropagation(); onLayoutChange(mode) }}
+            className={`p-1 rounded transition-colors ${
+              layoutMode === mode
+                ? 'bg-white text-emerald-600 shadow-sm'
+                : 'text-gray-400 hover:text-gray-600'
+            }`}
+          >
+            <Icon size={15} />
+          </button>
+        ))}
+      </div>
 
       {/* Botão Produto global */}
       {editMode && (

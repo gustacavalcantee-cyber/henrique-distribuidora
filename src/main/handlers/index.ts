@@ -9,6 +9,9 @@ import { registerPedidosHandlers } from './pedidos'
 import { registerPrintHandlers } from './print'
 import { registerDespesasHandlers } from './despesas'
 import { registerRelatoriosHandlers } from './relatorios'
+import { registerFranqueadosHandlers } from './franqueados'
+import { registerEstoqueHandlers } from './estoque'
+import { registerAtualizacaoHandlers } from './atualizacao'
 
 export function registerAllHandlers() {
   ipcMain.handle('ping', () => 'pong')
@@ -22,4 +25,7 @@ export function registerAllHandlers() {
   registerPrintHandlers()
   registerDespesasHandlers()
   registerRelatoriosHandlers()
+  registerFranqueadosHandlers()
+  registerEstoqueHandlers()
+  registerAtualizacaoHandlers()
 }

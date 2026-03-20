@@ -8,6 +8,13 @@
       "when": 1773796536271,
       "tag": "0000_powerful_star_brand",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1742300000000,
+      "tag": "0001_add_cnpj_to_lojas",
+      "breakpoints": true
     }
   ]
 }

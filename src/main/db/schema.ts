@@ -9,12 +9,19 @@ export const redes = sqliteTable('redes', {
   ativo: integer('ativo').default(1),
 })
 
+export const franqueados = sqliteTable('franqueados', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  nome: text('nome').notNull(),
+})
+
 export const lojas = sqliteTable('lojas', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   rede_id: integer('rede_id').references(() => redes.id),
   nome: text('nome').notNull(),
   codigo: text('codigo'),
+  cnpj: text('cnpj'),
   ativo: integer('ativo').default(1),
+  franqueado_id: integer('franqueado_id').references(() => franqueados.id),
 })
 
 export const produtos = sqliteTable('produtos', {
@@ -36,6 +43,7 @@ export const pedidos = sqliteTable(
     numero_oc: text('numero_oc').notNull(),
     observacoes: text('observacoes'),
     criado_em: text('criado_em').default(sql`(datetime('now'))`),
+    status_pagamento: text('status_pagamento').default('aberto'),
   },
   (t) => ({
     uniquePedido: unique().on(t.rede_id, t.loja_id, t.data_pedido, t.numero_oc),
@@ -92,8 +100,13 @@ export const redesRelations = relations(redes, ({ many }) => ({
 
 export const lojasRelations = relations(lojas, ({ one, many }) => ({
   rede: one(redes, { fields: [lojas.rede_id], references: [redes.id] }),
+  franqueado: one(franqueados, { fields: [lojas.franqueado_id], references: [franqueados.id] }),
   pedidos: many(pedidos),
   precos: many(precos),
+}))
+
+export const franqueadosRelations = relations(franqueados, ({ many }) => ({
+  lojas: many(lojas),
 }))
 
 export const produtosRelations = relations(produtos, ({ one, many }) => ({

@@ -1,4 +1,4 @@
-import { eq, and, gte, lte, like, isNull, type SQL } from 'drizzle-orm'
+import { eq, and, gte, lte, like, isNull, desc, type SQL } from 'drizzle-orm'
 import { getDb } from '../db/client'
 import { pedidos, itensPedido, precos, custos, lojas } from '../db/schema'
 import type { SalvarPedidoInput, LancamentoRow } from '../../shared/types'
@@ -76,19 +76,21 @@ export function checkDuplicate(rede_id: number, loja_id: number, data_pedido: st
 export function salvarPedido(input: SalvarPedidoInput) {
   const db = getDb()
 
-  // Check if a pedido with same OC already exists for this loja/date
+  // Check if any pedido already exists for this rede/loja/date (regardless of OC number)
+  // Always update the most recent one to avoid duplicates
   const existing = db.select({ id: pedidos.id })
     .from(pedidos)
     .where(and(
       eq(pedidos.rede_id, input.rede_id),
       eq(pedidos.loja_id, input.loja_id),
       eq(pedidos.data_pedido, input.data_pedido),
-      eq(pedidos.numero_oc, input.numero_oc),
     ))
+    .orderBy(desc(pedidos.id))
     .all()[0]
 
   if (existing) {
-    // Update: delete existing items and re-insert
+    // Update: update numero_oc, delete existing items and re-insert
+    db.update(pedidos).set({ numero_oc: input.numero_oc, observacoes: input.observacoes }).where(eq(pedidos.id, existing.id)).run()
     db.delete(itensPedido).where(eq(itensPedido.pedido_id, existing.id)).run()
     const resolvedItens = resolveItens(db, input.loja_id, input.itens)
     for (const item of resolvedItens) {
@@ -113,6 +115,19 @@ export function salvarPedido(input: SalvarPedidoInput) {
   }
 }
 
+export function updatePedidoById(id: number, data: { numero_oc: string; itens: SalvarPedidoInput['itens'] }) {
+  const db = getDb()
+  const pedido = db.select({ loja_id: pedidos.loja_id }).from(pedidos).where(eq(pedidos.id, id)).all()[0]
+  if (!pedido) throw new Error(`Pedido ${id} not found`)
+  db.update(pedidos).set({ numero_oc: data.numero_oc }).where(eq(pedidos.id, id)).run()
+  db.delete(itensPedido).where(eq(itensPedido.pedido_id, id)).run()
+  const resolvedItens = resolveItens(db, pedido.loja_id!, data.itens)
+  for (const item of resolvedItens) {
+    db.insert(itensPedido).values({ pedido_id: id, ...item }).run()
+  }
+  return id
+}
+
 export function deletePedido(id: number) {
   // CASCADE handles itens_pedido deletion
   getDb().delete(pedidos).where(eq(pedidos.id, id)).run()
@@ -128,13 +143,15 @@ export function getLancamentosParaData(rede_id: number, data_pedido: string): La
   return todasLojas.map(loja => {
     const pedido = db.select().from(pedidos)
       .where(and(eq(pedidos.loja_id, loja.id), eq(pedidos.data_pedido, data_pedido), eq(pedidos.rede_id, rede_id)))
+      .orderBy(desc(pedidos.id))
       .all()[0]
 
     const quantidades: Record<number, number | null> = {}
     if (pedido) {
       const itens = db.select().from(itensPedido).where(eq(itensPedido.pedido_id, pedido.id)).all()
       for (const item of itens) {
-        if (item.produto_id !== null) quantidades[item.produto_id] = item.quantidade
+        // quantidade === 0 means "active in row but no qty entered" — treat as null in the UI
+        if (item.produto_id !== null) quantidades[item.produto_id] = item.quantidade === 0 ? null : item.quantidade
       }
     }
 

@@ -8,7 +8,9 @@ import { useOcNumbers } from '../hooks/useOcNumbers'
 import { ShareModal } from '../components/Lancamentos/ShareModal'
 import { ProdutoRowMenu } from '../components/Lancamentos/ProdutoRowMenu'
 import { LancamentosTable } from '../components/Lancamentos/LancamentosTable'
-import { LancamentosHeader } from '../components/Lancamentos/LancamentosHeader'
+import { LancamentosLista } from '../components/Lancamentos/LancamentosLista'
+import { LancamentosCards } from '../components/Lancamentos/LancamentosCards'
+import { LancamentosHeader, type LayoutMode } from '../components/Lancamentos/LancamentosHeader'
 import { EstoqueTab } from './EstoqueTab'
 
 function today() {
@@ -22,6 +24,7 @@ export function Lancamentos() {
   const [produtos, setProdutos] = useState<Produto[]>([])
   const [editingLojaId, setEditingLojaId] = useState<number | null>(null)
   const [editingLojaNome, setEditingLojaNome] = useState('')
+  const [layoutMode, setLayoutMode] = useState<LayoutMode>('tabela')
   const { rows, setRows, loading, load, saveRow } = useLancamentos(activeRedeId, dataPedido)
   const allRowsRef = useRef<LancamentoRow[]>([])
   const [showAddMenu, setShowAddMenu] = useState(false)
@@ -104,6 +107,13 @@ export function Lancamentos() {
     resetAutoFill()
   }, [activeRedeId, dataPedido])
 
+  // Carrega layout salvo para esta rede
+  useEffect(() => {
+    if (!activeRedeId) return
+    const saved = localStorage.getItem(`lancamentos_layout_${activeRedeId}`) as LayoutMode | null
+    setLayoutMode(saved ?? 'tabela')
+  }, [activeRedeId])
+
   const handleQuantidadeChange = useCallback((lojaId: number, produtoId: number, value: string) => {
     const qty = value === '' ? null : Number(value)
     setRows(prev => prev.map(row =>
@@ -113,11 +123,21 @@ export function Lancamentos() {
     ))
   }, [setRows])
 
+  // Enrich row with all active products so they appear in print even without a quantity
+  const enrichRow = useCallback((row: LancamentoRow) => {
+    const activeIds = rowProdIds[row.loja_id] ?? new Set<number>()
+    const quantidades = { ...row.quantidades }
+    for (const id of activeIds) {
+      if (!(id in quantidades)) quantidades[id] = null
+    }
+    return { ...row, quantidades }
+  }, [rowProdIds])
+
   const handleCellBlur = useCallback(async (row: LancamentoRow) => {
     if (!activeRedeId || !row.numero_oc) return
-    await saveRow(row, activeRedeId, dataPedido)
+    await saveRow(enrichRow(row), activeRedeId, dataPedido)
     await load(true)
-  }, [activeRedeId, dataPedido, saveRow, load])
+  }, [activeRedeId, dataPedido, saveRow, load, enrichRow])
 
   const handleMoveUp = useCallback((lojaId: number) => {
     setRows(prev => {
@@ -164,19 +184,19 @@ export function Lancamentos() {
 
   const handlePrint = useCallback(async (row: LancamentoRow) => {
     if (!activeRedeId || !row.numero_oc) return
-    await saveRow(row, activeRedeId, dataPedido)
+    await saveRow(enrichRow(row), activeRedeId, dataPedido)
     const updated = await window.electron.invoke<import('../../../shared/types').LancamentoRow[]>(IPC.PEDIDOS_BY_DATE_REDE, activeRedeId, dataPedido)
     const freshRow = updated.find(r => r.loja_id === row.loja_id)
     if (!freshRow?.pedido_id) return
     await window.electron.invoke(IPC.PRINT_PEDIDO, freshRow.pedido_id)
-  }, [activeRedeId, dataPedido, saveRow])
+  }, [activeRedeId, dataPedido, saveRow, enrichRow])
 
   const handleShare = useCallback(async (row: LancamentoRow) => {
     if (!activeRedeId || !row.numero_oc) return
     setShareLoading(true)
     setSharePreview(null)
     try {
-      await saveRow(row, activeRedeId, dataPedido)
+      await saveRow(enrichRow(row), activeRedeId, dataPedido)
       const updated = await window.electron.invoke<import('../../../shared/types').LancamentoRow[]>(IPC.PEDIDOS_BY_DATE_REDE, activeRedeId, dataPedido)
       const freshRow = updated.find(r => r.loja_id === row.loja_id)
       if (!freshRow?.pedido_id) return
@@ -186,7 +206,7 @@ export function Lancamentos() {
     } finally {
       setShareLoading(false)
     }
-  }, [activeRedeId, dataPedido, saveRow])
+  }, [activeRedeId, dataPedido, saveRow, enrichRow])
 
   // Columns = union of all products selected across all rows
   const allSelectedProdIds = new Set(Object.values(rowProdIds).flatMap(s => [...s]))
@@ -219,6 +239,7 @@ export function Lancamentos() {
         rows={rows}
         produtos={produtos}
         rowProdIds={rowProdIds}
+        layoutMode={layoutMode}
         onDateChange={setDataPedido}
         onToggleEditMode={() => setEditMode(v => !v)}
         onToggleAddMenu={() => { setShowAddMenu(v => !v); setShowGlobalProdMenu(false) }}
@@ -226,6 +247,10 @@ export function Lancamentos() {
         onToggleGlobalProdMenu={() => { setShowGlobalProdMenu(v => !v); setShowAddMenu(false); setGlobalProdSearch('') }}
         onGlobalProdSearch={setGlobalProdSearch}
         onToggleGlobalProd={handleToggleGlobalProd}
+        onLayoutChange={mode => {
+          setLayoutMode(mode)
+          if (activeRedeId) localStorage.setItem(`lancamentos_layout_${activeRedeId}`, mode)
+        }}
       />
 
       {/* Rede tabs */}
@@ -264,7 +289,6 @@ export function Lancamentos() {
           lojaNome={rows.find(r => r.loja_id === showRowProdMenu)?.loja_nome ?? ''}
           pos={rowProdMenuPos}
           produtos={produtos}
-          precos={precos}
           rowProdIds={rowProdIds}
           rowProdSearch={rowProdSearch}
           rowInlinePriceDraft={rowInlinePriceDraft}
@@ -289,66 +313,77 @@ export function Lancamentos() {
         <EstoqueTab dataPedido={dataPedido} redes={redes} produtos={produtos} />
       ) : null}
 
-      {/* Grid */}
+      {/* Layout: Tabela / Lista / Cards */}
       {activeRedeId !== -1 && (loading ? (
         <div className="text-gray-500">Carregando...</div>
-      ) : (
-        <LancamentosTable
-          rows={rows}
-          visibleProdutos={visibleProdutos}
-          totals={totals}
-          rowProdIds={rowProdIds}
-          editMode={editMode}
-          autoFilledOcIds={autoFilledOcIds}
-          ocPlaceholders={ocPlaceholders}
-          editingLojaId={editingLojaId}
-          editingLojaNome={editingLojaNome}
-          shareLoading={shareLoading}
-          onQuantidadeChange={handleQuantidadeChange}
-          onOcChange={handleOcChange}
-          onCellBlur={handleCellBlur}
-          onMoveUp={handleMoveUp}
-          onMoveDown={handleMoveDown}
-          onDeleteRow={handleDeleteRow}
-          onRemoveColumn={handleRemoveColumn}
-          onToggleRowProd={handleToggleRowProd}
-          onSaveLojaNome={handleSaveLojaNome}
-          onPrint={handlePrint}
-          onShare={handleShare}
-          onOpenRowProdMenu={(e, lojaId) => {
-            e.stopPropagation()
-            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-            const pickerW = 288; const pickerH = 400
-            const rawLeft = rect.left - 150
-            const left = Math.min(window.innerWidth - pickerW - 4, Math.max(4, rawLeft))
-            const top = rect.bottom + 4 + pickerH > window.innerHeight
-              ? Math.max(4, rect.top - pickerH - 4) : rect.bottom + 4
-            setRowProdMenuPos({ top, left })
-            setShowRowProdMenu(showRowProdMenu === lojaId ? null : lojaId)
-            setRowProdSearch('')
-            setShowGlobalProdMenu(false)
-            setShowAddMenu(false)
-            const draft: Record<number, string> = {}
-            for (const p of produtos) {
-              const pr = precos.find(x => x.produto_id === p.id && x.loja_id === lojaId && x.vigencia_fim === null)
-              if (pr) draft[p.id] = String(pr.preco_venda)
-            }
-            setRowInlinePriceDraft(draft)
-          }}
-          onEditLoja={(lojaId, nome) => { setEditingLojaId(lojaId); setEditingLojaNome(nome) }}
-          onEditLojaNameChange={setEditingLojaNome}
-          onEditLojaKeyDown={(e, lojaId) => {
+      ) : (() => {
+        const openRowProdMenu = (e: React.MouseEvent, lojaId: number) => {
+          e.stopPropagation()
+          const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+          const pickerW = 288; const pickerH = 400
+          const rawLeft = rect.left - 150
+          const left = Math.min(window.innerWidth - pickerW - 4, Math.max(4, rawLeft))
+          const top = rect.bottom + 4 + pickerH > window.innerHeight
+            ? Math.max(4, rect.top - pickerH - 4) : rect.bottom + 4
+          setRowProdMenuPos({ top, left })
+          setShowRowProdMenu(showRowProdMenu === lojaId ? null : lojaId)
+          setRowProdSearch('')
+          setShowGlobalProdMenu(false)
+          setShowAddMenu(false)
+          const draft: Record<number, string> = {}
+          for (const p of produtos) {
+            const pr = precos.find(x => x.produto_id === p.id && x.loja_id === lojaId && x.vigencia_fim === null)
+            if (pr) draft[p.id] = String(pr.preco_venda)
+          }
+          setRowInlinePriceDraft(draft)
+        }
+
+        const sharedProps = {
+          rows,
+          visibleProdutos,
+          rowProdIds,
+          editMode,
+          autoFilledOcIds,
+          ocPlaceholders,
+          editingLojaId,
+          editingLojaNome,
+          shareLoading,
+          onQuantidadeChange: handleQuantidadeChange,
+          onOcChange: handleOcChange,
+          onCellBlur: handleCellBlur,
+          onDeleteRow: handleDeleteRow,
+          onToggleRowProd: handleToggleRowProd,
+          onSaveLojaNome: handleSaveLojaNome,
+          onPrint: handlePrint,
+          onShare: handleShare,
+          onOpenRowProdMenu: openRowProdMenu,
+          onEditLoja: (lojaId: number, nome: string) => { setEditingLojaId(lojaId); setEditingLojaNome(nome) },
+          onEditLojaNameChange: setEditingLojaNome,
+          onEditLojaKeyDown: (e: React.KeyboardEvent, lojaId: number) => {
             if (e.key === 'Enter') handleSaveLojaNome(lojaId)
             if (e.key === 'Escape') setEditingLojaId(null)
-          }}
-          onApplyAll={(prodId, qty) => {
-            setRows(prev => prev.map(row => {
-              if (!rowProdIds[row.loja_id]?.has(prodId)) return row
-              return { ...row, quantidades: { ...row.quantidades, [prodId]: qty } }
-            }))
-          }}
-        />
-      ))}
+          },
+        }
+
+        if (layoutMode === 'lista') return <LancamentosLista {...sharedProps} />
+        if (layoutMode === 'cards') return <LancamentosCards {...sharedProps} />
+
+        return (
+          <LancamentosTable
+            {...sharedProps}
+            totals={totals}
+            onMoveUp={handleMoveUp}
+            onMoveDown={handleMoveDown}
+            onRemoveColumn={handleRemoveColumn}
+            onApplyAll={(prodId, qty) => {
+              setRows(prev => prev.map(row => {
+                if (!rowProdIds[row.loja_id]?.has(prodId)) return row
+                return { ...row, quantidades: { ...row.quantidades, [prodId]: qty } }
+              }))
+            }}
+          />
+        )
+      })())}
 
       <ShareModal
         sharePreview={sharePreview}

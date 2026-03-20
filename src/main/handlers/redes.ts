@@ -17,4 +17,8 @@ export function registerRedesHandlers() {
     const { id, ...updates } = data
     return getDb().update(redes).set(updates).where(eq(redes.id, id)).returning().all()[0]
   })
+
+  ipcMain.handle(IPC.REDES_DELETE, (_event, id: number) => {
+    return getDb().delete(redes).where(eq(redes.id, id)).run()
+  })
 }
