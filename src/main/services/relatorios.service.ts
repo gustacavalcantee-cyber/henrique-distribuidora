@@ -1,7 +1,7 @@
 import { eq, and, gte, lte, inArray } from 'drizzle-orm'
 import { getDb } from '../db/client'
-import { pedidos, itensPedido, produtos, lojas, redes, despesas as despesasTable } from '../db/schema'
-import type { QuinzenaSummary, FinanceiroSummary, CobrancaLojaResult, NotaPagamento } from '../../shared/types'
+import { pedidos, itensPedido, produtos, lojas, redes, despesas as despesasTable, franqueados } from '../db/schema'
+import type { QuinzenaSummary, FinanceiroSummary, CobrancaLojaResult, NotaPagamento, ProdutoRelatorioResult } from '../../shared/types'
 
 export function getRelatorioQuinzena(rede_id: number, loja_id: number, mes: number, ano: number, quinzena: 1 | 2): QuinzenaSummary {
   const db = getDb()
@@ -191,6 +191,105 @@ export function getRelatorioCobranca(
       loja_nome: redeName ? `${redeName} ${lojaName}` : lojaName,
       periodo_str,
       total_venda,
+    }
+  })
+}
+
+export function getRelatorioPorProduto(
+  rede_id: number,
+  produto_ids: number[],
+  mes: number,
+  ano: number,
+  periodo: '1' | '2' | 'mes',
+  agrupar_por: 'loja' | 'franqueado'
+): ProdutoRelatorioResult[] {
+  if (produto_ids.length === 0) return []
+  const db = getDb()
+  const mesStr = String(mes).padStart(2, '0')
+  const lastDay = new Date(ano, mes, 0).getDate()
+
+  let data_inicio: string
+  let data_fim: string
+  if (periodo === '1') {
+    data_inicio = `${ano}-${mesStr}-01`
+    data_fim = `${ano}-${mesStr}-15`
+  } else if (periodo === '2') {
+    data_inicio = `${ano}-${mesStr}-16`
+    data_fim = `${ano}-${mesStr}-${lastDay}`
+  } else {
+    data_inicio = `${ano}-${mesStr}-01`
+    data_fim = `${ano}-${mesStr}-${lastDay}`
+  }
+
+  const pedidosList = db.select().from(pedidos).where(
+    and(
+      eq(pedidos.rede_id, rede_id),
+      gte(pedidos.data_pedido, data_inicio),
+      lte(pedidos.data_pedido, data_fim)
+    )
+  ).all()
+
+  const todosProdutos = db.select().from(produtos).where(inArray(produtos.id, produto_ids)).all()
+
+  if (pedidosList.length === 0) {
+    return produto_ids.map(pid => {
+      const prod = todosProdutos.find(p => p.id === pid)
+      return { produto_id: pid, produto_nome: prod?.nome ?? String(pid), unidade: prod?.unidade ?? '', linhas: [], total_quantidade: 0, total_valor: 0 }
+    })
+  }
+
+  const pedidoIds = pedidosList.map(p => p.id)
+
+  const allItens = pedidoIds.flatMap(pedidoId =>
+    db.select().from(itensPedido)
+      .where(and(eq(itensPedido.pedido_id, pedidoId), inArray(itensPedido.produto_id, produto_ids)))
+      .all()
+  )
+
+  const todasLojas = db.select().from(lojas).all()
+  const todosFranqueados = db.select().from(franqueados).all()
+
+  return produto_ids.map(produto_id => {
+    const produto = todosProdutos.find(p => p.id === produto_id)
+    const itensDoP = allItens.filter(i => i.produto_id === produto_id)
+
+    const groupMap = new Map<string, { quantidade: number; valor: number }>()
+
+    for (const item of itensDoP) {
+      const pedido = pedidosList.find(p => p.id === item.pedido_id)!
+      const loja = todasLojas.find(l => l.id === pedido.loja_id)
+
+      let groupName: string
+      if (agrupar_por === 'franqueado' && loja?.franqueado_id) {
+        const franqueado = todosFranqueados.find(f => f.id === loja.franqueado_id)
+        groupName = franqueado?.nome ?? 'Sem franqueado'
+      } else if (agrupar_por === 'franqueado') {
+        groupName = 'Sem franqueado'
+      } else {
+        groupName = loja?.nome ?? String(pedido.loja_id)
+      }
+
+      const prev = groupMap.get(groupName) ?? { quantidade: 0, valor: 0 }
+      groupMap.set(groupName, {
+        quantidade: prev.quantidade + item.quantidade,
+        valor: prev.valor + item.quantidade * item.preco_unit,
+      })
+    }
+
+    const linhas = Array.from(groupMap.entries())
+      .map(([nome, { quantidade, valor }]) => ({ nome, quantidade, valor }))
+      .sort((a, b) => b.quantidade - a.quantidade)
+
+    const total_quantidade = linhas.reduce((s, l) => s + l.quantidade, 0)
+    const total_valor = linhas.reduce((s, l) => s + l.valor, 0)
+
+    return {
+      produto_id,
+      produto_nome: produto?.nome ?? String(produto_id),
+      unidade: produto?.unidade ?? '',
+      linhas,
+      total_quantidade,
+      total_valor,
     }
   })
 }
