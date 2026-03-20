@@ -9,4 +9,8 @@ const api = {
 }
 
 contextBridge.exposeInMainWorld('electron', api)
+
+// Expose app version for the updater UI
+contextBridge.exposeInMainWorld('__APP_VERSION__', process.env['npm_package_version'] ?? '')
+
 export type ElectronAPI = typeof api
