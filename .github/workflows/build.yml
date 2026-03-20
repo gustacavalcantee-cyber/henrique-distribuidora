@@ -1,24 +1,63 @@
-name: Build Installers
+name: Build and Release
 
 on:
-  workflow_dispatch:
-    inputs:
-      version:
-        description: 'Nova versao (ex: 1.1.0)'
-        required: true
-        default: ''
-      notes:
-        description: 'Notas da versao'
-        required: false
-        default: ''
+  push:
+    branches: [main]
 
 jobs:
+  bump-version:
+    name: Bump patch version
+    runs-on: ubuntu-latest
+    # Skip if this is the version-bump commit itself
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    outputs:
+      new_version: ${{ steps.bump.outputs.new_version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Bump patch version and tag
+        id: bump
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          CURRENT=$(node -e "console.log(require('./package.json').version)")
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+          NEW_PATCH=$((PATCH + 1))
+          NEW_VERSION="$MAJOR.$MINOR.$NEW_PATCH"
+
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf-8'));
+            pkg.version = '$NEW_VERSION';
+            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+
+          git add package.json
+          git commit -m "chore: bump version to $NEW_VERSION [skip ci]"
+          git tag "v$NEW_VERSION"
+          git push origin main --tags
+
+          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+
   build-mac:
-    name: Build Mac (DMG)
+    name: Build Mac (DMG + ZIP)
+    needs: bump-version
     runs-on: macos-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: main
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -29,35 +68,30 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Update version
-        if: ${{ github.event.inputs.version != '' }}
-        run: |
-          node -e "
-            const fs = require('fs');
-            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf-8'));
-            pkg.version = '${{ github.event.inputs.version }}';
-            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
-            console.log('Version updated to', pkg.version);
-          "
-
-      - name: Build Mac DMG
+      - name: Build Mac
         run: npm run build:mac
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload Mac artifact
+      - name: Upload Mac artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: mac-dmg
-          path: dist/*.dmg
-          retention-days: 30
+          name: mac-artifacts
+          path: |
+            dist/*.dmg
+            dist/*.zip
+            dist/*.yml
+          retention-days: 7
 
   build-windows:
     name: Build Windows (EXE)
+    needs: bump-version
     runs-on: windows-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: main
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -68,25 +102,45 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Update version
-        if: ${{ github.event.inputs.version != '' }}
-        run: |
-          node -e "
-            const fs = require('fs');
-            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf-8'));
-            pkg.version = '${{ github.event.inputs.version }}';
-            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
-            console.log('Version updated to', pkg.version);
-          "
-
-      - name: Build Windows EXE
+      - name: Build Windows
         run: npm run build:win
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload Windows artifact
+      - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: windows-setup
-          path: dist/*-setup.exe
-          retention-days: 30
+          name: windows-artifacts
+          path: |
+            dist/*.exe
+            dist/*.yml
+          retention-days: 7
+
+  publish-release:
+    name: Publish GitHub Release
+    needs: [bump-version, build-mac, build-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download Mac artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: mac-artifacts
+          path: dist/
+
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-artifacts
+          path: dist/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.bump-version.outputs.new_version }}
+          name: v${{ needs.bump-version.outputs.new_version }}
+          body: |
+            Atualização automática — ${{ github.event.head_commit.message }}
+          files: dist/*
+          token: ${{ secrets.GITHUB_TOKEN }}
