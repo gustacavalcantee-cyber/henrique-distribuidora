@@ -53,4 +53,5 @@ export const IPC = {
   UPDATE_CHECK: 'update:check',
   UPDATE_INSTALL: 'update:install',
   DB_RELOAD: 'db:reload',
+  RELATORIO_POR_PRODUTO: 'relatorio:porProduto',
 } as const

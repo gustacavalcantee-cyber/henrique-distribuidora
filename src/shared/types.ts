@@ -48,3 +48,18 @@ export interface CobrancaLojaResult {
   periodo_str: string
   total_venda: number
 }
+
+export interface ProdutoRelatorioLinha {
+  nome: string
+  quantidade: number
+  valor: number
+}
+
+export interface ProdutoRelatorioResult {
+  produto_id: number
+  produto_nome: string
+  unidade: string
+  linhas: ProdutoRelatorioLinha[]
+  total_quantidade: number
+  total_valor: number
+}
