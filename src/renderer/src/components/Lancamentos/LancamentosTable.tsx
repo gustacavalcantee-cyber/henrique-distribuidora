@@ -1,3 +1,4 @@
+import { useRef } from 'react'
 import { ChevronUp, ChevronDown, X, Plus, Printer, Share2 } from 'lucide-react'
 import type { Produto, LancamentoRow } from '../../../../shared/types'
 
@@ -38,8 +39,10 @@ export function LancamentosTable({
   onPrint, onShare, onOpenRowProdMenu, onEditLoja, onEditLojaNameChange,
   onEditLojaKeyDown, onApplyAll,
 }: LancamentosTableProps) {
+  const tableRef = useRef<HTMLDivElement>(null)
+
   return (
-    <div style={{ overflowX: 'auto', width: '100%', minWidth: 0 }}>
+    <div ref={tableRef} style={{ overflowX: 'auto', width: '100%', minWidth: 0 }}>
       <table className="text-sm border-collapse" style={{ minWidth: 'max-content' }}>
         <thead>
           {/* Linha de totais */}
@@ -105,7 +108,7 @@ export function LancamentosTable({
           </tr>
         </thead>
         <tbody>
-          {rows.map(row => (
+          {rows.map((row, rowIndex) => (
             <tr key={row.loja_id} className="hover:bg-gray-50">
               {/* Campo OC */}
               <td className="border px-1 py-0.5">
@@ -162,7 +165,6 @@ export function LancamentosTable({
                             e.preventDefault()
                             const forward = !e.shiftKey
                             const totalProd = visibleProdutos.length
-                            const rowIndex = rows.findIndex(r => r.loja_id === row.loja_id)
                             let pi = prodIndex
                             let ri = rowIndex
                             // Loop until we find an existing input element (skip inactive cells)
@@ -171,7 +173,7 @@ export function LancamentosTable({
                               else { pi--; if (pi < 0) { pi = totalProd - 1; ri-- } }
                               if (ri < 0 || ri >= rows.length) break
                               const nextLojaId = rows[ri].loja_id
-                              const next = document.querySelector<HTMLInputElement>(
+                              const next = (tableRef.current ?? document).querySelector<HTMLInputElement>(
                                 `[data-cell-id="${nextLojaId}-${pi}"]`
                               )
                               if (next) { next.focus(); break }
