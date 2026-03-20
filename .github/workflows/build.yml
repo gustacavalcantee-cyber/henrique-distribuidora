@@ -10,7 +10,7 @@ jobs:
     name: Bump patch version
     runs-on: ubuntu-latest
     # Skip if this is the version-bump commit itself
-    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    if: "github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, 'skip-ci')"
     permissions:
       contents: write
     outputs:
@@ -46,7 +46,7 @@ jobs:
           "
 
           git add package.json
-          git commit -m "chore: bump version to $NEW_VERSION [skip ci]"
+          git commit -m "chore: bump version to $NEW_VERSION skip-ci"
           git tag "v$NEW_VERSION"
           git push origin main --tags
 
