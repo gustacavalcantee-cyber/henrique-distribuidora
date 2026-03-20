@@ -52,7 +52,7 @@ export function listPedidos(filters: PedidoFilters = {}) {
 
   return db.select().from(pedidos)
     .where(conditions.length > 0 ? and(...conditions) : undefined)
-    .orderBy(pedidos.data_pedido)
+    .orderBy(desc(pedidos.data_pedido), desc(pedidos.id))
     .all()
 }
 
