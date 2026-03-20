@@ -52,6 +52,10 @@ export const IPC = {
   ESTOQUE_QUANTIDADES_DIA: 'estoque:quantidadesDia',
   UPDATE_CHECK: 'update:check',
   UPDATE_INSTALL: 'update:install',
+  UPDATE_AVAILABLE: 'update:available',
+  UPDATE_PROGRESS: 'update:progress',
+  UPDATE_DOWNLOADED: 'update:downloaded',
+  UPDATE_ERROR: 'update:error',
   DB_RELOAD: 'db:reload',
   RELATORIO_POR_PRODUTO: 'relatorio:porProduto',
 } as const
