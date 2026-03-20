@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { format } from 'date-fns'
 import { ShoppingCart, TrendingUp, Wallet, Percent } from 'lucide-react'
-import type { Pedido, FinanceiroSummary } from '../../../shared/types'
+import type { Pedido, FinanceiroSummary, Loja } from '../../../shared/types'
 import { IPC } from '../../../shared/ipc-channels'
 
 interface StatCardProps {
@@ -33,6 +33,7 @@ function StatCard({ label, value, sub, icon: Icon, gradient }: StatCardProps) {
 
 export function Dashboard() {
   const [pedidosHoje, setPedidosHoje] = useState<Pedido[]>([])
+  const [lojasMap, setLojasMap] = useState<Record<number, string>>({})
   const [financeiro, setFinanceiro] = useState<FinanceiroSummary | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -46,9 +47,11 @@ export function Dashboard() {
     Promise.all([
       window.electron.invoke<Pedido[]>(IPC.PEDIDOS_LIST, { data_inicio: today, data_fim: today }),
       window.electron.invoke<FinanceiroSummary>(IPC.RELATORIO_FINANCEIRO, mes, ano),
-    ]).then(([pedidos, fin]) => {
+      window.electron.invoke<Loja[]>(IPC.LOJAS_LIST),
+    ]).then(([pedidos, fin, lojas]) => {
       setPedidosHoje(pedidos)
       setFinanceiro(fin)
+      setLojasMap(Object.fromEntries(lojas.map(l => [l.id, l.nome])))
       setLoading(false)
     }).catch((err: Error) => {
       setError(err.message)
@@ -162,7 +165,7 @@ export function Dashboard() {
                     <div key={p.id} className="flex items-center gap-3 py-1.5 border-b border-slate-50 last:border-0">
                       <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
                       <span className="font-mono text-xs text-slate-500">{p.numero_oc}</span>
-                      <span className="text-xs text-slate-400">Loja {p.loja_id}</span>
+                      <span className="text-xs text-slate-400">{lojasMap[p.loja_id] ?? `Loja ${p.loja_id}`}</span>
                     </div>
                   ))}
                   {pedidosHoje.length > 6 && (
