@@ -27,9 +27,34 @@ function findGoogleDriveDataPath(): string | null {
         }
       }
     } else if (process.platform === 'win32') {
-      // Google Drive for Desktop: busca nas letras de unidade comuns
-      for (const letter of ['G', 'H', 'I', 'D', 'E', 'F']) {
-        for (const driveName of ['Meu Drive', 'My Drive']) {
+      const driveNames = ['Meu Drive', 'My Drive', 'Mi unidad']
+
+      // 1. Tenta ler o ponto de montagem do registro do Windows
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { execSync } = require('child_process')
+        const result = execSync(
+          'reg query "HKCU\\Software\\Google\\DriveFS" /v DefaultMountPoint',
+          { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
+        )
+        const match = result.match(/DefaultMountPoint\s+REG_SZ\s+(.+)/)
+        if (match) {
+          const mountPoint = match[1].trim()
+          for (const driveName of driveNames) {
+            const drivePath = join(mountPoint, driveName, 'Programa')
+            if (existsSync(drivePath)) {
+              const dataPath = join(drivePath, 'data')
+              mkdirSync(dataPath, { recursive: true })
+              return dataPath
+            }
+          }
+        }
+      } catch { /* segue para tentativas manuais */ }
+
+      // 2. Varre todas as letras de unidade (A-Z)
+      const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')
+      for (const letter of letters) {
+        for (const driveName of driveNames) {
           const drivePath = join(`${letter}:\\`, driveName, 'Programa')
           if (existsSync(drivePath)) {
             const dataPath = join(drivePath, 'data')
@@ -38,9 +63,10 @@ function findGoogleDriveDataPath(): string | null {
           }
         }
       }
-      // Google Drive Backup & Sync (caminho antigo)
-      for (const driveName of ['Google Drive\\Meu Drive', 'Google Drive\\My Drive']) {
-        const drivePath = join(homedir(), driveName, 'Programa')
+
+      // 3. Google Drive Backup & Sync (caminho antigo: ~/Google Drive/...)
+      for (const driveName of driveNames) {
+        const drivePath = join(homedir(), 'Google Drive', driveName, 'Programa')
         if (existsSync(drivePath)) {
           const dataPath = join(drivePath, 'data')
           mkdirSync(dataPath, { recursive: true })
