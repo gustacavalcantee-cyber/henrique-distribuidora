@@ -39,6 +39,8 @@ mac:
   target:
     - target: dmg
       arch: [arm64]
+    - target: zip
+      arch: [arm64]
 dmg:
   artifactName: ${name}-${version}-${arch}.${ext}
   contents:
@@ -64,5 +66,6 @@ appImage:
   artifactName: ${name}-${version}.${ext}
 afterPack: build/afterPack.js
 publish:
-  provider: generic
-  url: https://example.com/auto-updates
+  provider: github
+  owner: gustacavalcantee-cyber
+  repo: henrique-distribuidora
