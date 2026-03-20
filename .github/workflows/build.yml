@@ -148,20 +148,3 @@ jobs:
           files: dist/*
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      # Upload para Google Drive via rclone
-      # Para ativar: adicione o secret RCLONE_CONF no GitHub
-      # (Settings → Secrets → Actions → New repository secret)
-      # Gere o conteúdo rodando: rclone config → gdrive → copie ~/.config/rclone/rclone.conf
-      - name: Upload para Google Drive
-        if: ${{ secrets.RCLONE_CONF != '' }}
-        run: |
-          curl https://rclone.org/install.sh | sudo bash
-          mkdir -p ~/.config/rclone
-          echo "${{ secrets.RCLONE_CONF }}" > ~/.config/rclone/rclone.conf
-          rclone copy dist/ gdrive:Programa/releases/ \
-            --include "*.dmg" \
-            --include "*.exe" \
-            --include "*.yml" \
-            --include "*.blockmap" \
-            --progress
-          echo "✅ Arquivos enviados para Google Drive/Programa/releases/"
