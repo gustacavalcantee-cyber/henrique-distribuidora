@@ -106,6 +106,17 @@ export function getDb() {
   return _db
 }
 
+export function reloadDb() {
+  try {
+    if (_db) {
+      // Fecha a conexão atual
+      (_db as unknown as { session: { db: Database.Database } }).session?.db?.close()
+    }
+  } catch { /* ignora erros ao fechar */ }
+  _db = null
+  // Reabre na próxima chamada de getDb()
+}
+
 // For testing only — allows injecting in-memory DB
 export function createTestDb(sqlite: Database.Database) {
   return drizzle(sqlite, { schema })

@@ -1,4 +1,6 @@
 import { ipcMain } from 'electron'
+import { reloadDb, getDbPath } from '../db/client'
+import { IPC } from '../../shared/ipc-channels'
 import { registerRedesHandlers } from './redes'
 import { registerLojasHandlers } from './lojas'
 import { registerProdutosHandlers } from './produtos'
@@ -15,6 +17,11 @@ import { registerAtualizacaoHandlers } from './atualizacao'
 
 export function registerAllHandlers() {
   ipcMain.handle('ping', () => 'pong')
+
+  ipcMain.handle(IPC.DB_RELOAD, () => {
+    reloadDb()
+    return { ok: true, dbPath: getDbPath() }
+  })
   registerRedesHandlers()
   registerLojasHandlers()
   registerProdutosHandlers()
