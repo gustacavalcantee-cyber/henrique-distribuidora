@@ -65,6 +65,7 @@ linux:
 appImage:
   artifactName: ${name}-${version}.${ext}
 afterPack: build/afterPack.js
+afterAllArtifactBuild: build/afterAllArtifactBuild.js
 publish:
   provider: github
   owner: gustacavalcantee-cyber
