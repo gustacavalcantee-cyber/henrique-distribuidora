@@ -158,7 +158,11 @@ export function LancamentosTable({
                         min="0"
                         value={qty ?? ''}
                         onChange={e => onQuantidadeChange(row.loja_id, p.id, e.target.value)}
-                        onBlur={() => onCellBlur(row)}
+                        onBlur={e => {
+                          // Não salva se o foco está indo para outra célula de quantidade
+                          if ((e.relatedTarget as HTMLElement)?.hasAttribute('data-cell-id')) return
+                          onCellBlur(row)
+                        }}
                         onKeyDown={e => {
                           if (e.key === 'Enter') { (e.target as HTMLInputElement).blur(); return }
                           if (e.key === 'Tab') {
