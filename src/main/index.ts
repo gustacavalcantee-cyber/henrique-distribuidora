@@ -1,5 +1,6 @@
 import { app, shell, BrowserWindow } from 'electron'
 import { join } from 'path'
+import { execSync } from 'child_process'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { autoUpdater } from 'electron-updater'
 import { runMigrations } from './db/migrate'
@@ -9,6 +10,22 @@ import { setDownloadedUpdatePath } from './handlers/atualizacao'
 import { IPC } from '../shared/ipc-channels'
 
 let mainWindow: BrowserWindow | null = null
+
+/**
+ * Remove o atributo de quarentena do macOS (Gatekeeper) do próprio app.
+ * Isso evita o aviso "A Apple não pôde verificar..." em apps não assinados com Developer ID.
+ * Roda silenciosamente — não faz nada em Windows/Linux ou se já removido.
+ */
+function removeQuarentena(): void {
+  if (process.platform !== 'darwin') return
+  try {
+    const exePath = app.getPath('exe')
+    const match = exePath.match(/^(.+\.app)/)
+    if (!match) return
+    const appBundle = match[1]
+    execSync(`xattr -dr com.apple.quarantine "${appBundle}"`, { stdio: 'pipe' })
+  } catch { /* ignora erros — não crítico */ }
+}
 
 function setupAutoUpdater(): void {
   autoUpdater.autoDownload = true
@@ -78,6 +95,7 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
+  removeQuarentena()
   runMigrations()
   seedIfEmpty()
   createWindow()
