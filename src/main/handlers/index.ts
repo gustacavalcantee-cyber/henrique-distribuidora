@@ -1,5 +1,5 @@
 import { ipcMain } from 'electron'
-import { reloadDb, getDbPath } from '../db/client'
+import { reloadDb, getDbPath, getDbSource } from '../db/client'
 import { IPC } from '../../shared/ipc-channels'
 import { registerRedesHandlers } from './redes'
 import { registerLojasHandlers } from './lojas'
@@ -21,6 +21,10 @@ export function registerAllHandlers() {
   ipcMain.handle(IPC.DB_RELOAD, () => {
     reloadDb()
     return { ok: true, dbPath: getDbPath() }
+  })
+
+  ipcMain.handle(IPC.DB_STATUS, () => {
+    return { source: getDbSource(), dbPath: getDbPath() }
   })
   registerRedesHandlers()
   registerLojasHandlers()

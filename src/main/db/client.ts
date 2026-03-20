@@ -28,45 +28,60 @@ function findGoogleDriveDataPath(): string | null {
       }
     } else if (process.platform === 'win32') {
       const driveNames = ['Meu Drive', 'My Drive', 'Mi unidad']
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { execSync } = require('child_process')
 
-      // 1. Tenta ler o ponto de montagem do registro do Windows
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { execSync } = require('child_process')
-        const result = execSync(
-          'reg query "HKCU\\Software\\Google\\DriveFS" /v DefaultMountPoint',
-          { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
-        )
-        const match = result.match(/DefaultMountPoint\s+REG_SZ\s+(.+)/)
-        if (match) {
-          const mountPoint = match[1].trim()
-          for (const driveName of driveNames) {
-            const drivePath = join(mountPoint, driveName, 'Programa')
-            if (existsSync(drivePath)) {
-              const dataPath = join(drivePath, 'data')
-              mkdirSync(dataPath, { recursive: true })
-              return dataPath
-            }
-          }
-        }
-      } catch { /* segue para tentativas manuais */ }
-
-      // 2. Varre todas as letras de unidade (A-Z)
-      const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')
-      for (const letter of letters) {
+      function tryDrivePath(base: string): string | null {
         for (const driveName of driveNames) {
-          const drivePath = join(`${letter}:\\`, driveName, 'Programa')
+          const drivePath = join(base, driveName, 'Programa')
           if (existsSync(drivePath)) {
             const dataPath = join(drivePath, 'data')
             mkdirSync(dataPath, { recursive: true })
             return dataPath
           }
         }
+        return null
       }
 
-      // 3. Google Drive Backup & Sync (caminho antigo: ~/Google Drive/...)
+      // 1. Registro: HKCU\Software\Google\DriveFS (Google Drive for Desktop)
+      try {
+        const result = execSync(
+          'reg query "HKCU\\Software\\Google\\DriveFS" /v DefaultMountPoint',
+          { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
+        )
+        const match = result.match(/DefaultMountPoint\s+REG_SZ\s+(.+)/)
+        if (match) {
+          const found = tryDrivePath(match[1].trim())
+          if (found) return found
+        }
+      } catch { /* segue */ }
+
+      // 2. Registro alternativo: HKCU\Software\Google\Drive (versões mais antigas)
+      try {
+        const result = execSync(
+          'reg query "HKCU\\Software\\Google\\Drive" /v Path',
+          { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
+        )
+        const match = result.match(/Path\s+REG_SZ\s+(.+)/)
+        if (match) {
+          const found = tryDrivePath(match[1].trim())
+          if (found) return found
+        }
+      } catch { /* segue */ }
+
+      // 3. Varre todas as letras de unidade (A-Z)
+      for (const letter of 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')) {
+        const found = tryDrivePath(`${letter}:\\`)
+        if (found) return found
+      }
+
+      // 4. Google Drive Backup & Sync (caminho antigo: ~/Google Drive/...)
+      const found = tryDrivePath(join(homedir(), 'Google Drive'))
+      if (found) return found
+
+      // 5. Pasta direta no perfil do usuário (alguns setups)
       for (const driveName of driveNames) {
-        const drivePath = join(homedir(), 'Google Drive', driveName, 'Programa')
+        const drivePath = join(homedir(), driveName, 'Programa')
         if (existsSync(drivePath)) {
           const dataPath = join(drivePath, 'data')
           mkdirSync(dataPath, { recursive: true })
@@ -94,6 +109,10 @@ export function getDbPath(): string {
   }
 
   return gdrivePath
+}
+
+export function getDbSource(): 'google-drive' | 'local' {
+  return findGoogleDriveDataPath() ? 'google-drive' : 'local'
 }
 
 export function getDb() {

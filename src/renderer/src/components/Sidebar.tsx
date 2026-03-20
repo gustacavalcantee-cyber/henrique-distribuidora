@@ -1,7 +1,7 @@
 import { NavLink } from 'react-router-dom'
-import { LayoutDashboard, ClipboardList, History, BarChart2, Wallet, Settings, RefreshCw, RotateCcw } from 'lucide-react'
+import { LayoutDashboard, ClipboardList, History, BarChart2, Wallet, Settings, RefreshCw, RotateCcw, AlertTriangle } from 'lucide-react'
 import logoImg from '../assets/logo.png'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { IPC } from '../../../shared/ipc-channels'
 
 const navItems = [
@@ -17,6 +17,14 @@ const navItems = [
 export function Sidebar() {
   const [syncing, setSyncing] = useState(false)
   const [confirm, setConfirm] = useState(false)
+  const [dbSource, setDbSource] = useState<'google-drive' | 'local' | null>(null)
+  const appVersion = (window as unknown as { __APP_VERSION__?: string }).__APP_VERSION__ ?? '—'
+
+  useEffect(() => {
+    window.electron.invoke<{ source: 'google-drive' | 'local' }>(IPC.DB_STATUS)
+      .then(r => setDbSource(r.source))
+      .catch(() => setDbSource('local'))
+  }, [])
 
   async function handleReload() {
     if (!confirm) { setConfirm(true); return }
@@ -96,7 +104,15 @@ export function Sidebar() {
             Cancelar
           </button>
         )}
-        <p className="text-xs text-slate-300 text-center">v1.0.0</p>
+        {dbSource === 'local' && (
+          <div className="flex items-start gap-1.5 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-2">
+            <AlertTriangle size={13} className="text-amber-500 mt-0.5 shrink-0" />
+            <p className="text-xs text-amber-700 leading-snug">
+              Google Drive não encontrado. Instale e faça login para sincronizar os dados.
+            </p>
+          </div>
+        )}
+        <p className="text-xs text-slate-300 text-center">v{appVersion}</p>
       </div>
     </aside>
   )
