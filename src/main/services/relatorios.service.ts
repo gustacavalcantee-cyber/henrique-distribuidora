@@ -1,7 +1,7 @@
-import { eq, and, gte, lte, inArray } from 'drizzle-orm'
+import { eq, and, gte, lte, inArray, isNull } from 'drizzle-orm'
 import { getDb } from '../db/client'
-import { pedidos, itensPedido, produtos, lojas, redes, despesas as despesasTable, franqueados } from '../db/schema'
-import type { QuinzenaSummary, FinanceiroSummary, CobrancaLojaResult, NotaPagamento, ProdutoRelatorioResult } from '../../shared/types'
+import { pedidos, itensPedido, produtos, lojas, redes, despesas as despesasTable, franqueados, custos as custosTable, precos as precosTable } from '../db/schema'
+import type { QuinzenaSummary, FinanceiroSummary, CobrancaLojaResult, NotaPagamento, ProdutoRelatorioResult, PrecoVsCustoResult, PrecoVsCustoCusto, PrecoVsCustoLoja, PrecoVsCustoGraficoMes, PrecoVsCustoGraficoDia } from '../../shared/types'
 
 export function getRelatorioQuinzena(rede_id: number, loja_id: number, mes: number, ano: number, quinzena: 1 | 2): QuinzenaSummary {
   const db = getDb()
@@ -333,4 +333,121 @@ export function getNotasMes(mes: number, ano: number, rede_id?: number): NotaPag
       status_pagamento: pedido.status_pagamento ?? 'aberto',
     }
   })
+}
+
+export function getRelatorioPrecoVsCusto(produto_id: number, loja_id?: number): PrecoVsCustoResult {
+  const db = getDb()
+
+  // 1. Nome do produto
+  const produto = db.select().from(produtos).where(eq(produtos.id, produto_id)).get()
+  const produto_nome = produto?.nome ?? String(produto_id)
+
+  // 2. Histórico de custos (mais recente primeiro)
+  const historico_custos: PrecoVsCustoCusto[] = db
+    .select()
+    .from(custosTable)
+    .where(eq(custosTable.produto_id, produto_id))
+    .all()
+    .sort((a, b) => b.vigencia_inicio.localeCompare(a.vigencia_inicio))
+
+  // 3. Custo vigente atual
+  const custoVigente = historico_custos.find(c => c.vigencia_fim === null) ?? null
+
+  // 4. Lojas a comparar
+  const todasLojas = loja_id
+    ? db.select().from(lojas).where(eq(lojas.id, loja_id)).all()
+    : db.select().from(lojas).where(eq(lojas.ativo, 1)).all()
+  const todosFranqueados = db.select().from(franqueados).all()
+
+  // Preços vigentes para o produto
+  const precosVigentes = db
+    .select()
+    .from(precosTable)
+    .where(and(eq(precosTable.produto_id, produto_id), isNull(precosTable.vigencia_fim)))
+    .all()
+
+  const comparacao_lojas: PrecoVsCustoLoja[] = todasLojas.map(loja => {
+    const franqueado = todosFranqueados.find(f => f.id === loja.franqueado_id)
+    const loja_nome = franqueado ? `${franqueado.nome} — ${loja.nome}` : loja.nome
+    const preco = precosVigentes.find(p => p.loja_id === loja.id)
+    const preco_venda = preco?.preco_venda ?? null
+    const custo_atual = custoVigente?.custo_compra ?? null
+    const margem_reais = preco_venda != null && custo_atual != null ? preco_venda - custo_atual : null
+    const margem_pct = preco_venda != null && margem_reais != null && preco_venda > 0
+      ? (margem_reais / preco_venda) * 100
+      : null
+    return { loja_id: loja.id, loja_nome, preco_venda, custo_atual, margem_reais, margem_pct }
+  }).filter(l => l.preco_venda != null)
+
+  // 5. Gráfico mensal — últimos 12 meses
+  const now = new Date()
+  const grafico_mensal: PrecoVsCustoGraficoMes[] = []
+
+  for (let i = 11; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+    const ano = d.getFullYear()
+    const mes = d.getMonth() + 1
+    const mesStr = String(mes).padStart(2, '0')
+    const mesLabel = `${ano}-${mesStr}`
+    const firstDay = `${ano}-${mesStr}-01`
+    const lastDay = `${ano}-${mesStr}-${new Date(ano, mes, 0).getDate()}`
+
+    // Custo vigente neste mês
+    const allCustos = db.select().from(custosTable).where(eq(custosTable.produto_id, produto_id)).all()
+    const custoDoMes = allCustos.find(c =>
+      c.vigencia_inicio <= lastDay &&
+      (c.vigencia_fim === null || c.vigencia_fim >= firstDay)
+    )
+    const custoMes = custoDoMes?.custo_compra ?? null
+
+    // Preço médio vigente neste mês
+    const allPrecos = db.select().from(precosTable).where(eq(precosTable.produto_id, produto_id)).all()
+    const precosDoMes = allPrecos.filter(p => {
+      const dentroDoMes = p.vigencia_inicio <= lastDay && (p.vigencia_fim === null || p.vigencia_fim >= firstDay)
+      if (!dentroDoMes) return false
+      if (loja_id) return p.loja_id === loja_id
+      return true
+    })
+    const preco_medio = precosDoMes.length > 0
+      ? precosDoMes.reduce((s, p) => s + p.preco_venda, 0) / precosDoMes.length
+      : null
+    const margem_pct = preco_medio != null && custoMes != null && preco_medio > 0
+      ? ((preco_medio - custoMes) / preco_medio) * 100
+      : null
+
+    // Dias com pedidos reais para drill-down
+    const pedidosDoMes = db.select().from(pedidos).where(
+      and(
+        gte(pedidos.data_pedido, firstDay),
+        lte(pedidos.data_pedido, lastDay),
+        ...(loja_id ? [eq(pedidos.loja_id, loja_id)] : [])
+      )
+    ).all()
+
+    const diaMap = new Map<string, { custo_sum: number; preco_sum: number; count: number }>()
+    for (const ped of pedidosDoMes) {
+      const itens = db.select().from(itensPedido).where(
+        and(eq(itensPedido.pedido_id, ped.id), eq(itensPedido.produto_id, produto_id))
+      ).all()
+      for (const item of itens) {
+        const prev = diaMap.get(ped.data_pedido) ?? { custo_sum: 0, preco_sum: 0, count: 0 }
+        diaMap.set(ped.data_pedido, {
+          custo_sum: prev.custo_sum + item.custo_unit,
+          preco_sum: prev.preco_sum + item.preco_unit,
+          count: prev.count + 1,
+        })
+      }
+    }
+
+    const dias: PrecoVsCustoGraficoDia[] = Array.from(diaMap.entries()).map(([dia, v]) => {
+      const custo = v.count > 0 ? v.custo_sum / v.count : null
+      const preco = v.count > 0 ? v.preco_sum / v.count : null
+      const marg = preco != null && custo != null && preco > 0 ? ((preco - custo) / preco) * 100 : null
+      return { dia, custo, preco, margem_pct: marg }
+    }).sort((a, b) => a.dia.localeCompare(b.dia))
+
+    grafico_mensal.push({ mes: mesLabel, custo: custoMes, preco_medio, margem_pct, dias })
+  }
+
+  return { produto_nome, historico_custos, comparacao_lojas, grafico_mensal }
 }
