@@ -63,3 +63,41 @@ export interface ProdutoRelatorioResult {
   total_quantidade: number
   total_valor: number
 }
+
+export interface PrecoVsCustoCusto {
+  id: number
+  custo_compra: number
+  vigencia_inicio: string
+  vigencia_fim: string | null
+}
+
+export interface PrecoVsCustoLoja {
+  loja_id: number
+  loja_nome: string          // "Franqueado — Loja" ou só "Loja"
+  preco_venda: number | null
+  custo_atual: number | null
+  margem_reais: number | null
+  margem_pct: number | null
+}
+
+export interface PrecoVsCustoGraficoDia {
+  dia: string                // "YYYY-MM-DD"
+  custo: number | null
+  preco: number | null
+  margem_pct: number | null
+}
+
+export interface PrecoVsCustoGraficoMes {
+  mes: string                // "YYYY-MM"
+  custo: number | null
+  preco_medio: number | null
+  margem_pct: number | null
+  dias: PrecoVsCustoGraficoDia[]
+}
+
+export interface PrecoVsCustoResult {
+  produto_nome: string
+  historico_custos: PrecoVsCustoCusto[]
+  comparacao_lojas: PrecoVsCustoLoja[]
+  grafico_mensal: PrecoVsCustoGraficoMes[]
+}
