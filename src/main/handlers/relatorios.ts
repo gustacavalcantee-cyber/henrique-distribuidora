@@ -1,6 +1,6 @@
 import { ipcMain } from 'electron'
 import { IPC } from '../../shared/ipc-channels'
-import { getRelatorioQuinzena, getRelatorioFinanceiro, getRelatorioCobranca, getNotasMes, getRelatorioPorProduto } from '../services/relatorios.service'
+import { getRelatorioQuinzena, getRelatorioFinanceiro, getRelatorioCobranca, getNotasMes, getRelatorioPorProduto, getRelatorioPrecoVsCusto } from '../services/relatorios.service'
 
 export function registerRelatoriosHandlers() {
   ipcMain.handle(IPC.RELATORIO_QUINZENA, (_event, rede_id: number, loja_id: number, mes: number, ano: number, quinzena: 1 | 2) => {
@@ -21,5 +21,9 @@ export function registerRelatoriosHandlers() {
 
   ipcMain.handle(IPC.RELATORIO_POR_PRODUTO, (_event, rede_id: number, produto_ids: number[], mes: number, ano: number, periodo: '1' | '2' | 'mes', agrupar_por: 'loja' | 'franqueado') => {
     return getRelatorioPorProduto(rede_id, produto_ids, mes, ano, periodo, agrupar_por)
+  })
+
+  ipcMain.handle(IPC.RELATORIO_PRECO_CUSTO, (_event, produto_id: number, loja_id?: number) => {
+    return getRelatorioPrecoVsCusto(produto_id, loja_id)
   })
 }
