@@ -61,4 +61,5 @@ export const IPC = {
   DB_SYNCED: 'db:synced',
   RELATORIO_POR_PRODUTO: 'relatorio:porProduto',
   PRODUTOS_COM_PEDIDOS_NA_REDE: 'produtos:comPedidosNaRede',
+  RELATORIO_PRECO_CUSTO: 'relatorio:precoCusto',
 } as const
