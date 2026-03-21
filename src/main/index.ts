@@ -1,12 +1,14 @@
 import { app, shell, BrowserWindow } from 'electron'
 import { join } from 'path'
 import { execSync } from 'child_process'
+import { statSync } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { autoUpdater } from 'electron-updater'
 import { runMigrations } from './db/migrate'
 import { seedIfEmpty } from './db/seed'
 import { registerAllHandlers } from './handlers'
 import { setDownloadedUpdatePath } from './handlers/atualizacao'
+import { getDbPath, reloadDb } from './db/client'
 import { IPC } from '../shared/ipc-channels'
 
 let mainWindow: BrowserWindow | null = null
@@ -25,6 +27,27 @@ function removeQuarentena(): void {
     const appBundle = match[1]
     execSync(`xattr -dr com.apple.quarantine "${appBundle}"`, { stdio: 'pipe' })
   } catch { /* ignora erros — não crítico */ }
+}
+
+function startDbWatcher(): void {
+  const dbPath = getDbPath()
+  let lastMtime = 0
+  try {
+    lastMtime = statSync(dbPath).mtimeMs
+  } catch { /* arquivo ainda não existe */ }
+
+  setInterval(() => {
+    try {
+      const mtime = statSync(dbPath).mtimeMs
+      if (mtime !== lastMtime && lastMtime !== 0) {
+        lastMtime = mtime
+        reloadDb()
+        mainWindow?.webContents.send(IPC.DB_SYNCED)
+      } else {
+        lastMtime = mtime
+      }
+    } catch { /* ignora — arquivo temporariamente inacessível durante sync */ }
+  }, 30_000)
 }
 
 function setupAutoUpdater(): void {
@@ -100,6 +123,7 @@ app.whenReady().then(() => {
   seedIfEmpty()
   createWindow()
   setupAutoUpdater()
+  startDbWatcher()
 
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

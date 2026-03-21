@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { LayoutDashboard, ClipboardList, History, BarChart2, Wallet, Settings, RefreshCw, RotateCcw, AlertTriangle } from 'lucide-react'
+import { LayoutDashboard, ClipboardList, History, BarChart2, Wallet, Settings, RefreshCw, RotateCcw, AlertTriangle, CloudDownload } from 'lucide-react'
 import logoImg from '../assets/logo.png'
 import { useState, useEffect } from 'react'
 import { IPC } from '../../../shared/ipc-channels'
@@ -18,12 +18,18 @@ export function Sidebar() {
   const [syncing, setSyncing] = useState(false)
   const [confirm, setConfirm] = useState(false)
   const [dbSource, setDbSource] = useState<'google-drive' | 'local' | null>(null)
+  const [autoSynced, setAutoSynced] = useState(false)
   const appVersion = (window as unknown as { __APP_VERSION__?: string }).__APP_VERSION__ ?? '—'
 
   useEffect(() => {
     window.electron.invoke<{ source: 'google-drive' | 'local' }>(IPC.DB_STATUS)
       .then(r => setDbSource(r.source))
       .catch(() => setDbSource('local'))
+
+    window.electron.on(IPC.DB_SYNCED, () => {
+      setAutoSynced(true)
+      setTimeout(() => window.location.reload(), 1500)
+    })
   }, [])
 
   async function handleReload() {
@@ -104,7 +110,13 @@ export function Sidebar() {
             Cancelar
           </button>
         )}
-        {dbSource === 'local' && (
+        {autoSynced && (
+          <div className="flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 rounded-lg px-2.5 py-2">
+            <CloudDownload size={13} className="text-emerald-500 shrink-0" />
+            <p className="text-xs text-emerald-700 leading-snug">Dados atualizados! Recarregando...</p>
+          </div>
+        )}
+        {dbSource === 'local' && !autoSynced && (
           <div className="flex items-start gap-1.5 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-2">
             <AlertTriangle size={13} className="text-amber-500 mt-0.5 shrink-0" />
             <p className="text-xs text-amber-700 leading-snug">
