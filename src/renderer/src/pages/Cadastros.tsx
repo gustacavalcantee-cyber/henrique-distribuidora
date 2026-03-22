@@ -1,8 +1,4 @@
-import { useState, useEffect } from 'react'
-import { AgGridReact } from 'ag-grid-react'
-import 'ag-grid-community/styles/ag-grid.css'
-import 'ag-grid-community/styles/ag-theme-alpine.css'
-import type { ColDef } from 'ag-grid-community'
+import { useState, useEffect, Fragment } from 'react'
 import type { Rede, Loja, Produto, Preco, Custo, Franqueado } from '../../../shared/types'
 import { IPC } from '../../../shared/ipc-channels'
 import { useIpc } from '../hooks/useIpc'
@@ -554,14 +550,24 @@ function CustosTab() {
   const { data: produtos } = useIpc<Produto[]>(IPC.PRODUTOS_LIST)
   const [newProdId, setNewProdId] = useState<number | ''>('')
   const [newCusto, setNewCusto] = useState('')
+  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set())
 
-  const colDefs: ColDef<Custo>[] = [
-    { field: 'id', headerName: 'ID', width: 70, editable: false },
-    { field: 'produto_id', headerName: 'Produto ID', width: 110, editable: false },
-    { field: 'custo_compra', headerName: 'Custo', width: 110, editable: false },
-    { field: 'vigencia_inicio', headerName: 'Vigência Início', flex: 1, editable: false },
-    { field: 'vigencia_fim', headerName: 'Vigência Fim', flex: 1, editable: false },
-  ]
+  function toggleExpand(produtoId: number) {
+    setExpandedIds(prev => {
+      const next = new Set(prev)
+      next.has(produtoId) ? next.delete(produtoId) : next.add(produtoId)
+      return next
+    })
+  }
+
+  function formatMoney(v: number) {
+    return v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  }
+
+  function formatDate(iso: string) {
+    const [y, m, d] = iso.split('-')
+    return `${d}/${m}/${y}`
+  }
 
   const handleAdd = async () => {
     if (newProdId === '' || !newCusto) return
@@ -573,12 +579,33 @@ function CustosTab() {
     reload()
   }
 
+  // Agrupar por produto_id
+  const produtosOrdenados = [...(produtos ?? [])].sort((a, b) =>
+    a.nome.localeCompare(b.nome, 'pt-BR')
+  )
+  const custosMap = new Map<number, Custo[]>()
+  for (const custo of custos ?? []) {
+    const list = custosMap.get(custo.produto_id) ?? []
+    list.push(custo)
+    custosMap.set(custo.produto_id, list)
+  }
+
+  // Produtos que têm ao menos um custo cadastrado
+  const produtosComCusto = produtosOrdenados.filter(p => custosMap.has(p.id))
+
   return (
     <div className="flex flex-col gap-4 h-full">
+      {/* Formulário de cadastro */}
       <div className="flex gap-2">
-        <select className="border rounded px-2 py-1 text-sm" value={newProdId} onChange={e => setNewProdId(e.target.value === '' ? '' : Number(e.target.value))}>
+        <select
+          className="border rounded px-2 py-1 text-sm"
+          value={newProdId}
+          onChange={e => setNewProdId(e.target.value === '' ? '' : Number(e.target.value))}
+        >
           <option value="">Produto</option>
-          {[...(produtos ?? [])].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')).filter((p, i, arr) => arr.findIndex(x => x.nome === p.nome) === i).map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
+          {produtosOrdenados.map(p => (
+            <option key={p.id} value={p.id}>{p.nome}</option>
+          ))}
         </select>
         <input
           className="border rounded px-2 py-1 text-sm w-28"
@@ -587,15 +614,85 @@ function CustosTab() {
           placeholder="Custo"
           value={newCusto}
           onChange={e => setNewCusto(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') handleAdd() }}
         />
-        <button onClick={handleAdd} className="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700">
+        <button
+          onClick={handleAdd}
+          className="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700"
+        >
           Definir Custo
         </button>
       </div>
-      <p className="text-xs text-gray-500">O custo antigo é fechado automaticamente ao definir um novo custo para o mesmo produto.</p>
-      {loading ? <div className="text-gray-500">Carregando...</div> : (
-        <div className="ag-theme-alpine flex-1" style={{ height: 400 }}>
-          <AgGridReact rowData={custos ?? []} columnDefs={colDefs} />
+      <p className="text-xs text-gray-500">
+        O custo antigo é fechado automaticamente ao definir um novo custo para o mesmo produto.
+      </p>
+
+      {loading ? (
+        <div className="text-gray-500">Carregando...</div>
+      ) : (
+        <div className="overflow-auto flex-1">
+          <table className="text-sm border-collapse w-full">
+            <thead>
+              <tr className="bg-gray-50">
+                <th className="border px-3 py-2 text-left text-xs text-gray-600 w-8"></th>
+                <th className="border px-3 py-2 text-left text-xs text-gray-600">PRODUTO</th>
+                <th className="border px-3 py-2 text-right text-xs text-gray-600 w-32">CUSTO VIGENTE</th>
+                <th className="border px-3 py-2 text-left text-xs text-gray-600 w-32">DESDE</th>
+              </tr>
+            </thead>
+            <tbody>
+              {produtosComCusto.map(prod => {
+                const registros = [...(custosMap.get(prod.id) ?? [])].sort(
+                  (a, b) => b.vigencia_inicio.localeCompare(a.vigencia_inicio)
+                )
+                const vigente = registros.find(c => c.vigencia_fim === null)
+                const historico = registros.filter(c => c.vigencia_fim !== null)
+                const expanded = expandedIds.has(prod.id)
+
+                return (
+                  <Fragment key={prod.id}>
+                    <tr className="hover:bg-gray-50">
+                      <td className="border px-2 py-2 text-center">
+                        {historico.length > 0 && (
+                          <button
+                            onClick={() => toggleExpand(prod.id)}
+                            className="text-gray-400 hover:text-gray-600 text-xs"
+                            title={expanded ? 'Recolher histórico' : 'Ver histórico'}
+                          >
+                            {expanded ? '▼' : '▶'}
+                          </button>
+                        )}
+                      </td>
+                      <td className="border px-3 py-2 font-medium text-gray-800">{prod.nome}</td>
+                      <td className="border px-3 py-2 text-right font-mono text-gray-800">
+                        {vigente ? `R$ ${formatMoney(vigente.custo_compra)}` : <span className="text-gray-400 text-xs">Sem custo</span>}
+                      </td>
+                      <td className="border px-3 py-2 text-gray-500 text-xs">
+                        {vigente ? formatDate(vigente.vigencia_inicio) : '—'}
+                      </td>
+                    </tr>
+                    {expanded && historico.map(h => (
+                      <tr key={h.id} className="bg-gray-50 text-xs text-gray-500">
+                        <td className="border px-2 py-1"></td>
+                        <td className="border px-3 py-1 pl-6 text-gray-400">↳ histórico</td>
+                        <td className="border px-3 py-1 text-right font-mono">R$ {formatMoney(h.custo_compra)}</td>
+                        <td className="border px-3 py-1">
+                          {formatDate(h.vigencia_inicio)} → {h.vigencia_fim ? formatDate(h.vigencia_fim) : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </Fragment>
+                )
+              })}
+              {produtosComCusto.length === 0 && (
+                <tr>
+                  <td colSpan={4} className="border px-3 py-4 text-center text-gray-400 text-xs">
+                    Nenhum custo cadastrado ainda.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
       )}
     </div>
