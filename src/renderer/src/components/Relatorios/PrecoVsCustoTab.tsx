@@ -7,6 +7,8 @@ import {
   ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   Legend, ResponsiveContainer
 } from 'recharts'
+import { Share2 } from 'lucide-react'
+import { RelatorioShareModal } from './RelatorioShareModal'
 
 function formatMoney(v: number | null | undefined) {
   if (v == null) return '—'
@@ -206,6 +208,8 @@ export function PrecoVsCustoTab() {
   const [resultados, setResultados] = useState<PrecoVsCustoResult[]>([])
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+  const [shareImage, setShareImage] = useState<string | null>(null)
+  const [shareLoading, setShareLoading] = useState(false)
 
   // Produtos deduplicados por nome (um por nome, o de menor id)
   const produtosUnicos = [...(produtos ?? [])]
@@ -256,12 +260,84 @@ export function PrecoVsCustoTab() {
           window.electron.invoke<PrecoVsCustoResult>(IPC.RELATORIO_PRECO_CUSTO, pid, lojaArg)
         )
       )
-      setResultados(results)
+
+      let finalResults = results
+
+      if (franqueadoId !== '' && lojaId === '') {
+        const lojaIdsDoFranqueado = new Set(
+          (lojas ?? [])
+            .filter(l => l.franqueado_id === Number(franqueadoId))
+            .map(l => l.id)
+        )
+        finalResults = results.map(r => ({
+          ...r,
+          comparacao_lojas: r.comparacao_lojas.filter(l => lojaIdsDoFranqueado.has(l.loja_id))
+        }))
+      }
+
+      setResultados(finalResults)
     } catch (e: unknown) {
       setErro(e instanceof Error ? e.message : 'Erro ao carregar')
     } finally {
       setLoading(false)
     }
+  }
+
+  async function handleCompartilhar() {
+    setShareLoading(true)
+    const nomeFornecedor: string = await window.electron.invoke(IPC.CONFIG_GET, 'nome_fornecedor') ?? ''
+    const fmt = (v: number | null | undefined) =>
+      v == null ? '—' : `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    const fmtPct = (v: number | null | undefined) => v == null ? '—' : `${v.toFixed(1)}%`
+    const franqueadoNome = franqueadoId !== ''
+      ? franqueados?.find(f => f.id === Number(franqueadoId))?.nome ?? ''
+      : 'Todos'
+    const lojaNome = lojaId !== ''
+      ? lojasFiltradas.find(l => l.id === Number(lojaId))?.nome ?? ''
+      : 'Todas as lojas'
+
+    const tabelasProdutos = resultados.map(r => `
+      <h2 style="font-size:13px;margin:12px 0 4px;border-bottom:1px solid #ccc;padding-bottom:2px;">${r.produto_nome}</h2>
+      <table style="width:100%;border-collapse:collapse;font-size:11px;">
+        <thead>
+          <tr style="background:#f0f0f0;">
+            <th style="border:1px solid #ddd;padding:4px 6px;text-align:left;">Loja</th>
+            <th style="border:1px solid #ddd;padding:4px 6px;text-align:right;">Preço Venda</th>
+            <th style="border:1px solid #ddd;padding:4px 6px;text-align:right;">Custo Atual</th>
+            <th style="border:1px solid #ddd;padding:4px 6px;text-align:right;">Margem R$</th>
+            <th style="border:1px solid #ddd;padding:4px 6px;text-align:right;">Margem %</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${r.comparacao_lojas.map(l => `
+            <tr>
+              <td style="border:1px solid #eee;padding:4px 6px;">${l.loja_nome}</td>
+              <td style="border:1px solid #eee;padding:4px 6px;text-align:right;font-family:monospace;">${fmt(l.preco_venda)}</td>
+              <td style="border:1px solid #eee;padding:4px 6px;text-align:right;font-family:monospace;">${fmt(l.custo_atual)}</td>
+              <td style="border:1px solid #eee;padding:4px 6px;text-align:right;font-family:monospace;">${fmt(l.margem_reais)}</td>
+              <td style="border:1px solid #eee;padding:4px 6px;text-align:right;font-weight:bold;">${fmtPct(l.margem_pct)}</td>
+            </tr>
+          `).join('')}
+          ${r.comparacao_lojas.length === 0 ? '<tr><td colspan="5" style="padding:8px;text-align:center;color:#999;border:1px solid #eee;">Nenhuma loja com preço cadastrado</td></tr>' : ''}
+        </tbody>
+      </table>
+    `).join('')
+
+    const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: Arial, sans-serif; font-size: 12px; background: #fff; padding: 20px; width: 580px; }
+h1 { font-size: 14px; font-weight: bold; margin-bottom: 2px; }
+.sub { font-size: 11px; color: #666; margin-bottom: 12px; }
+</style></head><body>
+<h1>PREÇO × CUSTO</h1>
+<div class="sub">${nomeFornecedor.toUpperCase()} — Franqueado: ${franqueadoNome} | ${lojaNome}</div>
+${tabelasProdutos}
+</body></html>`
+
+    const image = await window.electron.invoke<string>(IPC.RENDER_HTML_IMAGE, html, 600)
+    setShareImage(image)
+    setShareLoading(false)
   }
 
   return (
@@ -327,7 +403,7 @@ export function PrecoVsCustoTab() {
           </select>
         </div>
 
-        <div className="flex items-end pb-0.5">
+        <div className="flex items-end gap-2 pb-0.5">
           <button
             onClick={handleBuscar}
             disabled={loading}
@@ -335,6 +411,16 @@ export function PrecoVsCustoTab() {
           >
             {loading ? 'Carregando...' : 'Buscar'}
           </button>
+          {resultados.length > 0 && (
+            <button
+              onClick={handleCompartilhar}
+              disabled={shareLoading}
+              className="flex items-center gap-1.5 bg-emerald-600 text-white px-4 py-1.5 rounded text-sm hover:bg-emerald-700 disabled:opacity-50"
+            >
+              <Share2 size={14} />
+              {shareLoading ? 'Gerando...' : 'Compartilhar'}
+            </button>
+          )}
         </div>
       </div>
 
@@ -344,6 +430,12 @@ export function PrecoVsCustoTab() {
       {resultados.map((r, i) => (
         <ProdutoResultado key={i} resultado={r} />
       ))}
+
+      <RelatorioShareModal
+        image={shareImage}
+        filename="preco-vs-custo.png"
+        onClose={() => setShareImage(null)}
+      />
     </div>
   )
 }
