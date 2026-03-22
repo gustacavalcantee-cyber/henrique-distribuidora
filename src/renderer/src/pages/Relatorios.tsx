@@ -31,6 +31,8 @@ function QuinzenaTab() {
   const [loading, setLoading] = useState(false)
   const [editingItemId, setEditingItemId] = useState<number | null>(null)
   const [editingItemValue, setEditingItemValue] = useState('')
+  const [shareImage, setShareImage] = useState<string | null>(null)
+  const [shareLoading, setShareLoading] = useState(false)
 
   const handleBuscar = async () => {
     if (!redeId) { alert('Selecione uma rede'); return }
@@ -53,6 +55,62 @@ function QuinzenaTab() {
   }
 
   const filteredLojas = lojas?.filter(l => !redeId || l.rede_id === Number(redeId)) ?? []
+
+  const handleCompartilharQuinzena = async () => {
+    if (!summary) return
+    setShareLoading(true)
+    const nomeFornecedor: string = await window.electron.invoke(IPC.CONFIG_GET, 'nome_fornecedor') ?? ''
+    const redeName = redes?.find(r => r.id === Number(redeId))?.nome?.replace(/_/g,' ')?.toUpperCase() ?? ''
+    const lojaObj = lojaId !== '' ? filteredLojas.find(l => l.id === Number(lojaId)) : null
+    const lojaName = lojaObj ? lojaObj.nome.replace(/_/g,' ').toUpperCase() : 'TODAS AS LOJAS'
+    const qLabel = quinzena === 1 ? '1ª Quinzena (1–15)' : '2ª Quinzena (16–fim)'
+    const fmt = (v: number) => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: Arial, sans-serif; font-size: 12px; background: #fff; padding: 20px; width: 580px; }
+h1 { font-size: 14px; font-weight: bold; margin-bottom: 2px; }
+.sub { font-size: 11px; color: #666; margin-bottom: 14px; }
+.cards { display: flex; gap: 10px; margin-bottom: 14px; }
+.card { flex: 1; border: 1px solid #ddd; border-radius: 4px; padding: 8px 10px; }
+.card-label { font-size: 10px; color: #666; text-transform: uppercase; }
+.card-value { font-size: 16px; font-weight: bold; margin-top: 2px; }
+.card-green .card-value { color: #16a34a; }
+.card-red .card-value { color: #dc2626; }
+.card-blue .card-value { color: #2563eb; }
+table { width: 100%; border-collapse: collapse; }
+th { background: #f0f0f0; font-size: 10px; text-align: left; padding: 3px 6px; border-bottom: 1px solid #ccc; }
+td { font-size: 11px; padding: 3px 6px; border-bottom: 1px solid #eee; }
+.right { text-align: right; }
+.date-row td { background: #dbeafe; font-weight: bold; color: #1e40af; padding: 4px 6px; }
+</style></head><body>
+<h1>${nomeFornecedor.toUpperCase()}</h1>
+<div class="sub">${redeName} ${lojaName} — ${String(mes).padStart(2,'0')}/${ano} ${qLabel}</div>
+<div class="cards">
+  <div class="card card-green"><div class="card-label">Vendas</div><div class="card-value">R$ ${fmt(summary.total_venda)}</div></div>
+  <div class="card card-red"><div class="card-label">Custo</div><div class="card-value">R$ ${fmt(summary.total_custo)}</div></div>
+  <div class="card card-blue"><div class="card-label">Margem</div><div class="card-value">${summary.margem.toFixed(1)}%</div></div>
+</div>
+<table><thead><tr><th>Produto</th><th class="right">Qtd</th><th class="right">Preço</th><th class="right">Total</th></tr></thead>
+<tbody>
+${(() => {
+  const grupos = new Map<string, typeof summary.detalhe>()
+  for (const d of summary.detalhe) {
+    if (!grupos.has(d.data_pedido)) grupos.set(d.data_pedido, [])
+    grupos.get(d.data_pedido)!.push(d)
+  }
+  return Array.from(grupos.entries()).map(([date, items]) => {
+    const [y,m,d] = date.split('-')
+    return `<tr class="date-row"><td colspan="4">${d}/${m}/${y}</td></tr>` +
+      items.map(i => `<tr><td style="padding-left:14px">${i.produto_nome}</td><td class="right">${i.quantidade.toLocaleString('pt-BR',{maximumFractionDigits:2})}</td><td class="right">R$ ${fmt(i.preco_unit)}</td><td class="right">R$ ${fmt(i.total_venda)}</td></tr>`).join('')
+  }).join('')
+})()}
+</tbody></table>
+</body></html>`
+    const image = await window.electron.invoke<string>(IPC.RENDER_HTML_IMAGE, html, 600)
+    setShareImage(image)
+    setShareLoading(false)
+  }
 
   const handlePrintRelatorio = async () => {
     if (!summary) return
@@ -206,6 +264,14 @@ thead tr { border-bottom: 1px solid #555; }
 
       {loading && <div className="text-gray-500">Carregando...</div>}
 
+      {shareImage && (
+        <RelatorioShareModal
+          image={shareImage}
+          filename="quinzena.png"
+          onClose={() => setShareImage(null)}
+        />
+      )}
+
       {summary && (
         <>
           {/* Summary cards */}
@@ -225,7 +291,15 @@ thead tr { border-bottom: 1px solid #555; }
           </div>
 
           {/* Print button */}
-          <div className="flex justify-end">
+          <div className="flex justify-end gap-2">
+            <button
+              onClick={handleCompartilharQuinzena}
+              disabled={shareLoading}
+              className="flex items-center gap-1.5 px-4 py-1.5 rounded text-sm bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 font-medium"
+            >
+              <Share2 size={13} />
+              {shareLoading ? 'Gerando...' : 'Compartilhar'}
+            </button>
             <button onClick={handlePrintRelatorio} className="bg-green-600 text-white px-4 py-1.5 rounded text-sm hover:bg-green-700 font-medium">
               Imprimir Relatório
             </button>
@@ -655,6 +729,8 @@ function CobrancaTab() {
   const [periodo, setPeriodo] = useState<'1' | '2' | 'mes'>('1')
   const [results, setResults] = useState<CobrancaLojaResult[] | null>(null)
   const [loading, setLoading] = useState(false)
+  const [shareImage, setShareImage] = useState<string | null>(null)
+  const [shareLoading, setShareLoading] = useState(false)
 
   const handleFranqueadoChange = (val: number | '') => {
     setFranqueadoId(val)
@@ -824,6 +900,37 @@ td.subtotal-val { font-weight:bold; font-size:10.5pt; text-align:right; backgrou
     await window.electron.invoke(IPC.PRINT_HTML, html, `Cobrança — ${periodoLabel}`)
   }
 
+  const handleCompartilharCobranca = async () => {
+    if (!results) return
+    setShareLoading(true)
+    const nomeFornecedor: string = await window.electron.invoke(IPC.CONFIG_GET, 'nome_fornecedor') ?? ''
+    const franqueadoName = franqueados?.find(f => f.id === Number(franqueadoId))?.nome?.toUpperCase() ?? ''
+    const redeName = franqueadoName || (redes?.find(r => r.id === Number(redeId))?.nome?.replace(/_/g,' ')?.toUpperCase() ?? 'LOJAS')
+    const fmt = (v: number) => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    const total = results.reduce((s, r) => s + r.total_venda, 0)
+    const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: Arial, sans-serif; font-size: 12px; background: #fff; padding: 20px; width: 580px; }
+h1 { font-size: 14px; font-weight: bold; margin-bottom: 2px; }
+.sub { font-size: 11px; color: #666; margin-bottom: 14px; }
+table { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+th { background: #e8e8e8; font-size: 10px; text-align: left; padding: 3px 6px; border-bottom: 1px solid #ccc; }
+td { font-size: 11px; padding: 5px 6px; border-bottom: 1px solid #eee; }
+.right { text-align: right; }
+.total-row { background: #1e293b; color: white; padding: 10px 14px; display: flex; justify-content: space-between; font-weight: bold; font-size: 13px; border-radius: 4px; margin-top: 4px; }
+</style></head><body>
+<h1>COBRANÇA — ${periodoLabel}</h1>
+<div class="sub">DE: ${nomeFornecedor.toUpperCase()} — PARA: ${redeName}</div>
+<table><thead><tr><th>Loja</th><th>Período</th><th class="right">Valor</th></tr></thead>
+<tbody>${results.map(r => `<tr><td>${r.loja_nome.replace(/_/g,' ')}</td><td>${r.periodo_str}</td><td class="right">R$ ${fmt(r.total_venda)}</td></tr>`).join('')}</tbody></table>
+<div class="total-row"><span>SOMA TOTAL</span><span>R$ ${fmt(total)}</span></div>
+</body></html>`
+    const image = await window.electron.invoke<string>(IPC.RENDER_HTML_IMAGE, html, 600)
+    setShareImage(image)
+    setShareLoading(false)
+  }
+
   return (
     <div className="flex flex-col gap-4">
       {/* Filters */}
@@ -904,6 +1011,14 @@ td.subtotal-val { font-weight:bold; font-size:10.5pt; text-align:right; backgrou
               {results.length} loja{results.length !== 1 ? 's' : ''} &nbsp;·&nbsp;
               Total: <span className="font-bold text-green-700">R$ {grandTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
             </div>
+            <button
+              onClick={handleCompartilharCobranca}
+              disabled={shareLoading}
+              className="flex items-center gap-1.5 px-4 py-1.5 rounded text-sm bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 font-medium"
+            >
+              <Share2 size={13} />
+              {shareLoading ? 'Gerando...' : 'Compartilhar'}
+            </button>
             <button onClick={handlePrint} className="bg-green-600 text-white px-4 py-1.5 rounded text-sm hover:bg-green-700 font-medium">
               Imprimir Cobrança
             </button>
@@ -945,6 +1060,13 @@ td.subtotal-val { font-weight:bold; font-size:10.5pt; text-align:right; backgrou
           </div>
         </>
       )}
+      {shareImage && (
+        <RelatorioShareModal
+          image={shareImage}
+          filename="cobranca.png"
+          onClose={() => setShareImage(null)}
+        />
+      )}
     </div>
   )
 }
@@ -960,6 +1082,8 @@ function PorProdutoTab() {
   const [agruparPor, setAgruparPor] = useState<'loja' | 'franqueado'>('loja')
   const [resultado, setResultado] = useState<ProdutoRelatorioResult[] | null>(null)
   const [loading, setLoading] = useState(false)
+  const [shareImage, setShareImage] = useState<string | null>(null)
+  const [shareLoading, setShareLoading] = useState(false)
   const [produtosDaRede, setProdutosDaRede] = useState<{ id: number; nome: string; unidade: string }[]>([])
 
   const todosChecked = produtosDaRede.length > 0 && produtosSelecionados.length === produtosDaRede.length
@@ -1028,6 +1152,44 @@ function PorProdutoTab() {
       </table>`).join('')}
     </body></html>`
     window.electron.invoke(IPC.PRINT_HTML, html)
+  }
+
+  async function handleCompartilharPorProduto() {
+    if (!resultado) return
+    setShareLoading(true)
+    const rede = redes?.find(r => r.id === redeId)
+    const meses = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
+    const periodoStr = periodo === '1' ? '1ª Quinzena' : periodo === '2' ? '2ª Quinzena' : 'Mês inteiro'
+    const fmt = (v: number) => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    const fmtQty = (v: number) => v.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 2 })
+    const comDados = resultado.filter(r => r.linhas.length > 0)
+    const grupoLabel = agruparPor === 'franqueado' ? 'Franqueado' : 'Loja'
+    const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: Arial, sans-serif; font-size: 12px; background: #fff; padding: 20px; width: 580px; }
+h1 { font-size: 14px; font-weight: bold; margin-bottom: 2px; }
+.sub { font-size: 11px; color: #666; margin-bottom: 14px; }
+h2 { font-size: 12px; font-weight: bold; margin: 14px 0 4px; border-left: 3px solid #2563eb; padding-left: 6px; }
+table { width: 100%; border-collapse: collapse; margin-bottom: 4px; }
+th { background: #e8e8e8; font-size: 10px; text-align: left; padding: 3px 6px; border-bottom: 1px solid #ccc; }
+td { font-size: 11px; padding: 3px 6px; border-bottom: 1px solid #eee; }
+.right { text-align: right; }
+.total-row td { font-weight: bold; background: #f5f5f5; }
+</style></head><body>
+<h1>RELATÓRIO POR PRODUTO</h1>
+<div class="sub">${rede?.nome ?? ''} — ${meses[mes-1]} ${ano} — ${periodoStr}</div>
+${comDados.map(r => `
+<h2>${r.produto_nome} (${r.unidade})</h2>
+<table><thead><tr><th>${grupoLabel}</th><th class="right">Quantidade</th><th class="right">Valor</th></tr></thead>
+<tbody>
+${r.linhas.map(l => `<tr><td>${l.nome}</td><td class="right">${fmtQty(l.quantidade)} ${r.unidade}</td><td class="right">R$ ${fmt(l.valor)}</td></tr>`).join('')}
+<tr class="total-row"><td>Total</td><td class="right">${fmtQty(r.total_quantidade)} ${r.unidade}</td><td class="right">R$ ${fmt(r.total_valor)}</td></tr>
+</tbody></table>`).join('')}
+</body></html>`
+    const image = await window.electron.invoke<string>(IPC.RENDER_HTML_IMAGE, html, 600)
+    setShareImage(image)
+    setShareLoading(false)
   }
 
   return (
@@ -1104,10 +1266,20 @@ function PorProdutoTab() {
             {loading ? 'Buscando...' : 'Buscar'}
           </button>
           {resultado && resultado.some(r => r.linhas.length > 0) && (
-            <button onClick={handlePrint}
-              className="flex items-center gap-2 px-4 py-2 border border-gray-200 text-gray-600 text-sm rounded-lg hover:bg-gray-50">
-              <Printer size={14} /> Imprimir
-            </button>
+            <>
+              <button
+                onClick={handleCompartilharPorProduto}
+                disabled={shareLoading}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50"
+              >
+                <Share2 size={14} />
+                {shareLoading ? 'Gerando...' : 'Compartilhar'}
+              </button>
+              <button onClick={handlePrint}
+                className="flex items-center gap-2 px-4 py-2 border border-gray-200 text-gray-600 text-sm rounded-lg hover:bg-gray-50">
+                <Printer size={14} /> Imprimir
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -1151,6 +1323,13 @@ function PorProdutoTab() {
             </div>
           ))}
         </div>
+      )}
+      {shareImage && (
+        <RelatorioShareModal
+          image={shareImage}
+          filename="por-produto.png"
+          onClose={() => setShareImage(null)}
+        />
       )}
     </div>
   )
