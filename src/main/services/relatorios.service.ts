@@ -97,13 +97,19 @@ export function getRelatorioQuinzena(rede_id: number, loja_id: number, mes: numb
   return { total_venda, total_custo, margem, detalhe, matriz, produtos: produtosUnicos as any }
 }
 
-export function getRelatorioFinanceiro(mes: number, ano: number, rede_id?: number): FinanceiroSummary {
+export function getRelatorioFinanceiro(mes: number, ano: number, rede_id?: number, franqueado_id?: number): FinanceiroSummary {
   const db = getDb()
   const data_inicio = mes === 0 ? `${ano}-01-01` : `${ano}-${String(mes).padStart(2, '0')}-01`
   const data_fim = mes === 0 ? `${ano}-12-31` : `${ano}-${String(mes).padStart(2, '0')}-${new Date(ano, mes, 0).getDate()}`
 
   const pedidoConditions: ReturnType<typeof gte>[] = [gte(pedidos.data_pedido, data_inicio), lte(pedidos.data_pedido, data_fim)]
   if (rede_id) pedidoConditions.push(eq(pedidos.rede_id, rede_id))
+  if (franqueado_id) {
+    const lojasDoFranqueado = db.select().from(lojas).where(eq(lojas.franqueado_id, franqueado_id)).all()
+    const ids = lojasDoFranqueado.map(l => l.id)
+    if (ids.length > 0) pedidoConditions.push(inArray(pedidos.loja_id, ids))
+    else return { receita_bruta: 0, custo_produtos: 0, margem_bruta: 0, despesas: 0, lucro_liquido: 0, por_rede: [], top_lojas: [] }
+  }
 
   const pedidosList = db.select().from(pedidos).where(and(...pedidoConditions)).all()
   const pedidoIds = pedidosList.map(p => p.id)
@@ -315,16 +321,22 @@ export function getRelatorioPorProduto(
   })
 }
 
-export function getNotasMes(mes: number, ano: number, rede_id?: number): NotaPagamento[] {
+export function getNotasMes(mes: number, ano: number, rede_id?: number, franqueado_id?: number): NotaPagamento[] {
   const db = getDb()
   const data_inicio = mes === 0 ? `${ano}-01-01` : `${ano}-${String(mes).padStart(2, '0')}-01`
   const data_fim = mes === 0 ? `${ano}-12-31` : `${ano}-${String(mes).padStart(2, '0')}-${new Date(ano, mes, 0).getDate()}`
 
-  const conditions = [
+  const conditions: ReturnType<typeof gte>[] = [
     gte(pedidos.data_pedido, data_inicio),
     lte(pedidos.data_pedido, data_fim),
   ]
   if (rede_id) conditions.push(eq(pedidos.rede_id, rede_id))
+  if (franqueado_id) {
+    const lojasDoFranqueado = db.select().from(lojas).where(eq(lojas.franqueado_id, franqueado_id)).all()
+    const ids = lojasDoFranqueado.map(l => l.id)
+    if (ids.length > 0) conditions.push(inArray(pedidos.loja_id, ids))
+    else return []
+  }
 
   const pedidosList = db.select().from(pedidos).where(and(...conditions)).orderBy(pedidos.data_pedido).all()
   if (pedidosList.length === 0) return []
