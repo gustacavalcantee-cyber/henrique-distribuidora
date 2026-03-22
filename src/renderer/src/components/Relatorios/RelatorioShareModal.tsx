@@ -11,6 +11,7 @@ interface RelatorioShareModalProps {
 
 export function RelatorioShareModal({ image, filename = 'relatorio.png', onClose }: RelatorioShareModalProps) {
   const [copied, setCopied] = useState(false)
+  const [whatsappCopied, setWhatsappCopied] = useState(false)
 
   if (!image) return null
 
@@ -18,6 +19,13 @@ export function RelatorioShareModal({ image, filename = 'relatorio.png', onClose
     await window.electron.invoke(IPC.CLIPBOARD_WRITE_IMAGE, image)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
+  }
+
+  const handleWhatsApp = async () => {
+    await window.electron.invoke(IPC.CLIPBOARD_WRITE_IMAGE, image)
+    await window.electron.invoke(IPC.OPEN_EXTERNAL, 'https://web.whatsapp.com')
+    setWhatsappCopied(true)
+    setTimeout(() => setWhatsappCopied(false), 3000)
   }
 
   return createPortal(
@@ -46,6 +54,14 @@ export function RelatorioShareModal({ image, filename = 'relatorio.png', onClose
           <img src={image} alt="Relatório" className="w-full shadow-md rounded" />
         </div>
         <div className="flex gap-2 justify-end px-4 py-3 border-t border-gray-100 flex-shrink-0">
+          <button
+            onClick={handleWhatsApp}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-green-500 hover:bg-green-600 text-white rounded"
+          >
+            {whatsappCopied
+              ? 'Copiado! Cole no WhatsApp.'
+              : '📲 WhatsApp'}
+          </button>
           <button
             onClick={handleCopy}
             className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-300 rounded hover:bg-gray-50 text-gray-700"

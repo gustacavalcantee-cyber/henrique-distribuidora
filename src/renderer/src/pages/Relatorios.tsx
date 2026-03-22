@@ -499,10 +499,10 @@ function FinanceiroTab() {
     const fmt = (v: number) => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
     const fmtDate = (iso: string) => iso.split('-').reverse().join('/')
     const periodoStr = mes === 0 ? String(ano) : `${String(mes).padStart(2,'0')}/${ano}`
-    const byLoja: Record<string, NotaPagamento[]> = {}
+    const byLoja: Record<number, NotaPagamento[]> = {}
     for (const n of abertas) {
-      if (!byLoja[n.loja_nome]) byLoja[n.loja_nome] = []
-      byLoja[n.loja_nome].push(n)
+      if (!byLoja[n.loja_id]) byLoja[n.loja_id] = []
+      byLoja[n.loja_id].push(n)
     }
     const total = abertas.reduce((s, n) => s + n.total_venda, 0)
     const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
@@ -522,15 +522,21 @@ td { font-size: 11px; padding: 4px 6px; border-bottom: 1px solid #eee; }
 </style></head><body>
 <h1>NOTAS EM ABERTO</h1>
 <div class="sub">${nomeFornecedor.toUpperCase()} — ${periodoStr}</div>
-${Object.entries(byLoja).map(([loja, ns]) => `
-<div class="loja-hdr">${loja}</div>
+${Object.values(byLoja).map(ns => {
+  const n0 = ns[0]
+  const lojaHeader = n0.franqueado_nome
+    ? `${n0.franqueado_nome} — ${n0.loja_nome}`
+    : n0.loja_nome
+  return `
+<div class="loja-hdr">${lojaHeader}</div>
 <table><thead><tr><th>Data</th><th>OC</th><th class="right">Valor</th><th>Status</th></tr></thead>
 <tbody>${ns.map(n => `<tr>
   <td>${fmtDate(n.data_pedido)}</td>
   <td>${n.numero_oc ?? '—'}</td>
   <td class="right">R$ ${fmt(n.total_venda)}</td>
   <td class="s-${n.status_pagamento}">${n.status_pagamento === 'atrasada' ? 'Atrasada' : 'Em Aberto'}</td>
-</tr>`).join('')}</tbody></table>`).join('')}
+</tr>`).join('')}</tbody></table>`
+}).join('')}
 <div class="total-row"><span>TOTAL EM ABERTO</span><span>R$ ${fmt(total)}</span></div>
 </body></html>`
     const image = await window.electron.invoke<string>(IPC.RENDER_HTML_IMAGE, html, 600)

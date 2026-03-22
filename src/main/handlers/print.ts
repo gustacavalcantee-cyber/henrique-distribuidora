@@ -104,6 +104,10 @@ export function registerPrintHandlers() {
     clipboard.writeImage(img)
   })
 
+  ipcMain.handle(IPC.OPEN_EXTERNAL, (_event, url: string) => {
+    return shell.openExternal(url)
+  })
+
   ipcMain.handle(IPC.RENDER_HTML_IMAGE, async (_event, html: string, width = 600) => {
     const win = new BrowserWindow({
       width,

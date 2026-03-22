@@ -349,10 +349,12 @@ export function getNotasMes(mes: number, ano: number, rede_id?: number, franquea
   )
   const todasLojas = db.select().from(lojas).all()
   const todasRedes = db.select().from(redes).all()
+  const todosFranqueados = db.select().from(franqueados).all()
 
   return pedidosList.map(pedido => {
     const loja = todasLojas.find(l => l.id === pedido.loja_id)
     const rede = todasRedes.find(r => r.id === pedido.rede_id)
+    const franqueado = todosFranqueados.find(f => f.id === loja?.franqueado_id)
     const itens = allItens.filter(i => i.pedido_id === pedido.id)
     const total_venda = itens.reduce((s, i) => s + i.quantidade * i.preco_unit, 0)
     const redeName = rede?.nome?.replace(/_/g, ' ')?.toUpperCase() ?? ''
@@ -362,6 +364,7 @@ export function getNotasMes(mes: number, ano: number, rede_id?: number, franquea
       loja_id: pedido.loja_id!,
       loja_nome: redeName ? `${redeName} ${lojaName}` : lojaName,
       rede_nome: redeName,
+      franqueado_nome: franqueado?.nome ?? null,
       data_pedido: pedido.data_pedido,
       numero_oc: pedido.numero_oc,
       total_venda,
