@@ -35,14 +35,33 @@ export function getRelatorioQuinzena(rede_id: number, loja_id: number, mes: numb
   const todosProdutos = produtoIdsInItens.length > 0
     ? db.select().from(produtos).where(inArray(produtos.id, produtoIdsInItens)).orderBy(produtos.nome).all()
     : []
+
+  // Deduplicate products by nome — same product may exist with multiple produto_ids across redes
+  // Keep the entry with the lowest id as canonical for each name
+  const produtosUnicos: typeof todosProdutos = []
+  const seenNomes = new Set<string>()
+  for (const p of [...todosProdutos].sort((a, b) => a.id - b.id)) {
+    if (!seenNomes.has(p.nome)) {
+      seenNomes.add(p.nome)
+      produtosUnicos.push(p)
+    }
+  }
+  // Map any duplicate produto_id → canonical produto_id (lowest id for that name)
+  const produtoIdMap = new Map<number, number>()
+  for (const p of todosProdutos) {
+    const canonical = produtosUnicos.find(u => u.nome === p.nome)!
+    produtoIdMap.set(p.id, canonical.id)
+  }
+
   const todasLojas = db.select().from(lojas).all()
 
-  // Build detalhe
+  // Build detalhe — skip items with quantidade = 0, use canonical product
   const detalhe = pedidosList.flatMap(pedido => {
     const loja = todasLojas.find(l => l.id === pedido.loja_id)
-    const itens = allItens.filter(i => i.pedido_id === pedido.id)
+    const itens = allItens.filter(i => i.pedido_id === pedido.id && i.quantidade > 0)
     return itens.map(item => {
-      const produto = todosProdutos.find(p => p.id === item.produto_id)
+      const canonicalId = produtoIdMap.get(item.produto_id!) ?? item.produto_id!
+      const produto = produtosUnicos.find(p => p.id === canonicalId)
       return {
         item_id: item.id,
         data_pedido: pedido.data_pedido,
@@ -59,13 +78,15 @@ export function getRelatorioQuinzena(rede_id: number, loja_id: number, mes: numb
     })
   })
 
-  // Build matriz: date × produto_id = quantidade
+  // Build matriz: date × canonical_produto_id = quantidade (skip qty=0 items)
   const matrizMap = new Map<string, Record<number, number>>()
   for (const item of allItens) {
+    if (item.quantidade === 0) continue
     const pedido = pedidosList.find(p => p.id === item.pedido_id)!
     if (!matrizMap.has(pedido.data_pedido)) matrizMap.set(pedido.data_pedido, {})
     const row = matrizMap.get(pedido.data_pedido)!
-    row[item.produto_id!] = (row[item.produto_id!] ?? 0) + item.quantidade
+    const canonicalId = produtoIdMap.get(item.produto_id!) ?? item.produto_id!
+    row[canonicalId] = (row[canonicalId] ?? 0) + item.quantidade
   }
   const matriz = Array.from(matrizMap.entries()).map(([data_pedido, quantidades]) => ({ data_pedido, quantidades }))
 
@@ -73,7 +94,7 @@ export function getRelatorioQuinzena(rede_id: number, loja_id: number, mes: numb
   const total_custo = detalhe.reduce((s, d) => s + d.total_custo, 0)
   const margem = total_venda > 0 ? ((total_venda - total_custo) / total_venda) * 100 : 0
 
-  return { total_venda, total_custo, margem, detalhe, matriz, produtos: todosProdutos as any }
+  return { total_venda, total_custo, margem, detalhe, matriz, produtos: produtosUnicos as any }
 }
 
 export function getRelatorioFinanceiro(mes: number, ano: number, rede_id?: number): FinanceiroSummary {
