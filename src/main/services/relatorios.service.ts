@@ -363,6 +363,7 @@ export function getNotasMes(mes: number, ano: number, rede_id?: number, franquea
       pedido_id: pedido.id,
       loja_id: pedido.loja_id!,
       loja_nome: redeName ? `${redeName} ${lojaName}` : lojaName,
+      loja_nome_only: lojaName,
       rede_nome: redeName,
       franqueado_nome: franqueado?.nome ?? null,
       data_pedido: pedido.data_pedido,

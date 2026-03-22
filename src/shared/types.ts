@@ -5,7 +5,7 @@ export interface Produto { id: number; rede_id: number | null; nome: string; uni
 export interface Preco { id: number; produto_id: number; loja_id: number; preco_venda: number; vigencia_inicio: string; vigencia_fim: string | null }
 export interface Custo { id: number; produto_id: number; custo_compra: number; vigencia_inicio: string; vigencia_fim: string | null }
 export interface Pedido { id: number; rede_id: number; loja_id: number; data_pedido: string; numero_oc: string; observacoes: string | null; criado_em: string; status_pagamento: string }
-export interface NotaPagamento { pedido_id: number; loja_id: number; loja_nome: string; rede_nome: string; franqueado_nome: string | null; data_pedido: string; numero_oc: string; total_venda: number; status_pagamento: string }
+export interface NotaPagamento { pedido_id: number; loja_id: number; loja_nome: string; loja_nome_only: string; rede_nome: string; franqueado_nome: string | null; data_pedido: string; numero_oc: string; total_venda: number; status_pagamento: string }
 export interface ItemPedido { id: number; pedido_id: number; produto_id: number; quantidade: number; preco_unit: number; custo_unit: number }
 export interface Despesa { id: number; data: string; categoria: string; rede_id: number | null; loja_id: number | null; descricao: string | null; valor: number }
 

@@ -511,7 +511,9 @@ function FinanceiroTab() {
 body { font-family: Arial, sans-serif; font-size: 12px; background: #fff; padding: 20px; width: 580px; }
 h1 { font-size: 14px; font-weight: bold; margin-bottom: 2px; }
 .sub { font-size: 11px; color: #666; margin-bottom: 14px; }
-.loja-hdr { background: #f0f0f0; font-weight: bold; padding: 5px 8px; margin-top: 12px; margin-bottom: 3px; font-size: 11px; border-left: 3px solid #2563eb; }
+.loja-hdr { background: #f0f0f0; padding: 4px 8px 2px 8px; margin-top: 12px; margin-bottom: 0; font-size: 10px; color: #555; border-left: 3px solid #2563eb; }
+.loja-hdr strong { font-size: 11px; color: #111; display: block; }
+.loja-hdr span { font-size: 10px; color: #555; }
 table { width: 100%; border-collapse: collapse; }
 th { background: #e8e8e8; font-size: 10px; text-align: left; padding: 3px 6px; border-bottom: 1px solid #ccc; }
 td { font-size: 11px; padding: 4px 6px; border-bottom: 1px solid #eee; }
@@ -524,11 +526,13 @@ td { font-size: 11px; padding: 4px 6px; border-bottom: 1px solid #eee; }
 <div class="sub">${nomeFornecedor.toUpperCase()} — ${periodoStr}</div>
 ${Object.values(byLoja).map(ns => {
   const n0 = ns[0]
-  const lojaHeader = n0.franqueado_nome
-    ? `${n0.franqueado_nome} — ${n0.loja_nome}`
-    : n0.loja_nome
+  const topLine = n0.franqueado_nome ?? n0.rede_nome ?? ''
+  const bottomLine = n0.loja_nome_only
   return `
-<div class="loja-hdr">${lojaHeader}</div>
+<div class="loja-hdr" style="margin-bottom:3px;">
+  ${topLine ? `<span>${topLine}</span>` : ''}
+  <strong>${bottomLine}</strong>
+</div>
 <table><thead><tr><th>Data</th><th>OC</th><th class="right">Valor</th><th>Status</th></tr></thead>
 <tbody>${ns.map(n => `<tr>
   <td>${fmtDate(n.data_pedido)}</td>
