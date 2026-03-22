@@ -3,6 +3,10 @@ import { useState } from 'react'
 import type { Produto, Loja, PrecoVsCustoResult } from '../../../../shared/types'
 import { IPC } from '../../../../shared/ipc-channels'
 import { useIpc } from '../../hooks/useIpc'
+import {
+  ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip,
+  Legend, ResponsiveContainer
+} from 'recharts'
 
 function formatMoney(v: number | null | undefined) {
   if (v == null) return '—'
@@ -36,6 +40,7 @@ export function PrecoVsCustoTab() {
   const [resultado, setResultado] = useState<PrecoVsCustoResult | null>(null)
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+  const [drillMes, setDrillMes] = useState<string | null>(null)
 
   const produtosOrdenados = [...(produtos ?? [])].sort((a, b) =>
     a.nome.localeCompare(b.nome, 'pt-BR')
@@ -62,6 +67,17 @@ export function PrecoVsCustoTab() {
     }
   }
 
+  function labelMes(mes: string) {
+    const meses = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
+    const [, m] = mes.split('-')
+    return meses[parseInt(m) - 1]
+  }
+
+  function labelDia(dia: string) {
+    const [,, d] = dia.split('-')
+    return `Dia ${parseInt(d)}`
+  }
+
   return (
     <div className="flex flex-col gap-6 p-4">
       {/* Filtros */}
@@ -71,7 +87,7 @@ export function PrecoVsCustoTab() {
           <select
             className="border rounded px-2 py-1.5 text-sm min-w-48"
             value={produtoId}
-            onChange={e => { setProdutoId(e.target.value === '' ? '' : Number(e.target.value)); setResultado(null) }}
+            onChange={e => { setProdutoId(e.target.value === '' ? '' : Number(e.target.value)); setResultado(null); setDrillMes(null) }}
           >
             <option value="">Selecione...</option>
             {produtosOrdenados.map(p => (
@@ -84,7 +100,7 @@ export function PrecoVsCustoTab() {
           <select
             className="border rounded px-2 py-1.5 text-sm min-w-48"
             value={lojaId}
-            onChange={e => { setLojaId(e.target.value === '' ? '' : Number(e.target.value)); setResultado(null) }}
+            onChange={e => { setLojaId(e.target.value === '' ? '' : Number(e.target.value)); setResultado(null); setDrillMes(null) }}
           >
             <option value="">Todas as lojas</option>
             {lojasOrdenadas.map(l => (
@@ -189,6 +205,112 @@ export function PrecoVsCustoTab() {
                 )}
               </tbody>
             </table>
+          </section>
+
+          {/* Seção 3: Gráfico Mensal */}
+          <section>
+            <div className="flex items-center gap-3 mb-2">
+              <h3 className="text-sm font-semibold text-gray-600 uppercase tracking-wide">
+                {drillMes ? `Detalhe — ${drillMes}` : 'Evolução Mensal'}
+              </h3>
+              {drillMes && (
+                <button
+                  onClick={() => setDrillMes(null)}
+                  className="text-xs text-blue-600 hover:underline"
+                >
+                  ← Voltar para visão mensal
+                </button>
+              )}
+            </div>
+
+            {(() => {
+              type GraficoItem = { label: string; custo: number | null; preco: number | null; margem: number | null; _mes?: string }
+              const dadosGrafico: GraficoItem[] = drillMes
+                ? (resultado.grafico_mensal.find(m => m.mes === drillMes)?.dias ?? []).map(d => ({
+                    label: labelDia(d.dia),
+                    custo: d.custo,
+                    preco: d.preco,
+                    margem: d.margem_pct,
+                  }))
+                : resultado.grafico_mensal.map(m => ({
+                    label: labelMes(m.mes),
+                    custo: m.custo,
+                    preco: m.preco_medio,
+                    margem: m.margem_pct,
+                    _mes: m.mes,
+                  }))
+
+              if (dadosGrafico.length === 0) {
+                return (
+                  <p className="text-xs text-gray-400">
+                    {drillMes
+                      ? 'Nenhum pedido com este produto neste mês.'
+                      : 'Sem dados nos últimos 12 meses.'}
+                  </p>
+                )
+              }
+
+              return (
+                <ResponsiveContainer width="100%" height={320}>
+                  <ComposedChart
+                    data={dadosGrafico}
+                    margin={{ top: 8, right: 40, left: 0, bottom: 0 }}
+                    onClick={(e: unknown) => {
+                      const ev = e as { activePayload?: Array<{ payload: GraficoItem }> }
+                      if (!drillMes && ev?.activePayload?.[0]) {
+                        const item = ev.activePayload[0].payload
+                        if (item._mes) setDrillMes(item._mes)
+                      }
+                    }}
+                    style={{ cursor: drillMes ? 'default' : 'pointer' }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                    <XAxis dataKey="label" tick={{ fontSize: 12 }} />
+                    <YAxis
+                      yAxisId="left"
+                      tick={{ fontSize: 11 }}
+                      tickFormatter={(v: number) => `R$${v.toFixed(0)}`}
+                      width={60}
+                    />
+                    <YAxis
+                      yAxisId="right"
+                      orientation="right"
+                      domain={[0, 100]}
+                      tick={{ fontSize: 11 }}
+                      tickFormatter={(v: number) => `${v}%`}
+                      width={44}
+                    />
+                    <Tooltip
+                      formatter={(value: unknown, name: unknown) => {
+                        const v = typeof value === 'number' ? value : null
+                        const n = String(name ?? '')
+                        if (n === 'Margem %') return [`${v?.toFixed(1) ?? '—'}%`, n]
+                        return [`R$ ${v?.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) ?? '—'}`, n]
+                      }}
+                    />
+                    <Legend />
+                    <Bar yAxisId="left" dataKey="custo" name="Custo" fill="#fca5a5" radius={[3,3,0,0]} />
+                    <Bar yAxisId="left" dataKey="preco" name="Preço de Venda" fill="#93c5fd" radius={[3,3,0,0]} />
+                    <Line
+                      yAxisId="right"
+                      type="monotone"
+                      dataKey="margem"
+                      name="Margem %"
+                      stroke="#10b981"
+                      strokeWidth={2}
+                      dot={{ r: 3 }}
+                      activeDot={{ r: 5 }}
+                    />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              )
+            })()}
+
+            {!drillMes && (
+              <p className="text-xs text-gray-400 mt-1">
+                Clique em um mês para ver o detalhe por dia.
+              </p>
+            )}
           </section>
         </>
       )}
