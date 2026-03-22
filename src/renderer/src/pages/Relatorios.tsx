@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react'
-import { Printer } from 'lucide-react'
+import { Printer, Share2 } from 'lucide-react'
 import type { Rede, Loja, Franqueado, QuinzenaSummary, FinanceiroSummary, CobrancaLojaResult, NotaPagamento, ProdutoRelatorioResult } from '../../../shared/types'
 import { IPC } from '../../../shared/ipc-channels'
 import { useIpc } from '../hooks/useIpc'
 import { PrecoVsCustoTab } from '../components/Relatorios/PrecoVsCustoTab'
+import { RelatorioShareModal } from '../components/Relatorios/RelatorioShareModal'
 
 function formatMoney(v: number) {
   return v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -385,20 +386,25 @@ thead tr { border-bottom: 1px solid #555; }
 
 function FinanceiroTab() {
   const { data: redes } = useIpc<Rede[]>(IPC.REDES_LIST)
+  const { data: franqueados } = useIpc<Franqueado[]>(IPC.FRANQUEADOS_LIST)
   const now = new Date()
   const [mes, setMes] = useState(0)
   const [ano, setAno] = useState(now.getFullYear())
   const [redeId, setRedeId] = useState<number | ''>('')
+  const [franqueadoId, setFranqueadoId] = useState<number | ''>('')
   const [summary, setSummary] = useState<FinanceiroSummary | null>(null)
   const [notas, setNotas] = useState<NotaPagamento[] | null>(null)
   const [loading, setLoading] = useState(false)
+  const [shareImage, setShareImage] = useState<string | null>(null)
+  const [shareLoading, setShareLoading] = useState(false)
 
   const handleBuscar = async () => {
     setLoading(true)
     const rid = redeId !== '' ? Number(redeId) : undefined
+    const fid = franqueadoId !== '' ? Number(franqueadoId) : undefined
     const [data, notasList] = await Promise.all([
-      window.electron.invoke<FinanceiroSummary>(IPC.RELATORIO_FINANCEIRO, mes, ano, rid),
-      window.electron.invoke<NotaPagamento[]>(IPC.NOTAS_LIST, mes, ano, rid),
+      window.electron.invoke<FinanceiroSummary>(IPC.RELATORIO_FINANCEIRO, mes, ano, rid, fid),
+      window.electron.invoke<NotaPagamento[]>(IPC.NOTAS_LIST, mes, ano, rid, fid),
     ])
     setSummary(data)
     setNotas(notasList)
@@ -408,6 +414,54 @@ function FinanceiroTab() {
   const handleStatusChange = async (pedido_id: number, status: string) => {
     await window.electron.invoke(IPC.PEDIDOS_UPDATE_STATUS, pedido_id, status)
     setNotas(prev => prev ? prev.map(n => n.pedido_id === pedido_id ? { ...n, status_pagamento: status } : n) : prev)
+  }
+
+  const handleCompartilhar = async () => {
+    if (!notas) return
+    const abertas = notas.filter(n => n.status_pagamento === 'aberto' || n.status_pagamento === 'atrasada')
+    if (abertas.length === 0) { alert('Não há notas em aberto para compartilhar.'); return }
+    setShareLoading(true)
+    const nomeFornecedor: string = await window.electron.invoke(IPC.CONFIG_GET, 'nome_fornecedor') ?? ''
+    const fmt = (v: number) => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    const fmtDate = (iso: string) => iso.split('-').reverse().join('/')
+    const periodoStr = mes === 0 ? String(ano) : `${String(mes).padStart(2,'0')}/${ano}`
+    const byLoja: Record<string, NotaPagamento[]> = {}
+    for (const n of abertas) {
+      if (!byLoja[n.loja_nome]) byLoja[n.loja_nome] = []
+      byLoja[n.loja_nome].push(n)
+    }
+    const total = abertas.reduce((s, n) => s + n.total_venda, 0)
+    const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: Arial, sans-serif; font-size: 12px; background: #fff; padding: 20px; width: 580px; }
+h1 { font-size: 14px; font-weight: bold; margin-bottom: 2px; }
+.sub { font-size: 11px; color: #666; margin-bottom: 14px; }
+.loja-hdr { background: #f0f0f0; font-weight: bold; padding: 5px 8px; margin-top: 12px; margin-bottom: 3px; font-size: 11px; border-left: 3px solid #2563eb; }
+table { width: 100%; border-collapse: collapse; }
+th { background: #e8e8e8; font-size: 10px; text-align: left; padding: 3px 6px; border-bottom: 1px solid #ccc; }
+td { font-size: 11px; padding: 4px 6px; border-bottom: 1px solid #eee; }
+.right { text-align: right; }
+.s-aberto { color: #b45309; font-size: 10px; font-weight: bold; }
+.s-atrasada { color: #dc2626; font-size: 10px; font-weight: bold; }
+.total-row { background: #1e293b; color: white; padding: 10px 14px; margin-top: 16px; display: flex; justify-content: space-between; font-weight: bold; font-size: 13px; border-radius: 4px; }
+</style></head><body>
+<h1>NOTAS EM ABERTO</h1>
+<div class="sub">${nomeFornecedor.toUpperCase()} — ${periodoStr}</div>
+${Object.entries(byLoja).map(([loja, ns]) => `
+<div class="loja-hdr">${loja}</div>
+<table><thead><tr><th>Data</th><th>OC</th><th class="right">Valor</th><th>Status</th></tr></thead>
+<tbody>${ns.map(n => `<tr>
+  <td>${fmtDate(n.data_pedido)}</td>
+  <td>${n.numero_oc ?? '—'}</td>
+  <td class="right">R$ ${fmt(n.total_venda)}</td>
+  <td class="s-${n.status_pagamento}">${n.status_pagamento === 'atrasada' ? 'Atrasada' : 'Em Aberto'}</td>
+</tr>`).join('')}</tbody></table>`).join('')}
+<div class="total-row"><span>TOTAL EM ABERTO</span><span>R$ ${fmt(total)}</span></div>
+</body></html>`
+    const image = await window.electron.invoke<string>(IPC.RENDER_HTML_IMAGE, html, 600)
+    setShareImage(image)
+    setShareLoading(false)
   }
 
   const cards = summary ? [
@@ -459,6 +513,13 @@ function FinanceiroTab() {
             {redes?.map(r => <option key={r.id} value={r.id}>{r.nome}</option>)}
           </select>
         </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-xs text-gray-500">Franqueado</label>
+          <select className="border rounded px-2 py-1 text-sm" value={franqueadoId} onChange={e => setFranqueadoId(e.target.value === '' ? '' : Number(e.target.value))}>
+            <option value="">Todos</option>
+            {franqueados?.map(f => <option key={f.id} value={f.id}>{f.nome}</option>)}
+          </select>
+        </div>
         <button onClick={handleBuscar} className="bg-blue-600 text-white px-3 py-1.5 rounded text-sm hover:bg-blue-700">
           Buscar
         </button>
@@ -479,7 +540,17 @@ function FinanceiroTab() {
 
           {notas && notas.length > 0 && (
             <div>
-              <h3 className="font-semibold text-gray-700 mb-2 text-sm">{mes === 0 ? `Notas de ${ano}` : 'Notas do Mês'}</h3>
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="font-semibold text-gray-700 text-sm">{mes === 0 ? `Notas de ${ano}` : 'Notas do Mês'}</h3>
+                <button
+                  onClick={handleCompartilhar}
+                  disabled={shareLoading}
+                  className="flex items-center gap-1.5 px-3 py-1 text-sm bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
+                >
+                  <Share2 size={13} />
+                  {shareLoading ? 'Gerando...' : 'Compartilhar em Aberto'}
+                </button>
+              </div>
               <div className="flex flex-col gap-3">
                 {Object.entries(notasByLoja).map(([lojaName, lojaNotas]) => (
                   <div key={lojaName} className="border rounded bg-white overflow-hidden">
@@ -558,6 +629,13 @@ function FinanceiroTab() {
             </div>
           )}
         </>
+      )}
+      {shareImage && (
+        <RelatorioShareModal
+          image={shareImage}
+          filename="notas-em-aberto.png"
+          onClose={() => setShareImage(null)}
+        />
       )}
     </div>
   )
