@@ -62,4 +62,5 @@ export const IPC = {
   RELATORIO_POR_PRODUTO: 'relatorio:porProduto',
   PRODUTOS_COM_PEDIDOS_NA_REDE: 'produtos:comPedidosNaRede',
   RELATORIO_PRECO_CUSTO: 'relatorio:precoCusto',
+  RENDER_HTML_IMAGE: 'render:htmlImage',
 } as const

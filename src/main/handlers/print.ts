@@ -103,4 +103,25 @@ export function registerPrintHandlers() {
     const img = nativeImage.createFromDataURL(dataUrl)
     clipboard.writeImage(img)
   })
+
+  ipcMain.handle(IPC.RENDER_HTML_IMAGE, async (_event, html: string, width = 600) => {
+    const win = new BrowserWindow({
+      width,
+      height: 800,
+      show: false,
+      frame: false,
+      webPreferences: { sandbox: false },
+    })
+    try {
+      await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
+      await new Promise(r => setTimeout(r, 300))
+      const contentHeight: number = await win.webContents.executeJavaScript('document.body.scrollHeight || 0')
+      win.setSize(width, Math.min(contentHeight + 20, 4000))
+      await new Promise(r => setTimeout(r, 100))
+      const image = await win.webContents.capturePage()
+      return image.toDataURL()
+    } finally {
+      win.close()
+    }
+  })
 }
