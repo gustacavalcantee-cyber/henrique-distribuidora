@@ -3,6 +3,7 @@ import { Printer } from 'lucide-react'
 import type { Rede, Loja, Franqueado, QuinzenaSummary, FinanceiroSummary, CobrancaLojaResult, NotaPagamento, ProdutoRelatorioResult } from '../../../shared/types'
 import { IPC } from '../../../shared/ipc-channels'
 import { useIpc } from '../hooks/useIpc'
+import { PrecoVsCustoTab } from '../components/Relatorios/PrecoVsCustoTab'
 
 function formatMoney(v: number) {
   return v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -1077,7 +1078,7 @@ function PorProdutoTab() {
   )
 }
 
-type RelatTab = 'quinzena' | 'financeiro' | 'cobranca' | 'porproduto'
+type RelatTab = 'quinzena' | 'financeiro' | 'cobranca' | 'porproduto' | 'precocusto'
 
 export function Relatorios() {
   const [activeTab, setActiveTab] = useState<RelatTab>('quinzena')
@@ -1087,7 +1088,7 @@ export function Relatorios() {
       <h2 className="text-2xl font-bold text-gray-900">Relatórios</h2>
       <div className="border-b border-gray-200">
         <nav className="flex gap-0">
-          {([['quinzena', 'Quinzena'], ['financeiro', 'Financeiro'], ['cobranca', 'Cobrança'], ['porproduto', 'Por Produto']] as [RelatTab, string][]).map(([id, label]) => (
+          {([['quinzena', 'Quinzena'], ['financeiro', 'Financeiro'], ['cobranca', 'Cobrança'], ['porproduto', 'Por Produto'], ['precocusto', 'Preço × Custo']] as [RelatTab, string][]).map(([id, label]) => (
             <button key={id} onClick={() => setActiveTab(id)}
               className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
                 activeTab === id ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'
@@ -1102,6 +1103,7 @@ export function Relatorios() {
         {activeTab === 'financeiro' && <FinanceiroTab />}
         {activeTab === 'cobranca' && <CobrancaTab />}
         {activeTab === 'porproduto' && <PorProdutoTab />}
+        {activeTab === 'precocusto' && <PrecoVsCustoTab />}
       </div>
     </div>
   )
