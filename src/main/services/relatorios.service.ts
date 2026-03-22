@@ -46,6 +46,8 @@ export function getRelatorioQuinzena(rede_id: number, loja_id: number, mes: numb
       produtosUnicos.push(p)
     }
   }
+  // Sort unique products alphabetically so columns appear in the correct order
+  produtosUnicos.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
   // Map any duplicate produto_id → canonical produto_id (lowest id for that name)
   const produtoIdMap = new Map<number, number>()
   for (const p of todosProdutos) {
