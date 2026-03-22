@@ -10,7 +10,9 @@ const api = {
 
 contextBridge.exposeInMainWorld('electron', api)
 
-// Expose app version for the updater UI
-contextBridge.exposeInMainWorld('__APP_VERSION__', process.env['npm_package_version'] ?? '')
+// Expose app version — use sendSync to get the real version from main process
+// (process.env.npm_package_version is only available in dev, not in packaged apps)
+const appVersion: string = ipcRenderer.sendSync('get:version') ?? ''
+contextBridge.exposeInMainWorld('__APP_VERSION__', appVersion)
 
 export type ElectronAPI = typeof api

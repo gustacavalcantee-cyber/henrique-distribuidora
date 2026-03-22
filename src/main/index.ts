@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow } from 'electron'
+import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
 import { execSync } from 'child_process'
 import { statSync } from 'fs'
@@ -111,6 +111,11 @@ function createWindow(): void {
 
 // Register IPC handlers before app is ready
 registerAllHandlers()
+
+// Sync IPC so preload can read the real app version in packaged builds
+ipcMain.on('get:version', (event) => {
+  event.returnValue = app.getVersion()
+})
 
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.henrique.vendas')
