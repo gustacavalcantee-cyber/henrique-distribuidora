@@ -1,6 +1,6 @@
 // src/renderer/src/components/Relatorios/PrecoVsCustoTab.tsx
 import { useState } from 'react'
-import type { Produto, Loja, PrecoVsCustoResult } from '../../../../shared/types'
+import type { Produto, Loja, Rede, Franqueado, PrecoVsCustoResult } from '../../../../shared/types'
 import { IPC } from '../../../../shared/ipc-channels'
 import { useIpc } from '../../hooks/useIpc'
 import {
@@ -34,6 +34,8 @@ function margemColor(pct: number | null) {
 export function PrecoVsCustoTab() {
   const { data: produtos } = useIpc<Produto[]>(IPC.PRODUTOS_LIST)
   const { data: lojas } = useIpc<Loja[]>(IPC.LOJAS_LIST)
+  const { data: redes } = useIpc<Rede[]>(IPC.REDES_LIST)
+  const { data: franqueados } = useIpc<Franqueado[]>(IPC.FRANQUEADOS_LIST)
 
   const [produtoId, setProdutoId] = useState<number | ''>('')
   const [lojaId, setLojaId] = useState<number | ''>('')
@@ -45,8 +47,26 @@ export function PrecoVsCustoTab() {
   const produtosOrdenados = [...(produtos ?? [])].sort((a, b) =>
     a.nome.localeCompare(b.nome, 'pt-BR')
   )
+
+  // Detecta nomes duplicados para exibir a rede no select
+  const nomesCount = produtosOrdenados.reduce<Record<string, number>>((acc, p) => {
+    acc[p.nome] = (acc[p.nome] ?? 0) + 1
+    return acc
+  }, {})
+
+  function labelProduto(p: Produto) {
+    if ((nomesCount[p.nome] ?? 1) <= 1) return p.nome
+    const rede = redes?.find(r => r.id === p.rede_id)
+    return rede ? `${p.nome} (${rede.nome})` : `${p.nome} (Global)`
+  }
+
+  function labelLoja(l: Loja) {
+    const franqueado = franqueados?.find(f => f.id === l.franqueado_id)
+    return franqueado ? `${franqueado.nome} — ${l.nome}` : l.nome
+  }
+
   const lojasOrdenadas = [...(lojas ?? [])].sort((a, b) =>
-    a.nome.localeCompare(b.nome, 'pt-BR')
+    labelLoja(a).localeCompare(labelLoja(b), 'pt-BR')
   )
 
   async function handleBuscar() {
@@ -91,7 +111,7 @@ export function PrecoVsCustoTab() {
           >
             <option value="">Selecione...</option>
             {produtosOrdenados.map(p => (
-              <option key={p.id} value={p.id}>{p.nome}</option>
+              <option key={p.id} value={p.id}>{labelProduto(p)}</option>
             ))}
           </select>
         </div>
@@ -104,7 +124,7 @@ export function PrecoVsCustoTab() {
           >
             <option value="">Todas as lojas</option>
             {lojasOrdenadas.map(l => (
-              <option key={l.id} value={l.id}>{l.nome}</option>
+              <option key={l.id} value={l.id}>{labelLoja(l)}</option>
             ))}
           </select>
         </div>
