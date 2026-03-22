@@ -383,6 +383,9 @@ export function getRelatorioPrecoVsCusto(produto_id: number, loja_id?: number): 
   const now = new Date()
   const grafico_mensal: PrecoVsCustoGraficoMes[] = []
 
+  // Hoist allPrecos out of the loop — fetched once and filtered in JS per iteration
+  const allPrecos = db.select().from(precosTable).where(eq(precosTable.produto_id, produto_id)).all()
+
   for (let i = 11; i >= 0; i--) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
     const ano = d.getFullYear()
@@ -392,16 +395,14 @@ export function getRelatorioPrecoVsCusto(produto_id: number, loja_id?: number): 
     const firstDay = `${ano}-${mesStr}-01`
     const lastDay = `${ano}-${mesStr}-${new Date(ano, mes, 0).getDate()}`
 
-    // Custo vigente neste mês
-    const allCustos = db.select().from(custosTable).where(eq(custosTable.produto_id, produto_id)).all()
-    const custoDoMes = allCustos.find(c =>
+    // Custo vigente neste mês — reuse historico_custos already fetched above
+    const custoDoMes = historico_custos.find(c =>
       c.vigencia_inicio <= lastDay &&
       (c.vigencia_fim === null || c.vigencia_fim >= firstDay)
     )
     const custoMes = custoDoMes?.custo_compra ?? null
 
-    // Preço médio vigente neste mês
-    const allPrecos = db.select().from(precosTable).where(eq(precosTable.produto_id, produto_id)).all()
+    // Preço médio vigente neste mês — filter from the already-fetched allPrecos array
     const precosDoMes = allPrecos.filter(p => {
       const dentroDoMes = p.vigencia_inicio <= lastDay && (p.vigencia_fim === null || p.vigencia_fim >= firstDay)
       if (!dentroDoMes) return false
@@ -424,19 +425,25 @@ export function getRelatorioPrecoVsCusto(produto_id: number, loja_id?: number): 
       )
     ).all()
 
+    const pedidoIds = pedidosDoMes.map(p => p.id)
+    const allItensDoMes = pedidoIds.length > 0
+      ? db.select().from(itensPedido).where(
+          and(
+            inArray(itensPedido.pedido_id, pedidoIds),
+            eq(itensPedido.produto_id, produto_id)
+          )
+        ).all()
+      : []
+
     const diaMap = new Map<string, { custo_sum: number; preco_sum: number; count: number }>()
-    for (const ped of pedidosDoMes) {
-      const itens = db.select().from(itensPedido).where(
-        and(eq(itensPedido.pedido_id, ped.id), eq(itensPedido.produto_id, produto_id))
-      ).all()
-      for (const item of itens) {
-        const prev = diaMap.get(ped.data_pedido) ?? { custo_sum: 0, preco_sum: 0, count: 0 }
-        diaMap.set(ped.data_pedido, {
-          custo_sum: prev.custo_sum + item.custo_unit,
-          preco_sum: prev.preco_sum + item.preco_unit,
-          count: prev.count + 1,
-        })
-      }
+    for (const item of allItensDoMes) {
+      const ped = pedidosDoMes.find(p => p.id === item.pedido_id)!
+      const prev = diaMap.get(ped.data_pedido) ?? { custo_sum: 0, preco_sum: 0, count: 0 }
+      diaMap.set(ped.data_pedido, {
+        custo_sum: prev.custo_sum + item.custo_unit,
+        preco_sum: prev.preco_sum + item.preco_unit,
+        count: prev.count + 1,
+      })
     }
 
     const dias: PrecoVsCustoGraficoDia[] = Array.from(diaMap.entries()).map(([dia, v]) => {
