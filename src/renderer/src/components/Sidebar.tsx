@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { LayoutDashboard, ClipboardList, History, BarChart2, Wallet, Settings, RefreshCw, RotateCcw, AlertTriangle, CloudDownload } from 'lucide-react'
+import { LayoutDashboard, ClipboardList, History, BarChart2, Wallet, Settings, RefreshCw, RotateCcw, AlertTriangle, CloudDownload, X } from 'lucide-react'
 import logoImg from '../assets/logo.png'
 import { useState, useEffect } from 'react'
 import { IPC } from '../../../shared/ipc-channels'
@@ -18,7 +18,8 @@ export function Sidebar() {
   const [syncing, setSyncing] = useState(false)
   const [confirm, setConfirm] = useState(false)
   const [dbSource, setDbSource] = useState<'google-drive' | 'local' | null>(null)
-  const [autoSynced, setAutoSynced] = useState(false)
+  // pendingSync = another machine updated the DB; user chooses when to reload
+  const [pendingSync, setPendingSync] = useState(false)
   const appVersion = (window as unknown as { __APP_VERSION__?: string }).__APP_VERSION__ ?? '—'
 
   useEffect(() => {
@@ -26,10 +27,8 @@ export function Sidebar() {
       .then(r => setDbSource(r.source))
       .catch(() => setDbSource('local'))
 
-    window.electron.on(IPC.DB_SYNCED, () => {
-      setAutoSynced(true)
-      setTimeout(() => window.location.reload(), 1500)
-    })
+    // Show a banner instead of auto-reloading — lets the user finish what they're doing
+    window.electron.on(IPC.DB_SYNCED, () => setPendingSync(true))
   }, [])
 
   async function handleReload() {
@@ -110,13 +109,25 @@ export function Sidebar() {
             Cancelar
           </button>
         )}
-        {autoSynced && (
-          <div className="flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 rounded-lg px-2.5 py-2">
+        {pendingSync && (
+          <div className="flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 rounded-lg px-2 py-1.5">
             <CloudDownload size={13} className="text-emerald-500 shrink-0" />
-            <p className="text-xs text-emerald-700 leading-snug">Dados atualizados! Recarregando...</p>
+            <button
+              className="flex-1 text-xs text-emerald-700 text-left leading-snug hover:underline"
+              onClick={() => window.location.reload()}
+            >
+              Novos dados disponíveis.<br />Clique para atualizar.
+            </button>
+            <button
+              onClick={() => setPendingSync(false)}
+              className="text-emerald-400 hover:text-emerald-600 shrink-0"
+              title="Dispensar"
+            >
+              <X size={12} />
+            </button>
           </div>
         )}
-        {dbSource === 'local' && !autoSynced && (
+        {dbSource === 'local' && !pendingSync && (
           <div className="flex items-start gap-1.5 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-2">
             <AlertTriangle size={13} className="text-amber-500 mt-0.5 shrink-0" />
             <p className="text-xs text-amber-700 leading-snug">
