@@ -2,6 +2,8 @@
 
 **Data:** 2026-03-23
 **Status:** Aprovado
+**Supabase Project ID:** `kdjkdhuzobascohxvoin`
+**Supabase URL:** `https://kdjkdhuzobascohxvoin.supabase.co`
 
 ---
 
