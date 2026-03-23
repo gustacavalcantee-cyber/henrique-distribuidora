@@ -51,14 +51,6 @@ export function Lancamentos() {
   const [shareCopied, setShareCopied] = useState(false)
   const [shareLoading, setShareLoading] = useState(false)
 
-  // ESC to close share modal
-  useEffect(() => {
-    if (!sharePreview) return
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') setSharePreview(null) }
-    document.addEventListener('keydown', handler)
-    return () => document.removeEventListener('keydown', handler)
-  }, [sharePreview])
-
   // Global "Produto" button — adds/removes products for ALL stores
   const [showGlobalProdMenu, setShowGlobalProdMenu] = useState(false)
   const [globalProdSearch, setGlobalProdSearch] = useState('')

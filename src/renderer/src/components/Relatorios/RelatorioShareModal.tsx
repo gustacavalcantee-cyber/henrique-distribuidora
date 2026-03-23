@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { Share2, X, Check } from 'lucide-react'
 import { IPC } from '../../../../shared/ipc-channels'
@@ -12,6 +12,14 @@ interface RelatorioShareModalProps {
 export function RelatorioShareModal({ image, filename = 'relatorio.png', onClose }: RelatorioShareModalProps) {
   const [copied, setCopied] = useState(false)
   const [whatsappCopied, setWhatsappCopied] = useState(false)
+
+  // ESC closes the modal
+  useEffect(() => {
+    if (!image) return
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [image, onClose])
 
   if (!image) return null
 

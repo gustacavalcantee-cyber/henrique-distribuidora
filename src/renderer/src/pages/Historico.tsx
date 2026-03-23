@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Trash2, Pencil, Printer } from 'lucide-react'
+import { Trash2, Pencil, Printer, X } from 'lucide-react'
 import type { Pedido, Rede, Loja, ItemPedido, Produto } from '../../../shared/types'
 import { IPC } from '../../../shared/ipc-channels'
 
@@ -29,6 +29,14 @@ export function Historico() {
     window.electron.invoke<Rede[]>(IPC.REDES_LIST).then(setRedes)
     window.electron.invoke<Loja[]>(IPC.LOJAS_LIST).then(setLojas)
   }, [])
+
+  // ESC closes the edit modal
+  useEffect(() => {
+    if (!editState) return
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') setEditState(null) }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [editState])
 
   const loadPedidos = async () => {
     setLoading(true)
@@ -181,57 +189,81 @@ export function Historico() {
 
       {/* Edit Modal */}
       {editState && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-5 flex flex-col gap-4">
-            <div className="flex flex-col gap-1">
-              <h3 className="font-bold text-lg">Editar Pedido</h3>
-              <div className="text-sm text-gray-500">
-                {formatDate(editState.pedido.data_pedido)} — {getLojaName(editState.pedido.loja_id)}
+        <div
+          className="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
+          onClick={() => setEditState(null)}
+        >
+          <div
+            className="bg-white rounded-lg shadow-xl w-full max-w-md flex flex-col max-h-[90vh]"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 pt-5 pb-3 flex-shrink-0">
+              <div className="flex flex-col gap-0.5">
+                <h3 className="font-bold text-lg">Editar Pedido</h3>
+                <div className="text-sm text-gray-500">
+                  {formatDate(editState.pedido.data_pedido)} — {getLojaName(editState.pedido.loja_id)}
+                </div>
               </div>
-              <div className="flex items-center gap-2 mt-1">
-                <label className="text-sm font-medium text-gray-700 whitespace-nowrap">Nº OC:</label>
-                <input
-                  className="border rounded px-2 py-1 text-sm font-mono w-32"
-                  value={editNumeroOc}
-                  onChange={e => setEditNumeroOc(e.target.value)}
-                />
-              </div>
+              <button
+                onClick={() => setEditState(null)}
+                className="text-gray-400 hover:text-gray-600 rounded p-1 hover:bg-gray-100 flex-shrink-0"
+                title="Fechar (ESC)"
+              >
+                <X size={18} />
+              </button>
             </div>
-            <table className="text-sm border-collapse w-full">
-              <thead>
-                <tr className="bg-gray-50">
-                  <th className="border px-2 py-1 text-left">Produto</th>
-                  <th className="border px-2 py-1 text-center">Unidade</th>
-                  <th className="border px-2 py-1 text-center">Quantidade</th>
-                </tr>
-              </thead>
-              <tbody>
-                {[...editState.itens].sort((a, b) => {
-                  const pa = editState.produtos.find(p => p.id === a.produto_id)?.nome ?? ''
-                  const pb = editState.produtos.find(p => p.id === b.produto_id)?.nome ?? ''
-                  return pa.localeCompare(pb, 'pt-BR')
-                }).map(item => {
-                  const prod = editState.produtos.find(p => p.id === item.produto_id)
-                  return (
-                    <tr key={item.id}>
-                      <td className="border px-2 py-1">{prod?.nome ?? item.produto_id}</td>
-                      <td className="border px-2 py-1 text-center text-gray-500">{prod?.unidade}</td>
-                      <td className="border px-2 py-1 text-center">
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.1"
-                          className="w-20 border rounded px-1 py-0.5 text-center text-sm"
-                          value={editQtds[item.produto_id] ?? ''}
-                          onChange={e => setEditQtds(q => ({ ...q, [item.produto_id]: e.target.value }))}
-                        />
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-            <div className="flex justify-end gap-2">
+
+            {/* OC field */}
+            <div className="flex items-center gap-2 px-5 pb-3 flex-shrink-0">
+              <label className="text-sm font-medium text-gray-700 whitespace-nowrap">Nº OC:</label>
+              <input
+                className="border rounded px-2 py-1 text-sm font-mono w-32"
+                value={editNumeroOc}
+                onChange={e => setEditNumeroOc(e.target.value)}
+              />
+            </div>
+
+            {/* Scrollable table */}
+            <div className="overflow-y-auto flex-1 px-5">
+              <table className="text-sm border-collapse w-full">
+                <thead className="sticky top-0 bg-gray-50 z-10">
+                  <tr>
+                    <th className="border px-2 py-1 text-left">Produto</th>
+                    <th className="border px-2 py-1 text-center">Unidade</th>
+                    <th className="border px-2 py-1 text-center">Quantidade</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...editState.itens].sort((a, b) => {
+                    const pa = editState.produtos.find(p => p.id === a.produto_id)?.nome ?? ''
+                    const pb = editState.produtos.find(p => p.id === b.produto_id)?.nome ?? ''
+                    return pa.localeCompare(pb, 'pt-BR')
+                  }).map(item => {
+                    const prod = editState.produtos.find(p => p.id === item.produto_id)
+                    return (
+                      <tr key={item.id}>
+                        <td className="border px-2 py-1">{prod?.nome ?? item.produto_id}</td>
+                        <td className="border px-2 py-1 text-center text-gray-500">{prod?.unidade}</td>
+                        <td className="border px-2 py-1 text-center">
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.1"
+                            className="w-20 border rounded px-1 py-0.5 text-center text-sm"
+                            value={editQtds[item.produto_id] ?? ''}
+                            onChange={e => setEditQtds(q => ({ ...q, [item.produto_id]: e.target.value }))}
+                          />
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Footer */}
+            <div className="flex justify-end gap-2 px-5 py-4 border-t border-gray-100 flex-shrink-0">
               <button onClick={() => setEditState(null)}
                 className="px-3 py-1.5 text-sm border rounded hover:bg-gray-50">
                 Cancelar

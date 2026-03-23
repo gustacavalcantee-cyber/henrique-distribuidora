@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { Share2, X, Check } from 'lucide-react'
 import { IPC } from '../../../../shared/ipc-channels'
@@ -10,6 +11,14 @@ interface ShareModalProps {
 }
 
 export function ShareModal({ sharePreview, shareCopied, onClose, onCopy }: ShareModalProps) {
+  // ESC closes the modal
+  useEffect(() => {
+    if (!sharePreview) return
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [sharePreview, onClose])
+
   if (!sharePreview) return null
   return createPortal(
     <div
