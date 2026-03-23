@@ -8,7 +8,7 @@ import { runMigrations } from './db/migrate'
 import { seedIfEmpty } from './db/seed'
 import { registerAllHandlers } from './handlers'
 import { setDownloadedUpdatePath } from './handlers/atualizacao'
-import { getDbPath, reloadDb } from './db/client'
+import { getDbPath, reloadDb, closeDb } from './db/client'
 import { IPC } from '../shared/ipc-channels'
 
 let mainWindow: BrowserWindow | null = null
@@ -36,6 +36,7 @@ function startDbWatcher(): void {
     lastMtime = statSync(dbPath).mtimeMs
   } catch { /* arquivo ainda não existe */ }
 
+  // Poll every 8 s — fast enough to catch Google Drive sync within seconds
   setInterval(() => {
     try {
       const mtime = statSync(dbPath).mtimeMs
@@ -47,7 +48,7 @@ function startDbWatcher(): void {
         lastMtime = mtime
       }
     } catch { /* ignora — arquivo temporariamente inacessível durante sync */ }
-  }, 30_000)
+  }, 8_000)
 }
 
 function setupAutoUpdater(): void {
@@ -139,4 +140,9 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()
   }
+})
+
+// Flush DB to disk before the process exits so Google Drive syncs the latest data
+app.on('before-quit', () => {
+  closeDb()
 })

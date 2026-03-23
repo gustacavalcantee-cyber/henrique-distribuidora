@@ -115,11 +115,26 @@ export function getDbSource(): 'google-drive' | 'local' {
   return findGoogleDriveDataPath() ? 'google-drive' : 'local'
 }
 
+/** Returns the raw better-sqlite3 instance from a Drizzle db (if open). */
+function getRawSqlite(db: ReturnType<typeof drizzle> | null): Database.Database | null {
+  try {
+    return (db as unknown as { session: { db: Database.Database } }).session?.db ?? null
+  } catch {
+    return null
+  }
+}
+
 export function getDb() {
   if (_db) return _db
   const dbPath = getDbPath()
   const sqlite = new Database(dbPath)
-  sqlite.pragma('journal_mode = WAL')
+  // DELETE journal mode (vs WAL) is essential for Google Drive sync:
+  //   - Writes go directly into the main .db file — no auxiliary .db-wal / .db-shm files
+  //   - The main file's mtime updates on every write, so the cross-machine watcher works reliably
+  //   - Cloud storage clients sync a single file cleanly without partial-WAL corruption
+  // Checkpoint any leftover WAL from a previous session before switching modes.
+  try { sqlite.pragma('wal_checkpoint(TRUNCATE)') } catch { /* may not exist */ }
+  sqlite.pragma('journal_mode = DELETE')
   sqlite.pragma('foreign_keys = ON')
   _db = drizzle(sqlite, { schema })
   return _db
@@ -127,13 +142,27 @@ export function getDb() {
 
 export function reloadDb() {
   try {
-    if (_db) {
-      // Fecha a conexão atual
-      (_db as unknown as { session: { db: Database.Database } }).session?.db?.close()
+    const raw = getRawSqlite(_db)
+    if (raw) {
+      // Flush any pending changes to the main file before closing
+      try { raw.pragma('wal_checkpoint(TRUNCATE)') } catch { /* ignore */ }
+      raw.close()
     }
   } catch { /* ignora erros ao fechar */ }
   _db = null
   // Reabre na próxima chamada de getDb()
+}
+
+/** Call on app quit to ensure all data is written to disk before cloud sync picks it up. */
+export function closeDb() {
+  try {
+    const raw = getRawSqlite(_db)
+    if (raw) {
+      try { raw.pragma('wal_checkpoint(TRUNCATE)') } catch { /* ignore */ }
+      raw.close()
+    }
+  } catch { /* ignore */ }
+  _db = null
 }
 
 // For testing only — allows injecting in-memory DB
