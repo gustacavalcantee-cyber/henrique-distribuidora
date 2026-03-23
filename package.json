@@ -1,6 +1,6 @@
 {
   "name": "henrique-distribuidora",
-  "version": "1.0.28",
+  "version": "1.0.29",
   "description": "An Electron application with React and TypeScript",
   "main": "./out/main/index.js",
   "author": "example.com",
@@ -27,14 +27,17 @@
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
+    "@supabase/supabase-js": "^2.100.0",
     "ag-grid-community": "^35.1.0",
     "ag-grid-react": "^35.1.0",
     "better-sqlite3": "^12.8.0",
     "date-fns": "^4.1.0",
+    "dotenv": "^17.3.1",
     "drizzle-orm": "^0.45.1",
     "electron-updater": "^6.8.3",
     "exceljs": "^4.4.0",
     "lucide-react": "^0.577.0",
+    "postgres": "^3.4.8",
     "react-router-dom": "^7.13.1",
     "recharts": "^3.8.0",
     "zod": "^4.3.6"
@@ -63,6 +66,7 @@
     "react": "^19.2.1",
     "react-dom": "^19.2.1",
     "tailwindcss": "^3.4.19",
+    "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "vite": "^7.2.6",
     "vitest": "^4.1.0"

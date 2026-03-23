@@ -1,15 +1,19 @@
 import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
 import { execSync } from 'child_process'
-import { statSync } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { autoUpdater } from 'electron-updater'
-import { runMigrations } from './db/migrate'
-import { seedIfEmpty } from './db/seed'
+import { createClient } from '@supabase/supabase-js'
+import { config as loadEnv } from 'dotenv'
 import { registerAllHandlers } from './handlers'
 import { setDownloadedUpdatePath } from './handlers/atualizacao'
-import { getDbPath, reloadDb, closeDb } from './db/client'
+import { closeDb } from './db/client-pg'
 import { IPC } from '../shared/ipc-channels'
+
+// Load .env.local in dev mode
+if (process.env['NODE_ENV'] !== 'production') {
+  loadEnv({ path: join(__dirname, '../../src/main/db/.env.local') })
+}
 
 let mainWindow: BrowserWindow | null = null
 
@@ -29,26 +33,20 @@ function removeQuarentena(): void {
   } catch { /* ignora erros — não crítico */ }
 }
 
-function startDbWatcher(): void {
-  const dbPath = getDbPath()
-  let lastMtime = 0
-  try {
-    lastMtime = statSync(dbPath).mtimeMs
-  } catch { /* arquivo ainda não existe */ }
-
-  // Poll every 8 s — fast enough to catch Google Drive sync within seconds
-  setInterval(() => {
-    try {
-      const mtime = statSync(dbPath).mtimeMs
-      if (mtime !== lastMtime && lastMtime !== 0) {
-        lastMtime = mtime
-        reloadDb()
-        mainWindow?.webContents.send(IPC.DB_SYNCED)
-      } else {
-        lastMtime = mtime
-      }
-    } catch { /* ignora — arquivo temporariamente inacessível durante sync */ }
-  }, 8_000)
+function startRealtimeSync(win: BrowserWindow) {
+  const supabaseUrl = process.env['SUPABASE_URL']
+  const supabaseKey = process.env['SUPABASE_ANON_KEY']
+  if (!supabaseUrl || !supabaseKey) {
+    console.warn('Supabase env vars not set — Realtime sync disabled')
+    return
+  }
+  const supabase = createClient(supabaseUrl, supabaseKey)
+  supabase
+    .channel('db-changes')
+    .on('postgres_changes', { event: '*', schema: 'public' }, () => {
+      if (!win.isDestroyed()) win.webContents.send(IPC.DB_SYNCED)
+    })
+    .subscribe()
 }
 
 function setupAutoUpdater(): void {
@@ -96,6 +94,7 @@ function createWindow(): void {
 
   mainWindow.on('ready-to-show', () => {
     mainWindow!.show()
+    startRealtimeSync(mainWindow!)
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
@@ -125,11 +124,8 @@ app.whenReady().then(() => {
   })
 
   removeQuarentena()
-  runMigrations()
-  seedIfEmpty()
   createWindow()
   setupAutoUpdater()
-  startDbWatcher()
 
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
@@ -142,7 +138,6 @@ app.on('window-all-closed', () => {
   }
 })
 
-// Flush DB to disk before the process exits so Google Drive syncs the latest data
 app.on('before-quit', () => {
-  closeDb()
+  closeDb().catch(() => {})
 })

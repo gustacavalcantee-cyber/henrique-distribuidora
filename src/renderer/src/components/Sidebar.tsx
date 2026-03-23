@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { LayoutDashboard, ClipboardList, History, BarChart2, Wallet, Settings, RefreshCw, RotateCcw, AlertTriangle, CloudDownload, X } from 'lucide-react'
+import { LayoutDashboard, ClipboardList, History, BarChart2, Wallet, Settings, RefreshCw, RotateCcw, CloudDownload, X } from 'lucide-react'
 import logoImg from '../assets/logo.png'
 import { useState, useEffect } from 'react'
 import { IPC } from '../../../shared/ipc-channels'
@@ -15,32 +15,20 @@ const navItems = [
 ]
 
 export function Sidebar() {
-  const [syncing, setSyncing] = useState(false)
   const [confirm, setConfirm] = useState(false)
-  const [dbSource, setDbSource] = useState<'google-drive' | 'local' | null>(null)
   // pendingSync = another machine updated the DB; user chooses when to reload
   const [pendingSync, setPendingSync] = useState(false)
   const appVersion = (window as unknown as { __APP_VERSION__?: string }).__APP_VERSION__ ?? '—'
 
   useEffect(() => {
-    window.electron.invoke<{ source: 'google-drive' | 'local' }>(IPC.DB_STATUS)
-      .then(r => setDbSource(r.source))
-      .catch(() => setDbSource('local'))
-
     // Show a banner instead of auto-reloading — lets the user finish what they're doing
     window.electron.on(IPC.DB_SYNCED, () => setPendingSync(true))
   }, [])
 
-  async function handleReload() {
+  function handleReload() {
     if (!confirm) { setConfirm(true); return }
     setConfirm(false)
-    setSyncing(true)
-    try {
-      await window.electron.invoke(IPC.DB_RELOAD)
-      window.location.reload()
-    } finally {
-      setSyncing(false)
-    }
+    window.location.reload()
   }
 
   return (
@@ -91,15 +79,14 @@ export function Sidebar() {
       <div className="px-4 py-4 border-t border-slate-100 space-y-2">
         <button
           onClick={handleReload}
-          disabled={syncing}
           className={`w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-all ${
             confirm
               ? 'bg-amber-50 text-amber-700 border border-amber-200'
               : 'text-slate-400 hover:bg-slate-50 hover:text-slate-600'
           }`}
         >
-          <RotateCcw size={13} className={syncing ? 'animate-spin' : ''} />
-          {syncing ? 'Recarregando...' : confirm ? 'Confirmar recarga?' : 'Recarregar dados'}
+          <RotateCcw size={13} />
+          {confirm ? 'Confirmar recarga?' : 'Recarregar dados'}
         </button>
         {confirm && (
           <button
@@ -125,14 +112,6 @@ export function Sidebar() {
             >
               <X size={12} />
             </button>
-          </div>
-        )}
-        {dbSource === 'local' && !pendingSync && (
-          <div className="flex items-start gap-1.5 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-2">
-            <AlertTriangle size={13} className="text-amber-500 mt-0.5 shrink-0" />
-            <p className="text-xs text-amber-700 leading-snug">
-              Google Drive não encontrado. Instale e faça login para sincronizar os dados.
-            </p>
           </div>
         )}
         <p className="text-xs text-slate-300 text-center">v{appVersion}</p>

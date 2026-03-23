@@ -4,3 +4,5 @@ out
 .DS_Store
 .eslintcache
 *.log*
+src/main/db/.env.local
+.env.production

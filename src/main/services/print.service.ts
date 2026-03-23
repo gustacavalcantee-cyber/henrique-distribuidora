@@ -1,6 +1,6 @@
 import { eq, inArray } from 'drizzle-orm'
-import { getDb } from '../db/client'
-import { pedidos, itensPedido, produtos, lojas, redes, configuracoes } from '../db/schema'
+import { getDb } from '../db/client-pg'
+import { pedidos, itensPedido, produtos, lojas, redes, configuracoes } from '../db/schema-pg'
 
 export interface PrintData {
   nomeFornecedor: string
@@ -19,43 +19,43 @@ export interface PrintData {
   totalGeral: number
 }
 
-export function getPrintData(pedidoId: number): PrintData {
+export async function getPrintData(pedidoId: number): Promise<PrintData> {
   const db = getDb()
 
-  const pedido = db.select().from(pedidos).where(eq(pedidos.id, pedidoId)).all()[0]
+  const [pedido] = await db.select().from(pedidos).where(eq(pedidos.id, pedidoId))
   if (!pedido) throw new Error(`Pedido ${pedidoId} not found`)
 
-  const loja = db.select().from(lojas).where(eq(lojas.id, pedido.loja_id!)).all()[0]
-  const rede = db.select().from(redes).where(eq(redes.id, pedido.rede_id!)).all()[0]
+  const [loja] = await db.select().from(lojas).where(eq(lojas.id, pedido.loja_id!))
+  const [rede] = await db.select().from(redes).where(eq(redes.id, pedido.rede_id!))
 
-  const configNome = db.select().from(configuracoes).where(eq(configuracoes.chave, 'nome_fornecedor')).all()[0]
-  const configTel = db.select().from(configuracoes).where(eq(configuracoes.chave, 'telefone')).all()[0]
+  const [configNome] = await db.select().from(configuracoes).where(eq(configuracoes.chave, 'nome_fornecedor'))
+  const [configTel] = await db.select().from(configuracoes).where(eq(configuracoes.chave, 'telefone'))
 
   // Rede-specific products — the print template for this rede
-  let redeProds = db
+  let redeProds = await db
     .select({ id: produtos.id, nome: produtos.nome, unidade: produtos.unidade })
     .from(produtos)
     .where(eq(produtos.rede_id, pedido.rede_id!))
     .orderBy(produtos.nome)
-    .all()
 
   // If rede has no registered products, build template from all products ever ordered in this rede
   if (redeProds.length === 0) {
-    const allRedeOrderIds = db.select({ id: pedidos.id }).from(pedidos)
-      .where(eq(pedidos.rede_id, pedido.rede_id!)).all().map(p => p.id)
+    const allRedeOrders = await db.select({ id: pedidos.id }).from(pedidos)
+      .where(eq(pedidos.rede_id, pedido.rede_id!))
+    const allRedeOrderIds = allRedeOrders.map(p => p.id)
     if (allRedeOrderIds.length > 0) {
-      const allRedeItems = db.select({ produto_id: itensPedido.produto_id }).from(itensPedido)
-        .where(inArray(itensPedido.pedido_id, allRedeOrderIds)).all()
+      const allRedeItems = await db.select({ produto_id: itensPedido.produto_id }).from(itensPedido)
+        .where(inArray(itensPedido.pedido_id, allRedeOrderIds))
       const uniqueProdIds = [...new Set(allRedeItems.map(i => i.produto_id).filter(Boolean) as number[])]
       if (uniqueProdIds.length > 0) {
-        redeProds = db.select({ id: produtos.id, nome: produtos.nome, unidade: produtos.unidade })
-          .from(produtos).where(inArray(produtos.id, uniqueProdIds)).orderBy(produtos.nome).all()
+        redeProds = await db.select({ id: produtos.id, nome: produtos.nome, unidade: produtos.unidade })
+          .from(produtos).where(inArray(produtos.id, uniqueProdIds)).orderBy(produtos.nome)
       }
     }
   }
 
   // Ordered items joined with product info (captures any product regardless of rede_id)
-  const orderedWithInfo = db
+  const orderedWithInfo = await db
     .select({
       produto_id: itensPedido.produto_id,
       quantidade: itensPedido.quantidade,
@@ -66,7 +66,6 @@ export function getPrintData(pedidoId: number): PrintData {
     .from(itensPedido)
     .innerJoin(produtos, eq(itensPedido.produto_id, produtos.id))
     .where(eq(itensPedido.pedido_id, pedidoId))
-    .all()
 
   // Index ordered items by product ID and by uppercase name (fallback for global/rede mismatch)
   const itensById = new Map(orderedWithInfo.map(i => [i.produto_id, i]))
@@ -102,7 +101,7 @@ export function getPrintData(pedidoId: number): PrintData {
     }
   }
 
-    linhas.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+  linhas.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
 
   const totalGeral = linhas.reduce((sum, l) => sum + (l.total ?? 0), 0)
   const [y, m, d] = pedido.data_pedido.split('-')
