@@ -12,7 +12,7 @@ interface LancamentosCardsProps {
   shareLoading: boolean
   onQuantidadeChange: (lojaId: number, prodId: number, value: string) => void
   onOcChange: (lojaId: number, value: string) => void
-  onCellBlur: (row: LancamentoRow) => void
+  onCellBlur: (lojaId: number) => void
   onDeleteRow: (lojaId: number) => void
   onToggleRowProd: (lojaId: number, prodId: number) => void
   onSaveLojaNome: (lojaId: number) => void
@@ -83,7 +83,12 @@ export function LancamentosCards({
                   placeholder={ocPlaceholders[row.loja_id] ?? 'OC'}
                   value={row.numero_oc}
                   onChange={e => onOcChange(row.loja_id, e.target.value)}
-                  onBlur={() => onCellBlur(row)}
+                  onBlur={() => onCellBlur(row.loja_id)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && !row.numero_oc && ocPlaceholders[row.loja_id]) {
+                      onOcChange(row.loja_id, ocPlaceholders[row.loja_id])
+                    }
+                  }}
                 />
                 {activeCount > 0 && (
                   <span className="text-xs text-gray-400 flex-shrink-0">
@@ -127,7 +132,7 @@ export function LancamentosCards({
                             min="0"
                             value={qty ?? ''}
                             onChange={e => onQuantidadeChange(row.loja_id, p.id, e.target.value)}
-                            onBlur={() => onCellBlur(row)}
+                            onBlur={() => onCellBlur(row.loja_id)}
                             onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
                           />
                         ) : editMode ? (

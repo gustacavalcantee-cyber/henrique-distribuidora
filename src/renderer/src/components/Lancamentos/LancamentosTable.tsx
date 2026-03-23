@@ -14,7 +14,7 @@ interface LancamentosTableProps {
   shareLoading: boolean
   onQuantidadeChange: (lojaId: number, prodId: number, value: string) => void
   onOcChange: (lojaId: number, value: string) => void
-  onCellBlur: (row: LancamentoRow) => void
+  onCellBlur: (lojaId: number) => void
   onMoveUp: (lojaId: number) => void
   onMoveDown: (lojaId: number) => void
   onDeleteRow: (lojaId: number) => void
@@ -117,7 +117,12 @@ export function LancamentosTable({
                   placeholder={ocPlaceholders[row.loja_id] ?? 'OC'}
                   value={row.numero_oc}
                   onChange={e => onOcChange(row.loja_id, e.target.value)}
-                  onBlur={() => onCellBlur(row)}
+                  onBlur={() => onCellBlur(row.loja_id)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && !row.numero_oc && ocPlaceholders[row.loja_id]) {
+                      onOcChange(row.loja_id, ocPlaceholders[row.loja_id])
+                    }
+                  }}
                 />
               </td>
 
@@ -161,7 +166,7 @@ export function LancamentosTable({
                         onBlur={e => {
                           // Não salva se o foco está indo para outra célula de quantidade
                           if ((e.relatedTarget as HTMLElement)?.hasAttribute('data-cell-id')) return
-                          onCellBlur(row)
+                          onCellBlur(row.loja_id)
                         }}
                         onKeyDown={e => {
                           if (e.key === 'Enter') { (e.target as HTMLInputElement).blur(); return }

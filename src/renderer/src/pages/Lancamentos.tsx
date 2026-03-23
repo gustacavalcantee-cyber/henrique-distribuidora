@@ -27,6 +27,8 @@ export function Lancamentos() {
   const [layoutMode, setLayoutMode] = useState<LayoutMode>('tabela')
   const { rows, setRows, loading, load, saveRow } = useLancamentos(activeRedeId, dataPedido)
   const allRowsRef = useRef<LancamentoRow[]>([])
+  // Always-current snapshot of rows — used by handleCellBlur to avoid stale closures
+  const latestRowsRef = useRef<LancamentoRow[]>(rows)
   const [showAddMenu, setShowAddMenu] = useState(false)
   const [editMode, setEditMode] = useState(false)
 
@@ -88,6 +90,9 @@ export function Lancamentos() {
     load()
   }, [load])
 
+  // Keep latestRowsRef always current so handleCellBlur never reads stale state
+  useEffect(() => { latestRowsRef.current = rows }, [rows])
+
   // Keep allRowsRef in sync on first load
   const isFirstLoad = useRef(true)
   useEffect(() => {
@@ -136,8 +141,13 @@ export function Lancamentos() {
     return { ...row, quantidades }
   }, [rowProdIds])
 
-  const handleCellBlur = useCallback(async (row: LancamentoRow) => {
+  const handleCellBlur = useCallback(async (lojaId: number) => {
     if (!activeRedeId) return
+
+    // Read the LATEST row state via ref — avoids stale closure when onChange and
+    // onBlur fire in quick succession (e.g. typing a qty then pressing TAB)
+    const row = latestRowsRef.current.find(r => r.loja_id === lojaId)
+    if (!row) return
 
     // Check if all quantities are empty/null
     const enriched = enrichRow(row)
@@ -148,7 +158,7 @@ export function Lancamentos() {
       await window.electron.invoke(IPC.PEDIDOS_DELETE, row.pedido_id)
       // Clear OC so placeholder reappears
       setRows(prev => prev.map(r =>
-        r.loja_id === row.loja_id ? { ...r, numero_oc: '', pedido_id: null } : r
+        r.loja_id === lojaId ? { ...r, numero_oc: '', pedido_id: null } : r
       ))
       return
     }
@@ -368,7 +378,7 @@ export function Lancamentos() {
           shareLoading,
           onQuantidadeChange: handleQuantidadeChange,
           onOcChange: handleOcChange,
-          onCellBlur: handleCellBlur,
+          onCellBlur: (lojaId: number) => handleCellBlur(lojaId),
           onDeleteRow: handleDeleteRow,
           onToggleRowProd: handleToggleRowProd,
           onSaveLojaNome: handleSaveLojaNome,
