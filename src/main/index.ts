@@ -5,11 +5,9 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { autoUpdater } from 'electron-updater'
 import { createClient } from '@supabase/supabase-js'
 import { config as loadEnv } from 'dotenv'
-import { runMigrations } from './db/migrate'
-import { seedIfEmpty } from './db/seed'
 import { registerAllHandlers } from './handlers'
 import { setDownloadedUpdatePath } from './handlers/atualizacao'
-import { closeDb } from './db/client'
+import { closeDb } from './db/client-pg'
 import { IPC } from '../shared/ipc-channels'
 
 // Load .env.local in dev mode
@@ -126,8 +124,6 @@ app.whenReady().then(() => {
   })
 
   removeQuarentena()
-  runMigrations()
-  seedIfEmpty()
   createWindow()
   setupAutoUpdater()
 
@@ -143,5 +139,5 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
-  closeDb()
+  closeDb().catch(() => {})
 })

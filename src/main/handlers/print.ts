@@ -4,7 +4,7 @@ import { getPrintData, generatePrintHtml, generateShareHtml } from '../services/
 
 export function registerPrintHandlers() {
   ipcMain.handle(IPC.PRINT_PEDIDO, async (_event, pedidoId: number) => {
-    const data = getPrintData(pedidoId)
+    const data = await getPrintData(pedidoId)
     const html = generatePrintHtml(data, true) // true = show preview controls
 
     const win = new BrowserWindow({
@@ -21,7 +21,7 @@ export function registerPrintHandlers() {
   })
 
   ipcMain.handle(IPC.SHARE_NOTA, async (_event, pedidoId: number) => {
-    const data = getPrintData(pedidoId)
+    const data = await getPrintData(pedidoId)
     const fmt = (v: number) => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
     const fmtQty = (v: number | null, un: string) => v == null ? '-' : un === 'KG' ? v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : String(v)
     const linhasProdutos = data.linhas
@@ -42,8 +42,8 @@ export function registerPrintHandlers() {
     await shell.openExternal(url)
   })
 
-  ipcMain.handle(IPC.GET_NOTA_TEXT, (_event, pedidoId: number) => {
-    const data = getPrintData(pedidoId)
+  ipcMain.handle(IPC.GET_NOTA_TEXT, async (_event, pedidoId: number) => {
+    const data = await getPrintData(pedidoId)
     const fmt = (v: number) => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
     const fmtQty = (v: number | null, un: string) => v == null ? '-' : un === 'KG' ? v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : String(v)
     const linhasProdutos = data.linhas
@@ -63,7 +63,7 @@ export function registerPrintHandlers() {
   })
 
   ipcMain.handle(IPC.GET_NOTA_IMAGE, async (_event, pedidoId: number) => {
-    const data = getPrintData(pedidoId)
+    const data = await getPrintData(pedidoId)
     const html = generateShareHtml(data)
 
     // A5 portrait at 96dpi: 148mm × 190mm ≈ 559 × 719px
