@@ -1,31 +1,32 @@
 import { ipcMain } from 'electron'
 import { eq, and, gte, lte, type SQL } from 'drizzle-orm'
-import { getDb } from '../db/client-pg'
-import { despesas } from '../db/schema-pg'
+import { getDb } from '../db/client-local'
+import { despesas } from '../db/schema-local'
 import { IPC } from '../../shared/ipc-channels'
 
 export function registerDespesasHandlers() {
-  ipcMain.handle(IPC.DESPESAS_LIST, async (_event, filters?: { data_inicio?: string; data_fim?: string; rede_id?: number }) => {
+  ipcMain.handle(IPC.DESPESAS_LIST, (_event, filters?: { data_inicio?: string; data_fim?: string; rede_id?: number }) => {
     const db = getDb()
     const conditions: SQL<unknown>[] = []
     if (filters?.data_inicio) conditions.push(gte(despesas.data, filters.data_inicio))
     if (filters?.data_fim) conditions.push(lte(despesas.data, filters.data_fim))
     if (filters?.rede_id) conditions.push(eq(despesas.rede_id, filters.rede_id))
-    return await db.select().from(despesas)
+    return db.select().from(despesas)
       .where(conditions.length > 0 ? and(...conditions) : undefined)
       .orderBy(despesas.data)
+      .all()
   })
 
-  ipcMain.handle(IPC.DESPESAS_CREATE, async (_event, data: { data: string; categoria: string; descricao?: string; rede_id?: number; loja_id?: number; valor: number }) => {
-    return (await getDb().insert(despesas).values(data).returning())[0]
-  })
+  ipcMain.handle(IPC.DESPESAS_CREATE, (_event, data: { data: string; categoria: string; descricao?: string; rede_id?: number; loja_id?: number; valor: number }) =>
+    getDb().insert(despesas).values({ ...data, synced: 0 }).returning().all()[0]
+  )
 
-  ipcMain.handle(IPC.DESPESAS_UPDATE, async (_event, data: { id: number; data?: string; categoria?: string; descricao?: string; valor?: number }) => {
+  ipcMain.handle(IPC.DESPESAS_UPDATE, (_event, data: { id: number; data?: string; categoria?: string; descricao?: string; valor?: number }) => {
     const { id, ...updates } = data
-    return (await getDb().update(despesas).set(updates).where(eq(despesas.id, id)).returning())[0]
+    return getDb().update(despesas).set({ ...updates, synced: 0 }).where(eq(despesas.id, id)).returning().all()[0]
   })
 
-  ipcMain.handle(IPC.DESPESAS_DELETE, async (_event, id: number) => {
-    await getDb().delete(despesas).where(eq(despesas.id, id))
-  })
+  ipcMain.handle(IPC.DESPESAS_DELETE, (_event, id: number) =>
+    getDb().delete(despesas).where(eq(despesas.id, id)).run()
+  )
 }

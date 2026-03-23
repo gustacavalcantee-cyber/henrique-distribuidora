@@ -1,24 +1,22 @@
 import { ipcMain } from 'electron'
 import { eq } from 'drizzle-orm'
-import { getDb } from '../db/client-pg'
-import { redes } from '../db/schema-pg'
+import { getDb } from '../db/client-local'
+import { redes } from '../db/schema-local'
 import { IPC } from '../../shared/ipc-channels'
 
 export function registerRedesHandlers() {
-  ipcMain.handle(IPC.REDES_LIST, async () => {
-    return await getDb().select().from(redes)
-  })
+  ipcMain.handle(IPC.REDES_LIST, () => getDb().select().from(redes).all())
 
-  ipcMain.handle(IPC.REDES_CREATE, async (_event, data: { nome: string; cor_tema: string }) => {
-    return (await getDb().insert(redes).values(data).returning())[0]
-  })
+  ipcMain.handle(IPC.REDES_CREATE, (_event, data: { nome: string; cor_tema: string }) =>
+    getDb().insert(redes).values({ ...data, synced: 0 }).returning().all()[0]
+  )
 
-  ipcMain.handle(IPC.REDES_UPDATE, async (_event, data: { id: number; nome?: string; cor_tema?: string; ativo?: number }) => {
+  ipcMain.handle(IPC.REDES_UPDATE, (_event, data: { id: number; nome?: string; cor_tema?: string; ativo?: number }) => {
     const { id, ...updates } = data
-    return (await getDb().update(redes).set(updates).where(eq(redes.id, id)).returning())[0]
+    return getDb().update(redes).set({ ...updates, synced: 0 }).where(eq(redes.id, id)).returning().all()[0]
   })
 
-  ipcMain.handle(IPC.REDES_DELETE, async (_event, id: number) => {
-    await getDb().delete(redes).where(eq(redes.id, id))
-  })
+  ipcMain.handle(IPC.REDES_DELETE, (_event, id: number) =>
+    getDb().delete(redes).where(eq(redes.id, id)).run()
+  )
 }

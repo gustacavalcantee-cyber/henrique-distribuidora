@@ -3,11 +3,11 @@ import { join } from 'path'
 import { execSync } from 'child_process'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { autoUpdater } from 'electron-updater'
-import { createClient } from '@supabase/supabase-js'
 import { config as loadEnv } from 'dotenv'
 import { registerAllHandlers } from './handlers'
 import { setDownloadedUpdatePath } from './handlers/atualizacao'
-import { closeDb } from './db/client-pg'
+import { closeDb } from './db/client-local'
+import { seedFromSupabase } from './db/seed-from-supabase'
 import { IPC } from '../shared/ipc-channels'
 
 // Load .env.local in dev mode
@@ -17,11 +17,6 @@ if (process.env['NODE_ENV'] !== 'production') {
 
 let mainWindow: BrowserWindow | null = null
 
-/**
- * Remove o atributo de quarentena do macOS (Gatekeeper) do próprio app.
- * Isso evita o aviso "A Apple não pôde verificar..." em apps não assinados com Developer ID.
- * Roda silenciosamente — não faz nada em Windows/Linux ou se já removido.
- */
 function removeQuarentena(): void {
   if (process.platform !== 'darwin') return
   try {
@@ -33,26 +28,8 @@ function removeQuarentena(): void {
   } catch { /* ignora erros — não crítico */ }
 }
 
-function startRealtimeSync(win: BrowserWindow) {
-  const supabaseUrl = process.env['SUPABASE_URL']
-  const supabaseKey = process.env['SUPABASE_ANON_KEY']
-  if (!supabaseUrl || !supabaseKey) {
-    console.warn('Supabase env vars not set — Realtime sync disabled')
-    return
-  }
-  const supabase = createClient(supabaseUrl, supabaseKey)
-  supabase
-    .channel('db-changes')
-    .on('postgres_changes', { event: '*', schema: 'public' }, () => {
-      if (!win.isDestroyed()) win.webContents.send(IPC.DB_SYNCED)
-    })
-    .subscribe()
-}
-
 function setupAutoUpdater(): void {
   autoUpdater.autoDownload = true
-  // No macOS, não usamos quitAndInstall (Squirrel.Mac requer Apple Developer ID)
-  // O DMG baixado é aberto no Finder para instalação manual
   autoUpdater.autoInstallOnAppQuit = process.platform !== 'darwin'
 
   if (is.dev) return
@@ -75,7 +52,6 @@ function setupAutoUpdater(): void {
     mainWindow?.webContents.send(IPC.UPDATE_ERROR, { message: err.message })
   })
 
-  // Verifica ao abrir e a cada 4 horas
   autoUpdater.checkForUpdates().catch(() => {})
   setInterval(() => autoUpdater.checkForUpdates().catch(() => {}), 4 * 60 * 60 * 1000)
 }
@@ -94,7 +70,6 @@ function createWindow(): void {
 
   mainWindow.on('ready-to-show', () => {
     mainWindow!.show()
-    startRealtimeSync(mainWindow!)
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
@@ -112,12 +87,11 @@ function createWindow(): void {
 // Register IPC handlers before app is ready
 registerAllHandlers()
 
-// Sync IPC so preload can read the real app version in packaged builds
 ipcMain.on('get:version', (event) => {
   event.returnValue = app.getVersion()
 })
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   electronApp.setAppUserModelId('com.henrique.vendas')
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
@@ -126,6 +100,11 @@ app.whenReady().then(() => {
   removeQuarentena()
   createWindow()
   setupAutoUpdater()
+
+  // Seed local SQLite from Supabase on first run (runs in background, non-blocking)
+  seedFromSupabase().catch((err) => {
+    console.error('[seed] Failed to seed from Supabase:', err.message)
+  })
 
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
@@ -139,5 +118,5 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
-  closeDb().catch(() => {})
+  closeDb()
 })

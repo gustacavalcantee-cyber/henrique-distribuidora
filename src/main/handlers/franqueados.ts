@@ -1,29 +1,26 @@
 import { ipcMain } from 'electron'
 import { eq } from 'drizzle-orm'
-import { getDb } from '../db/client-pg'
-import { franqueados, lojas } from '../db/schema-pg'
+import { getDb } from '../db/client-local'
+import { franqueados, lojas } from '../db/schema-local'
 import { IPC } from '../../shared/ipc-channels'
 
 export function registerFranqueadosHandlers() {
-  ipcMain.handle(IPC.FRANQUEADOS_LIST, async () => {
-    return await getDb().select().from(franqueados)
+  ipcMain.handle(IPC.FRANQUEADOS_LIST, () => getDb().select().from(franqueados).all())
+
+  ipcMain.handle(IPC.FRANQUEADOS_CREATE, (_event, data: { nome: string }) =>
+    getDb().insert(franqueados).values({ ...data, synced: 0 }).returning().all()[0]
+  )
+
+  ipcMain.handle(IPC.FRANQUEADOS_UPDATE, (_event, data: { id: number; nome: string }) =>
+    getDb().update(franqueados).set({ nome: data.nome, synced: 0 }).where(eq(franqueados.id, data.id)).returning().all()[0]
+  )
+
+  ipcMain.handle(IPC.FRANQUEADOS_DELETE, (_event, id: number) => {
+    getDb().update(lojas).set({ franqueado_id: null }).where(eq(lojas.franqueado_id, id)).run()
+    getDb().delete(franqueados).where(eq(franqueados.id, id)).run()
   })
 
-  ipcMain.handle(IPC.FRANQUEADOS_CREATE, async (_event, data: { nome: string }) => {
-    return (await getDb().insert(franqueados).values(data).returning())[0]
-  })
-
-  ipcMain.handle(IPC.FRANQUEADOS_UPDATE, async (_event, data: { id: number; nome: string }) => {
-    return (await getDb().update(franqueados).set({ nome: data.nome }).where(eq(franqueados.id, data.id)).returning())[0]
-  })
-
-  ipcMain.handle(IPC.FRANQUEADOS_DELETE, async (_event, id: number) => {
-    // Unlink lojas first
-    await getDb().update(lojas).set({ franqueado_id: null }).where(eq(lojas.franqueado_id, id))
-    await getDb().delete(franqueados).where(eq(franqueados.id, id))
-  })
-
-  ipcMain.handle(IPC.LOJAS_SET_FRANQUEADO, async (_event, loja_id: number, franqueado_id: number | null) => {
-    await getDb().update(lojas).set({ franqueado_id }).where(eq(lojas.id, loja_id))
-  })
+  ipcMain.handle(IPC.LOJAS_SET_FRANQUEADO, (_event, loja_id: number, franqueado_id: number | null) =>
+    getDb().update(lojas).set({ franqueado_id, synced: 0 }).where(eq(lojas.id, loja_id)).run()
+  )
 }

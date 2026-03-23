@@ -1,21 +1,18 @@
 import { ipcMain } from 'electron'
 import { eq } from 'drizzle-orm'
-import { getDb } from '../db/client-pg'
-import { configuracoes } from '../db/schema-pg'
+import { getDb } from '../db/client-local'
+import { configuracoes } from '../db/schema-local'
 import { IPC } from '../../shared/ipc-channels'
 
 export function registerConfiguracoesHandlers() {
-  ipcMain.handle(IPC.CONFIG_GET, async (_event, chave: string) => {
-    const db = await getDb()
-    const row = (await db.select().from(configuracoes).where(eq(configuracoes.chave, chave)).limit(1))[0]
+  ipcMain.handle(IPC.CONFIG_GET, (_event, chave: string) => {
+    const row = getDb().select().from(configuracoes).where(eq(configuracoes.chave, chave)).limit(1).all()[0]
     return row?.valor ?? null
   })
 
-  ipcMain.handle(IPC.CONFIG_SET, async (_event, chave: string, valor: string) => {
-    const db = await getDb()
-    return (await db.insert(configuracoes)
-      .values({ chave, valor })
+  ipcMain.handle(IPC.CONFIG_SET, (_event, chave: string, valor: string) =>
+    getDb().insert(configuracoes).values({ chave, valor })
       .onConflictDoUpdate({ target: configuracoes.chave, set: { valor } })
-      .returning())[0]
-  })
+      .returning().all()[0]
+  )
 }

@@ -1,36 +1,35 @@
 import { eq, and, gte, lte, like, isNull, desc, type SQL } from 'drizzle-orm'
-import { getDb } from '../db/client-pg'
-import { pedidos, itensPedido, precos, custos, lojas } from '../db/schema-pg'
+import { getDb } from '../db/client-local'
+import { pedidos, itensPedido, precos, custos, lojas } from '../db/schema-local'
 import type { SalvarPedidoInput, LancamentoRow } from '../../shared/types'
 
 type Db = ReturnType<typeof getDb>
 
-// Get vigent price for a product/loja combination
-async function getPrecoVigente(db: Db, produto_id: number, loja_id: number): Promise<number> {
-  const row = (await db.select({ preco_venda: precos.preco_venda })
+function getPrecoVigente(db: Db, produto_id: number, loja_id: number): number {
+  const row = db.select({ preco_venda: precos.preco_venda })
     .from(precos)
     .where(and(eq(precos.produto_id, produto_id), eq(precos.loja_id, loja_id), isNull(precos.vigencia_fim)))
-    .limit(1))[0]
+    .limit(1)
+    .all()[0]
   return row?.preco_venda ?? 0
 }
 
-// Get vigent cost for a product
-async function getCustoVigente(db: Db, produto_id: number): Promise<number> {
-  const row = (await db.select({ custo_compra: custos.custo_compra })
+function getCustoVigente(db: Db, produto_id: number): number {
+  const row = db.select({ custo_compra: custos.custo_compra })
     .from(custos)
     .where(and(eq(custos.produto_id, produto_id), isNull(custos.vigencia_fim)))
-    .limit(1))[0]
+    .limit(1)
+    .all()[0]
   return row?.custo_compra ?? 0
 }
 
-// Resolve itens: fill preco_unit/custo_unit from DB if not provided
-async function resolveItens(db: Db, loja_id: number, itens: SalvarPedidoInput['itens']) {
-  return Promise.all(itens.map(async item => ({
+function resolveItens(db: Db, loja_id: number, itens: SalvarPedidoInput['itens']) {
+  return itens.map(item => ({
     produto_id: item.produto_id,
     quantidade: item.quantidade,
-    preco_unit: item.preco_unit ?? await getPrecoVigente(db, item.produto_id, loja_id),
-    custo_unit: item.custo_unit ?? await getCustoVigente(db, item.produto_id),
-  })))
+    preco_unit: item.preco_unit ?? getPrecoVigente(db, item.produto_id, loja_id),
+    custo_unit: item.custo_unit ?? getCustoVigente(db, item.produto_id),
+  }))
 }
 
 export interface PedidoFilters {
@@ -41,7 +40,7 @@ export interface PedidoFilters {
   numero_oc?: string
 }
 
-export async function listPedidos(filters: PedidoFilters = {}) {
+export function listPedidos(filters: PedidoFilters = {}) {
   const db = getDb()
   const conditions: SQL<unknown>[] = []
   if (filters.rede_id) conditions.push(eq(pedidos.rede_id, filters.rede_id))
@@ -50,17 +49,18 @@ export async function listPedidos(filters: PedidoFilters = {}) {
   if (filters.data_fim) conditions.push(lte(pedidos.data_pedido, filters.data_fim))
   if (filters.numero_oc) conditions.push(like(pedidos.numero_oc, `%${filters.numero_oc}%`))
 
-  return await db.select().from(pedidos)
+  return db.select().from(pedidos)
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(desc(pedidos.data_pedido), desc(pedidos.id))
+    .all()
 }
 
-export async function getPedidoItens(pedido_id: number) {
-  return await getDb().select().from(itensPedido).where(eq(itensPedido.pedido_id, pedido_id))
+export function getPedidoItens(pedido_id: number) {
+  return getDb().select().from(itensPedido).where(eq(itensPedido.pedido_id, pedido_id)).all()
 }
 
-export async function checkDuplicate(rede_id: number, loja_id: number, data_pedido: string, numero_oc: string) {
-  const result = await getDb().select({ id: pedidos.id })
+export function checkDuplicate(rede_id: number, loja_id: number, data_pedido: string, numero_oc: string) {
+  const result = getDb().select({ id: pedidos.id })
     .from(pedidos)
     .where(and(
       eq(pedidos.rede_id, rede_id),
@@ -68,15 +68,14 @@ export async function checkDuplicate(rede_id: number, loja_id: number, data_pedi
       eq(pedidos.data_pedido, data_pedido),
       eq(pedidos.numero_oc, numero_oc),
     ))
+    .all()
   return result.length > 0
 }
 
-export async function salvarPedido(input: SalvarPedidoInput) {
+export function salvarPedido(input: SalvarPedidoInput): number {
   const db = getDb()
 
-  // Check if any pedido already exists for this rede/loja/date (regardless of OC number)
-  // Always update the most recent one to avoid duplicates
-  const existing = (await db.select({ id: pedidos.id })
+  const existing = db.select({ id: pedidos.id })
     .from(pedidos)
     .where(and(
       eq(pedidos.rede_id, input.rede_id),
@@ -84,70 +83,70 @@ export async function salvarPedido(input: SalvarPedidoInput) {
       eq(pedidos.data_pedido, input.data_pedido),
     ))
     .orderBy(desc(pedidos.id))
-    .limit(1))[0]
+    .limit(1)
+    .all()[0]
 
   if (existing) {
-    // Update: update numero_oc, delete existing items and re-insert
-    await db.update(pedidos).set({ numero_oc: input.numero_oc, observacoes: input.observacoes }).where(eq(pedidos.id, existing.id))
-    await db.delete(itensPedido).where(eq(itensPedido.pedido_id, existing.id))
-    const resolvedItens = await resolveItens(db, input.loja_id, input.itens)
+    db.update(pedidos).set({ numero_oc: input.numero_oc, observacoes: input.observacoes, synced: 0 }).where(eq(pedidos.id, existing.id)).run()
+    db.delete(itensPedido).where(eq(itensPedido.pedido_id, existing.id)).run()
+    const resolvedItens = resolveItens(db, input.loja_id, input.itens)
     for (const item of resolvedItens) {
-      await db.insert(itensPedido).values({ pedido_id: existing.id, ...item })
+      db.insert(itensPedido).values({ pedido_id: existing.id, ...item, synced: 0 }).run()
     }
     return existing.id
   } else {
-    // Insert new pedido
-    const [newPedido] = await db.insert(pedidos).values({
+    const [newPedido] = db.insert(pedidos).values({
       rede_id: input.rede_id,
       loja_id: input.loja_id,
       data_pedido: input.data_pedido,
       numero_oc: input.numero_oc,
       observacoes: input.observacoes,
-    }).returning()
+      synced: 0,
+    }).returning().all()
 
-    const resolvedItens = await resolveItens(db, input.loja_id, input.itens)
+    const resolvedItens = resolveItens(db, input.loja_id, input.itens)
     for (const item of resolvedItens) {
-      await db.insert(itensPedido).values({ pedido_id: newPedido.id, ...item })
+      db.insert(itensPedido).values({ pedido_id: newPedido.id, ...item, synced: 0 }).run()
     }
     return newPedido.id
   }
 }
 
-export async function updatePedidoById(id: number, data: { numero_oc: string; itens: SalvarPedidoInput['itens'] }) {
+export function updatePedidoById(id: number, data: { numero_oc: string; itens: SalvarPedidoInput['itens'] }): number {
   const db = getDb()
-  const pedido = (await db.select({ loja_id: pedidos.loja_id }).from(pedidos).where(eq(pedidos.id, id)).limit(1))[0]
+  const pedido = db.select({ loja_id: pedidos.loja_id }).from(pedidos).where(eq(pedidos.id, id)).limit(1).all()[0]
   if (!pedido) throw new Error(`Pedido ${id} not found`)
-  await db.update(pedidos).set({ numero_oc: data.numero_oc }).where(eq(pedidos.id, id))
-  await db.delete(itensPedido).where(eq(itensPedido.pedido_id, id))
-  const resolvedItens = await resolveItens(db, pedido.loja_id!, data.itens)
+  db.update(pedidos).set({ numero_oc: data.numero_oc, synced: 0 }).where(eq(pedidos.id, id)).run()
+  db.delete(itensPedido).where(eq(itensPedido.pedido_id, id)).run()
+  const resolvedItens = resolveItens(db, pedido.loja_id!, data.itens)
   for (const item of resolvedItens) {
-    await db.insert(itensPedido).values({ pedido_id: id, ...item })
+    db.insert(itensPedido).values({ pedido_id: id, ...item, synced: 0 }).run()
   }
   return id
 }
 
-export async function deletePedido(id: number) {
+export function deletePedido(id: number): void {
   // CASCADE handles itens_pedido deletion
-  await getDb().delete(pedidos).where(eq(pedidos.id, id))
+  getDb().delete(pedidos).where(eq(pedidos.id, id)).run()
 }
 
-// Returns LancamentoRow[] for the daily matrix (all stores for a rede on a date)
-export async function getLancamentosParaData(rede_id: number, data_pedido: string): Promise<LancamentoRow[]> {
+export function getLancamentosParaData(rede_id: number, data_pedido: string): LancamentoRow[] {
   const db = getDb()
-  const todasLojas = await db.select().from(lojas)
+  const todasLojas = db.select().from(lojas)
     .where(and(eq(lojas.rede_id, rede_id), eq(lojas.ativo, 1)))
+    .all()
 
-  return Promise.all(todasLojas.map(async loja => {
-    const pedido = (await db.select().from(pedidos)
+  return todasLojas.map(loja => {
+    const pedido = db.select().from(pedidos)
       .where(and(eq(pedidos.loja_id, loja.id), eq(pedidos.data_pedido, data_pedido), eq(pedidos.rede_id, rede_id)))
       .orderBy(desc(pedidos.id))
-      .limit(1))[0]
+      .limit(1)
+      .all()[0]
 
     const quantidades: Record<number, number | null> = {}
     if (pedido) {
-      const itens = await db.select().from(itensPedido).where(eq(itensPedido.pedido_id, pedido.id))
+      const itens = db.select().from(itensPedido).where(eq(itensPedido.pedido_id, pedido.id)).all()
       for (const item of itens) {
-        // quantidade === 0 means "active in row but no qty entered" — treat as null in the UI
         if (item.produto_id !== null) quantidades[item.produto_id] = item.quantidade === 0 ? null : item.quantidade
       }
     }
@@ -159,5 +158,5 @@ export async function getLancamentosParaData(rede_id: number, data_pedido: strin
       numero_oc: pedido?.numero_oc ?? '',
       quantidades,
     }
-  }))
+  })
 }
