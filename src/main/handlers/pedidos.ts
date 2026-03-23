@@ -1,7 +1,7 @@
 import { ipcMain } from 'electron'
-import { eq, and, gte, lte, inArray } from 'drizzle-orm'
-import { getDb } from '../db/client'
-import { pedidos, itensPedido } from '../db/schema'
+import { eq, and, gte, lte, inArray, desc } from 'drizzle-orm'
+import { getDb } from '../db/client-pg'
+import { pedidos, itensPedido } from '../db/schema-pg'
 import { IPC } from '../../shared/ipc-channels'
 import {
   listPedidos,
@@ -16,63 +16,59 @@ import type { SalvarPedidoInput } from '../../shared/types'
 import type { PedidoFilters } from '../services/pedidos.service'
 
 export function registerPedidosHandlers() {
-  ipcMain.handle(IPC.PEDIDOS_LIST, (_event, filters?: PedidoFilters) => {
-    return listPedidos(filters)
+  ipcMain.handle(IPC.PEDIDOS_LIST, async (_event, filters?: PedidoFilters) => {
+    return await listPedidos(filters)
   })
 
-  ipcMain.handle(IPC.PEDIDOS_BY_DATE_REDE, (_event, rede_id: number, data_pedido: string) => {
-    return getLancamentosParaData(rede_id, data_pedido)
+  ipcMain.handle(IPC.PEDIDOS_BY_DATE_REDE, async (_event, rede_id: number, data_pedido: string) => {
+    return await getLancamentosParaData(rede_id, data_pedido)
   })
 
-  ipcMain.handle(IPC.PEDIDOS_CREATE, (_event, input: SalvarPedidoInput) => {
-    return salvarPedido(input)
+  ipcMain.handle(IPC.PEDIDOS_CREATE, async (_event, input: SalvarPedidoInput) => {
+    return await salvarPedido(input)
   })
 
-  ipcMain.handle(IPC.PEDIDOS_UPDATE, (_event, input: SalvarPedidoInput) => {
-    return salvarPedido(input)  // salvarPedido handles both create and update
+  ipcMain.handle(IPC.PEDIDOS_UPDATE, async (_event, input: SalvarPedidoInput) => {
+    return await salvarPedido(input)  // salvarPedido handles both create and update
   })
 
-  ipcMain.handle(IPC.PEDIDOS_DELETE, (_event, id: number) => {
-    deletePedido(id)
+  ipcMain.handle(IPC.PEDIDOS_DELETE, async (_event, id: number) => {
+    await deletePedido(id)
   })
 
-  ipcMain.handle(IPC.PEDIDOS_CHECK_DUPLICATE, (_event, rede_id: number, loja_id: number, data_pedido: string, numero_oc: string) => {
-    return checkDuplicate(rede_id, loja_id, data_pedido, numero_oc)
+  ipcMain.handle(IPC.PEDIDOS_CHECK_DUPLICATE, async (_event, rede_id: number, loja_id: number, data_pedido: string, numero_oc: string) => {
+    return await checkDuplicate(rede_id, loja_id, data_pedido, numero_oc)
   })
 
-  ipcMain.handle(IPC.PEDIDOS_ITENS, (_event, pedido_id: number) => {
-    return getPedidoItens(pedido_id)
+  ipcMain.handle(IPC.PEDIDOS_ITENS, async (_event, pedido_id: number) => {
+    return await getPedidoItens(pedido_id)
   })
 
-  ipcMain.handle(IPC.PEDIDOS_UPDATE_BY_ID, (_event, id: number, data: { numero_oc: string; itens: Array<{ produto_id: number; quantidade: number; preco_unit?: number; custo_unit?: number }> }) => {
-    return updatePedidoById(id, data)
+  ipcMain.handle(IPC.PEDIDOS_UPDATE_BY_ID, async (_event, id: number, data: { numero_oc: string; itens: Array<{ produto_id: number; quantidade: number; preco_unit?: number; custo_unit?: number }> }) => {
+    return await updatePedidoById(id, data)
   })
 
-  ipcMain.handle(IPC.PEDIDOS_LAST_OC, (_event, rede_id: number) => {
-    const { getDb } = require('../db/client')
-    const { pedidos } = require('../db/schema')
-    const { eq, desc } = require('drizzle-orm')
+  ipcMain.handle(IPC.PEDIDOS_LAST_OC, async (_event, rede_id: number) => {
     const db = getDb()
-    const last = db.select({ numero_oc: pedidos.numero_oc })
+    const last = (await db.select({ numero_oc: pedidos.numero_oc })
       .from(pedidos)
       .where(eq(pedidos.rede_id, rede_id))
       .orderBy(desc(pedidos.criado_em))
-      .limit(1)
-      .all()[0]
+      .limit(1))[0]
     return last?.numero_oc ?? null
   })
 
-  ipcMain.handle(IPC.ITENS_UPDATE_SINGLE_PRECO, (_event, item_id: number, new_preco: number) => {
+  ipcMain.handle(IPC.ITENS_UPDATE_SINGLE_PRECO, async (_event, item_id: number, new_preco: number) => {
     const db = getDb()
-    return db.update(itensPedido).set({ preco_unit: new_preco }).where(eq(itensPedido.id, item_id)).run()
+    return (await db.update(itensPedido).set({ preco_unit: new_preco }).where(eq(itensPedido.id, item_id)).returning())[0]
   })
 
-  ipcMain.handle(IPC.PEDIDOS_UPDATE_STATUS, (_event, id: number, status: string) => {
+  ipcMain.handle(IPC.PEDIDOS_UPDATE_STATUS, async (_event, id: number, status: string) => {
     const db = getDb()
-    return db.update(pedidos).set({ status_pagamento: status }).where(eq(pedidos.id, id)).run()
+    return (await db.update(pedidos).set({ status_pagamento: status }).where(eq(pedidos.id, id)).returning())[0]
   })
 
-  ipcMain.handle(IPC.ITENS_UPDATE_PRECO, (
+  ipcMain.handle(IPC.ITENS_UPDATE_PRECO, async (
     _event,
     params: { rede_id: number; loja_id: number; data_inicio: string; data_fim: string; produto_id: number; new_preco: number }
   ) => {
@@ -83,15 +79,15 @@ export function registerPedidosHandlers() {
       lte(pedidos.data_pedido, params.data_fim),
     ]
     if (params.loja_id) conditions.push(eq(pedidos.loja_id, params.loja_id))
-    const pedidoIds = db.select({ id: pedidos.id }).from(pedidos).where(and(...conditions)).all().map(p => p.id)
+    const pedidoIds = (await db.select({ id: pedidos.id }).from(pedidos).where(and(...conditions))).map(p => p.id)
     if (pedidoIds.length === 0) return 0
-    const result = db.update(itensPedido)
+    const updated = await db.update(itensPedido)
       .set({ preco_unit: params.new_preco })
       .where(and(
         inArray(itensPedido.pedido_id, pedidoIds),
         eq(itensPedido.produto_id, params.produto_id)
       ))
-      .run()
-    return result.changes
+      .returning()
+    return updated.length
   })
 }
