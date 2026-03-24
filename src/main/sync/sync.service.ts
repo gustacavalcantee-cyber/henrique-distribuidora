@@ -133,6 +133,15 @@ async function pushPendingOthers(supabase: any): Promise<void> {
     await pushTable(supabase, table, pending)
     sqlite.prepare(`UPDATE ${table} SET synced = 1 WHERE synced = 0`).run()
   }
+
+  // configuracoes has no synced column — always push all rows (tiny table, key-value config)
+  const configs = sqlite.prepare('SELECT * FROM configuracoes').all() as AnyRow[]
+  if (configs.length > 0) {
+    const { error } = await supabase
+      .from('configuracoes')
+      .upsert(configs, { onConflict: 'chave', ignoreDuplicates: false })
+    if (error) console.warn('[sync] push configuracoes error:', error.message)
+  }
 }
 
 // --------------------------------------------------------------------------

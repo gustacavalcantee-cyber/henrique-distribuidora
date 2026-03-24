@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from 'react'
 import type { Produto, LancamentoRow } from '../../../shared/types'
+import { IPC } from '../../../shared/ipc-channels'
 
 interface UseRowProdutosArgs {
   activeRedeId: number | null
@@ -8,21 +9,25 @@ interface UseRowProdutosArgs {
   historicProdIds: Set<number>
 }
 
+function configKey(redeId: number, lojaId: number) {
+  return `row_prods_${redeId}_${lojaId}`
+}
+
 export function useRowProdutos({ activeRedeId, rows, produtos, historicProdIds }: UseRowProdutosArgs) {
   const [rowProdIds, setRowProdIds] = useState<Record<number, Set<number>>>({})
   const [showRowProdMenu, setShowRowProdMenu] = useState<number | null>(null)
   const [rowProdSearch, setRowProdSearch] = useState('')
   const [rowProdMenuPos, setRowProdMenuPos] = useState<{ top: number; left: number } | null>(null)
 
-  // Inicializa do localStorage ou dos produtos da rede + quantidades existentes + histórico
+  // Inicializa do SQLite (sincronizado entre dispositivos) ou fallback
   useEffect(() => {
     if (!activeRedeId || rows.length === 0 || produtos.length === 0) return
-    setRowProdIds(prev => {
-      const next = { ...prev }
+
+    async function init() {
+      const next: Record<number, Set<number>> = {}
       for (const row of rows) {
-        if (next[row.loja_id] !== undefined) continue
-        const key = `row_prods_${activeRedeId}_${row.loja_id}`
-        const saved = localStorage.getItem(key)
+        const key = configKey(activeRedeId!, row.loja_id)
+        const saved: string | null = await window.electron.invoke(IPC.CONFIG_GET, key)
         if (saved) {
           const ids: number[] = JSON.parse(saved)
           next[row.loja_id] = new Set(ids.filter(id => produtos.some(p => p.id === id)))
@@ -38,8 +43,10 @@ export function useRowProdutos({ activeRedeId, rows, produtos, historicProdIds }
           next[row.loja_id] = new Set([...redeProds, ...fromOrder, ...fromHistory])
         }
       }
-      return next
-    })
+      setRowProdIds(next)
+    }
+
+    init()
   }, [activeRedeId, rows, produtos, historicProdIds])
 
   // Chame isso ao trocar de rede ou data
@@ -55,7 +62,8 @@ export function useRowProdutos({ activeRedeId, rows, produtos, historicProdIds }
       const current = new Set(prev[lojaId] ?? [])
       current.has(prodId) ? current.delete(prodId) : current.add(prodId)
       const next = { ...prev, [lojaId]: current }
-      localStorage.setItem(`row_prods_${activeRedeId}_${lojaId}`, JSON.stringify([...current]))
+      // Persiste no SQLite (sincroniza com outros dispositivos)
+      window.electron.invoke(IPC.CONFIG_SET, configKey(activeRedeId, lojaId), JSON.stringify([...current]))
       return next
     })
   }, [activeRedeId])
@@ -69,7 +77,7 @@ export function useRowProdutos({ activeRedeId, rows, produtos, historicProdIds }
         const s = new Set(next[lojaId])
         s.delete(prodId)
         next[lojaId] = s
-        localStorage.setItem(`row_prods_${activeRedeId}_${lojaId}`, JSON.stringify([...s]))
+        window.electron.invoke(IPC.CONFIG_SET, configKey(activeRedeId, lojaId), JSON.stringify([...s]))
       }
       return next
     })
@@ -86,7 +94,7 @@ export function useRowProdutos({ activeRedeId, rows, produtos, historicProdIds }
         const s = new Set(next[row.loja_id] ?? [])
         addToAll ? s.add(prodId) : s.delete(prodId)
         next[row.loja_id] = s
-        localStorage.setItem(`row_prods_${activeRedeId}_${row.loja_id}`, JSON.stringify([...s]))
+        window.electron.invoke(IPC.CONFIG_SET, configKey(activeRedeId, row.loja_id), JSON.stringify([...s]))
       }
       return next
     })
