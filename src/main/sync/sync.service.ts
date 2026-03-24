@@ -8,17 +8,26 @@
 
 import { createClient } from '@supabase/supabase-js'
 import type { BrowserWindow } from 'electron'
-import { getRawSqlite } from '../db/client-local'
+import { getRawSqlite, getDeviceId } from '../db/client-local'
 import { IPC } from '../../shared/ipc-channels'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyRow = Record<string, any>
 
-function getSupabase() {
+// Single shared Supabase client — all functions reuse the same WebSocket connection
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _supabase: any = null
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _broadcastChannel: any = null
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function getSupabase(): any | null {
+  if (_supabase) return _supabase
   const url = process.env['SUPABASE_URL']
   const key = process.env['SUPABASE_ANON_KEY']
   if (!url || !key) return null
-  return createClient(url, key)
+  _supabase = createClient(url, key)
+  return _supabase
 }
 
 // --------------------------------------------------------------------------
@@ -237,7 +246,7 @@ async function pullFromSupabase(supabase: any): Promise<void> {
 // PUBLIC API
 // --------------------------------------------------------------------------
 
-/** Called on app startup — push pending, pull fresh, start Realtime */
+/** Called on app startup — push pending, pull fresh, start Realtime + Broadcast */
 export async function startSync(win: BrowserWindow): Promise<void> {
   const supabase = getSupabase()
   if (!supabase) {
@@ -253,7 +262,26 @@ export async function startSync(win: BrowserWindow): Promise<void> {
     console.warn('[sync] Startup sync failed:', (err as Error).message)
   }
 
-  // Realtime: notify whenever Supabase changes (any device)
+  const deviceId = getDeviceId()
+
+  // ── Broadcast channel: near-instant cross-device notification (< 500ms) ──
+  // When another device pushes data, it broadcasts 'updated' → we pull immediately
+  _broadcastChannel = supabase
+    .channel('sync-broadcast')
+    .on('broadcast', { event: 'updated' }, async (msg: { payload?: { from?: string } }) => {
+      if (msg.payload?.from === deviceId) return // ignore own broadcasts
+      try {
+        await pushPendingPedidos(supabase)
+        await pushPendingOthers(supabase)
+        await pullFromSupabase(supabase)
+        if (!win.isDestroyed()) win.webContents.send(IPC.DB_SYNCED)
+      } catch (err: unknown) {
+        console.warn('[sync] Broadcast sync failed:', (err as Error).message)
+      }
+    })
+    .subscribe()
+
+  // ── postgres_changes fallback: catches cases where broadcast is missed ──
   let syncTimer: ReturnType<typeof setTimeout> | null = null
   supabase
     .channel('db-changes')
@@ -274,7 +302,7 @@ export async function startSync(win: BrowserWindow): Promise<void> {
     })
     .subscribe()
 
-  // Polling fallback every 30s
+  // ── Polling fallback every 30s (for offline/reconnect scenarios) ──
   setInterval(async () => {
     if (win.isDestroyed()) return
     try {
@@ -296,11 +324,19 @@ export async function pushDeletePedido(supabaseId: number): Promise<void> {
   await supabase.from('pedidos').delete().eq('id', supabaseId)
 }
 
-/** Call after any write — fire and forget push to Supabase */
+/** Call after any write — push to Supabase then broadcast to other devices */
 export function triggerSync(_win?: BrowserWindow): void {
   const supabase = getSupabase()
   if (!supabase) return
   Promise.all([pushPendingPedidos(supabase), pushPendingOthers(supabase)])
+    .then(() => {
+      // Broadcast immediately to other devices — they pull and show the icon instantly
+      _broadcastChannel?.send({
+        type: 'broadcast',
+        event: 'updated',
+        payload: { from: getDeviceId() },
+      })
+    })
     .catch(err => console.warn('[sync] triggerSync error:', err.message))
 }
 
