@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import type { Produto, LancamentoRow } from '../../../shared/types'
 import { IPC } from '../../../shared/ipc-channels'
 
@@ -19,31 +19,42 @@ export function useRowProdutos({ activeRedeId, rows, produtos, historicProdIds }
   const [rowProdSearch, setRowProdSearch] = useState('')
   const [rowProdMenuPos, setRowProdMenuPos] = useState<{ top: number; left: number } | null>(null)
 
-  // Inicializa do SQLite (sincronizado entre dispositivos) ou fallback
+  // Track which lojaIds have been initialized to avoid re-running on each dependency change
+  const initializedRef = useRef<Set<number>>(new Set())
+
   useEffect(() => {
     if (!activeRedeId || rows.length === 0 || produtos.length === 0) return
 
+    // Only initialize lojas not yet initialized — prevents flicker when historicProdIds
+    // or other deps change after first render
+    const pending = rows.filter(row => !initializedRef.current.has(row.loja_id))
+    if (pending.length === 0) return
+
     async function init() {
-      const next: Record<number, Set<number>> = {}
-      for (const row of rows) {
+      const additions: Record<number, Set<number>> = {}
+      for (const row of pending) {
         const key = configKey(activeRedeId!, row.loja_id)
         const saved: string | null = await window.electron.invoke(IPC.CONFIG_GET, key)
         if (saved) {
           const ids: number[] = JSON.parse(saved)
-          next[row.loja_id] = new Set(ids.filter(id => produtos.some(p => p.id === id)))
+          additions[row.loja_id] = new Set(ids.filter(id => produtos.some(p => p.id === id)))
         } else {
+          // Fallbacks in order of preference:
           // 1) products assigned to this rede
           const redeProds = produtos.filter(p => p.rede_id === activeRedeId).map(p => p.id)
           // 2) products from today's order
           const fromOrder = Object.entries(row.quantidades)
             .filter(([, qty]) => qty != null)
             .map(([id]) => Number(id))
-          // 3) products from any historical order for this rede (fallback for fresh devices)
+          // 3) products from any historical order (fallback for fresh devices)
           const fromHistory = [...historicProdIds].filter(id => produtos.some(p => p.id === id))
-          next[row.loja_id] = new Set([...redeProds, ...fromOrder, ...fromHistory])
+          additions[row.loja_id] = new Set([...redeProds, ...fromOrder, ...fromHistory])
         }
+        initializedRef.current.add(row.loja_id)
       }
-      setRowProdIds(next)
+      if (Object.keys(additions).length > 0) {
+        setRowProdIds(prev => ({ ...prev, ...additions }))
+      }
     }
 
     init()
@@ -51,6 +62,7 @@ export function useRowProdutos({ activeRedeId, rows, produtos, historicProdIds }
 
   // Chame isso ao trocar de rede ou data
   const resetRowProdIds = useCallback(() => {
+    initializedRef.current = new Set()
     setRowProdIds({})
     setShowRowProdMenu(null)
   }, [])
@@ -62,7 +74,6 @@ export function useRowProdutos({ activeRedeId, rows, produtos, historicProdIds }
       const current = new Set(prev[lojaId] ?? [])
       current.has(prodId) ? current.delete(prodId) : current.add(prodId)
       const next = { ...prev, [lojaId]: current }
-      // Persiste no SQLite (sincroniza com outros dispositivos)
       window.electron.invoke(IPC.CONFIG_SET, configKey(activeRedeId, lojaId), JSON.stringify([...current]))
       return next
     })
