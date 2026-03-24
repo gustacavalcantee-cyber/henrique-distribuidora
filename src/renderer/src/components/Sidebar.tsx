@@ -21,9 +21,6 @@ export function Sidebar() {
   const appVersion = (window as unknown as { __APP_VERSION__?: string }).__APP_VERSION__ ?? '—'
 
   useEffect(() => {
-    // Realtime: another device changed data → auto-reload immediately
-    window.electron.on(IPC.DB_RELOAD, () => window.location.reload())
-    // Polling fallback: new records detected → show banner
     window.electron.on(IPC.DB_SYNCED, () => setPendingSync(true))
   }, [])
 
@@ -98,26 +95,32 @@ export function Sidebar() {
             Cancelar
           </button>
         )}
-        {pendingSync && (
-          <div className="flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 rounded-lg px-2 py-1.5">
-            <CloudDownload size={13} className="text-emerald-500 shrink-0" />
-            <button
-              className="flex-1 text-xs text-emerald-700 text-left leading-snug hover:underline"
-              onClick={() => window.location.reload()}
-            >
-              Novos dados disponíveis.<br />Clique para atualizar.
-            </button>
-            <button
-              onClick={() => setPendingSync(false)}
-              className="text-emerald-400 hover:text-emerald-600 shrink-0"
-              title="Dispensar"
-            >
-              <X size={12} />
-            </button>
-          </div>
-        )}
         <p className="text-xs text-slate-300 text-center">v{appVersion}</p>
       </div>
+
+      {/* Floating sync notification — fixed top-right, hard to miss */}
+      {pendingSync && (
+        <div className="fixed top-4 right-4 z-50 flex items-center gap-3 bg-emerald-600 text-white rounded-xl shadow-lg px-4 py-3 animate-bounce">
+          <CloudDownload size={18} className="shrink-0" />
+          <div>
+            <p className="text-sm font-semibold leading-tight">Dados atualizados!</p>
+            <p className="text-xs opacity-80">Outro dispositivo fez alterações.</p>
+          </div>
+          <button
+            onClick={() => window.location.reload()}
+            className="ml-1 bg-white text-emerald-700 text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-emerald-50 transition"
+          >
+            Recarregar
+          </button>
+          <button
+            onClick={() => setPendingSync(false)}
+            className="text-white/70 hover:text-white shrink-0"
+            title="Dispensar"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
     </aside>
   )
 }

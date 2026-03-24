@@ -254,9 +254,8 @@ export async function startSync(win: BrowserWindow): Promise<void> {
     console.warn('[sync] Startup sync failed:', (err as Error).message)
   }
 
-  // Realtime: when another device changes Supabase, pull and auto-reload
-  // (only fires when another device actually changes data — not on a timer)
-  let reloadTimer: ReturnType<typeof setTimeout> | null = null
+  // Realtime: when another device changes Supabase, pull and notify banner
+  let syncTimer: ReturnType<typeof setTimeout> | null = null
   supabase
     .channel('db-changes')
     .on('postgres_changes', { event: '*', schema: 'public' }, async () => {
@@ -265,11 +264,11 @@ export async function startSync(win: BrowserWindow): Promise<void> {
         await pushPendingOthers(supabase)
         await pullFromSupabase(supabase)
         if (!win.isDestroyed()) {
-          // Debounce: multiple rapid events → only one reload
-          if (reloadTimer) clearTimeout(reloadTimer)
-          reloadTimer = setTimeout(() => {
-            if (!win.isDestroyed()) win.webContents.send(IPC.DB_RELOAD)
-          }, 2000)
+          // Debounce: multiple rapid events → only one notification
+          if (syncTimer) clearTimeout(syncTimer)
+          syncTimer = setTimeout(() => {
+            if (!win.isDestroyed()) win.webContents.send(IPC.DB_SYNCED)
+          }, 1500)
         }
       } catch (err: unknown) {
         console.warn('[sync] Realtime sync failed:', (err as Error).message)
@@ -277,17 +276,21 @@ export async function startSync(win: BrowserWindow): Promise<void> {
     })
     .subscribe()
 
-  // Polling fallback every 30s — silently updates SQLite and shows banner
+  // Polling fallback every 30s — silently updates SQLite, shows banner if data changed
   setInterval(async () => {
     if (win.isDestroyed()) return
     try {
       const sqlite = getRawSqlite()
-      const before = (sqlite.prepare('SELECT COUNT(*) as c FROM pedidos').get() as { c: number }).c
+      // Signature: count of pedidos + max id of itens_pedido (detects inserts AND updates-via-reinsert)
+      const pCount = (sqlite.prepare('SELECT COUNT(*) as c FROM pedidos').get() as { c: number }).c
+      const iMax = (sqlite.prepare('SELECT COALESCE(MAX(id),0) as m FROM itens_pedido').get() as { m: number }).m
+      const before = `${pCount}-${iMax}`
       await pushPendingPedidos(supabase)
       await pushPendingOthers(supabase)
       await pullFromSupabase(supabase)
-      const after = (sqlite.prepare('SELECT COUNT(*) as c FROM pedidos').get() as { c: number }).c
-      // Only show banner if number of pedidos changed (new/deleted records)
+      const pCount2 = (sqlite.prepare('SELECT COUNT(*) as c FROM pedidos').get() as { c: number }).c
+      const iMax2 = (sqlite.prepare('SELECT COALESCE(MAX(id),0) as m FROM itens_pedido').get() as { m: number }).m
+      const after = `${pCount2}-${iMax2}`
       if (!win.isDestroyed() && after !== before) win.webContents.send(IPC.DB_SYNCED)
     } catch (err: unknown) {
       console.warn('[sync] Poll sync failed:', (err as Error).message)
