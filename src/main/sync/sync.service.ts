@@ -248,6 +248,8 @@ async function pullFromSupabase(supabase: any): Promise<void> {
 
 // Lock: prevents concurrent syncs that cause conflicts
 let _isSyncing = false
+// Pending flag: a triggerSync arrived while _isSyncing was true — retry when done
+let _pendingSync = false
 
 function dataSignature(sqlite: ReturnType<typeof getRawSqlite>): string {
   const p = (sqlite.prepare('SELECT COUNT(*) as c FROM pedidos').get() as { c: number }).c
@@ -320,24 +322,32 @@ export async function pushDeletePedido(supabaseId: number): Promise<void> {
   await supabase.from('pedidos').delete().eq('id', supabaseId)
 }
 
-/** Call after any write — push, broadcast, then pull locally (syncs Supabase-assigned IDs silently) */
+/** Call after any write — push, broadcast, then pull locally (syncs Supabase-assigned IDs silently).
+ *  If a sync is already running, marks _pendingSync so it retries after the current one finishes,
+ *  ensuring every write eventually reaches Supabase even during rapid saves/deletes. */
 export function triggerSync(_win?: BrowserWindow): void {
   const supabase = getSupabase()
   if (!supabase) return
+  if (_isSyncing) {
+    _pendingSync = true // retry when current sync finishes
+    return
+  }
   ;(async () => {
-    if (_isSyncing) return
     _isSyncing = true
     try {
-      await pushPendingPedidos(supabase)
-      await pushPendingOthers(supabase)
-      // Broadcast first — other devices get notified while we pull locally
-      _broadcastChannel?.send({
-        type: 'broadcast',
-        event: 'updated',
-        payload: { from: getDeviceId() },
-      })
-      // Pull locally so our signature stays consistent — no notification sent
-      await pullFromSupabase(supabase)
+      do {
+        _pendingSync = false
+        await pushPendingPedidos(supabase)
+        await pushPendingOthers(supabase)
+        // Broadcast to other devices
+        _broadcastChannel?.send({
+          type: 'broadcast',
+          event: 'updated',
+          payload: { from: getDeviceId() },
+        })
+        // Pull locally so our signature stays consistent — no notification sent
+        await pullFromSupabase(supabase)
+      } while (_pendingSync) // another write arrived mid-sync — loop once more
     } catch (err: unknown) {
       console.warn('[sync] triggerSync error:', (err as Error).message)
     } finally {
