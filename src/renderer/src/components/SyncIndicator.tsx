@@ -13,27 +13,28 @@ export function SyncIndicator() {
     return (
       <button
         onClick={() => window.location.reload()}
-        className="fixed top-8 right-8 z-50 p-1.5 rounded-md bg-white shadow-sm border border-orange-200 hover:bg-orange-50 transition-colors"
+        className="flex items-center justify-center w-8 h-8 rounded-md bg-white border border-orange-200 shadow-sm hover:bg-orange-50 transition-colors cursor-pointer"
         title="Dados atualizados — clique para recarregar"
       >
-        <CloudDownload size={18} className="text-orange-500" />
+        <CloudDownload size={17} className="text-orange-500" />
       </button>
     )
   }
 
   return (
-    <div
-      className="fixed top-8 right-8 z-50 p-1.5 rounded-md bg-white shadow-sm border border-emerald-200"
-      title="Sincronizado"
+    <button
+      onClick={() => window.location.reload()}
+      className="flex items-center justify-center w-8 h-8 rounded-md bg-white border border-emerald-200 shadow-sm hover:bg-emerald-50 transition-colors cursor-pointer"
+      title="Sincronizado — clique para recarregar"
     >
-      <div className="relative">
-        <Cloud size={18} className="text-emerald-500" />
+      <div className="relative w-[17px] h-[17px]">
+        <Cloud size={17} className="text-emerald-500" />
         <Check
-          size={9}
-          strokeWidth={3}
+          size={8}
+          strokeWidth={3.5}
           className="absolute bottom-0 right-0 text-emerald-600"
         />
       </div>
-    </div>
+    </button>
   )
 }
