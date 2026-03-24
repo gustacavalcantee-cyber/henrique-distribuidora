@@ -21,8 +21,9 @@ export function Sidebar() {
   const appVersion = (window as unknown as { __APP_VERSION__?: string }).__APP_VERSION__ ?? '—'
 
   useEffect(() => {
-    // Show a banner instead of auto-reloading — lets the user finish what they're doing
     window.electron.on(IPC.DB_SYNCED, () => setPendingSync(true))
+    // Remote change from another device — reload automatically
+    window.electron.on(IPC.DB_RELOAD, () => window.location.reload())
   }, [])
 
   function handleReload() {

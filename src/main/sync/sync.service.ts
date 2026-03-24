@@ -255,7 +255,7 @@ export async function startSync(win: BrowserWindow): Promise<void> {
     console.warn('[sync] Startup sync failed:', (err as Error).message)
   }
 
-  // Realtime: when another device changes Supabase, pull and notify
+  // Realtime: when another device changes Supabase, pull and auto-reload
   supabase
     .channel('db-changes')
     .on('postgres_changes', { event: '*', schema: 'public' }, async () => {
@@ -263,12 +263,25 @@ export async function startSync(win: BrowserWindow): Promise<void> {
         await pushPendingPedidos(supabase)
         await pushPendingOthers(supabase)
         await pullFromSupabase(supabase)
-        if (!win.isDestroyed()) win.webContents.send(IPC.DB_SYNCED)
+        if (!win.isDestroyed()) win.webContents.send(IPC.DB_RELOAD)
       } catch (err: unknown) {
         console.warn('[sync] Realtime sync failed:', (err as Error).message)
       }
     })
     .subscribe()
+
+  // Polling fallback every 30s — catches changes even if Realtime is unavailable
+  setInterval(async () => {
+    if (win.isDestroyed()) return
+    try {
+      await pushPendingPedidos(supabase)
+      await pushPendingOthers(supabase)
+      await pullFromSupabase(supabase)
+      if (!win.isDestroyed()) win.webContents.send(IPC.DB_RELOAD)
+    } catch (err: unknown) {
+      console.warn('[sync] Poll sync failed:', (err as Error).message)
+    }
+  }, 30_000)
 }
 
 /** Delete a pedido (and its itens) from Supabase — call before local delete */
