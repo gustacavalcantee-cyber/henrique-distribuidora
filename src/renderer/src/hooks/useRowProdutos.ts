@@ -22,16 +22,11 @@ export function useRowProdutos({ activeRedeId, rows, produtos, historicProdIds }
   // Incrementing this forces the init effect to re-run (e.g. after DB_READY or DB_SYNCED)
   const [initTrigger, forceInit] = useReducer((n: number) => n + 1, 0)
 
-  // Re-read layout from SQLite after startup pull (DB_READY) or when another device
-  // changes layout and it syncs to this device (DB_SYNCED)
+  // Re-read layout from SQLite after startup pull completes (DB_READY)
   useEffect(() => {
     window.electron.on(IPC.DB_READY, () => {
       initializedRef.current = new Set()
-      setRowProdIds({})
-      forceInit()
-    })
-    window.electron.on(IPC.DB_SYNCED, () => {
-      initializedRef.current = new Set()
+      initRunningRef.current = false
       setRowProdIds({})
       forceInit()
     })

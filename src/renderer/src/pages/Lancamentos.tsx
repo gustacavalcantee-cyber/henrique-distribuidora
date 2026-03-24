@@ -238,17 +238,28 @@ export function Lancamentos() {
     }
   }, [activeRedeId, dataPedido, saveRow, enrichRow])
 
-  // Columns = union of all products selected across all rows, deduplicated by nome+unidade
-  const allSelectedProdIds = new Set(Object.values(rowProdIds).flatMap(s => [...s]))
+  // Columns = union of all products selected, in the order the user added them
   const visibleProdutos = (() => {
-    const all = produtos.filter(p => allSelectedProdIds.has(p.id))
-    const seen = new Set<string>()
-    return all.filter(p => {
-      const key = `${p.nome}|${p.unidade}`
-      if (seen.has(key)) return false
-      seen.add(key)
-      return true
-    })
+    // Collect IDs in insertion order (Set preserves insertion order)
+    const seenIds = new Set<number>()
+    const orderedIds: number[] = []
+    for (const s of Object.values(rowProdIds)) {
+      for (const id of s) {
+        if (!seenIds.has(id)) { seenIds.add(id); orderedIds.push(id) }
+      }
+    }
+    // Map IDs → products, deduplicate by nome+unidade
+    const prodMap = new Map(produtos.map(p => [p.id, p]))
+    const seenNames = new Set<string>()
+    return orderedIds
+      .map(id => prodMap.get(id))
+      .filter((p): p is Produto => {
+        if (!p) return false
+        const key = `${p.nome}|${p.unidade}`
+        if (seenNames.has(key)) return false
+        seenNames.add(key)
+        return true
+      })
   })()
 
   // Column totals (only rows that have the product active)
