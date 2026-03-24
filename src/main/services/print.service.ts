@@ -132,7 +132,7 @@ export function generateShareHtml(data: PrintData): string {
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { font-family: Arial, sans-serif; font-size: 10pt; background: #fff; width: 148mm; }
-.via { width: 148mm; display: flex; flex-direction: column; font-size: 9.5pt; padding: 6mm 7mm; box-sizing: border-box; }
+.via { width: 148mm; display: flex; flex-direction: column; font-size: 9.5pt; padding: 6mm 7mm; box-sizing: border-box; overflow: visible; }
 .h1 { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.5mm; }
 .h-nome { font-size: 18pt; font-weight: bold; }
 .oc-box { border: 1.5px solid #000; padding: 1mm 4mm; font-size: 11pt; font-weight: bold; text-align: center; min-width: 30mm; }
@@ -151,7 +151,7 @@ th.c-qty, th.c-un, th.c-val, th.c-tot { text-align: center; font-weight: normal;
 .foot-total { display: flex; justify-content: flex-end; margin-top: 1.5mm; }
 .ft-label, .ft-val { border: 2px solid #000; padding: 1mm 3mm; font-size: 12pt; font-weight: bold; }
 .ft-val { min-width: 26mm; text-align: right; border-left: none; }
-.foot-bottom { display: flex; justify-content: space-between; align-items: flex-end; margin-top: auto; padding-top: 4mm; gap: 6mm; }
+.foot-bottom { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 3mm; padding-top: 4mm; gap: 6mm; }
 .ft-data { font-size: 9pt; white-space: nowrap; }
 .sig-line { flex: 1; padding-top: 20mm; border-bottom: 1px solid #000; }
 </style>
@@ -208,9 +208,9 @@ body { font-family: Arial, sans-serif; font-size: 10pt; background: ${preview ? 
 .btn-print:hover { background: #15803d; }
 .btn-close { padding: 6px 14px; background: #475569; color: #fff; border: none; border-radius: 4px; font-size: 13px; cursor: pointer; }
 .btn-close:hover { background: #334155; }
-.page-wrap { padding: ${preview ? '12px' : '0'}; ${preview ? 'overflow: auto;' : ''} }
-.page { display: flex; flex-direction: row; gap: 0; background: #fff; width: ${preview ? '277mm' : '100%'}; ${preview ? 'min-height: 190mm; margin: 0 auto;' : ''} }
-.via { width: 50%; display: flex; flex-direction: column; font-size: 9.5pt; padding: 6mm 7mm; box-sizing: border-box; }
+.page-wrap { padding: ${preview ? '12px' : '0'}; }
+.page { display: flex; flex-direction: row; gap: 0; background: #fff; width: ${preview ? '277mm' : '100%'}; height: ${preview ? '190mm' : '100%'}; ${preview ? 'margin: 0 auto;' : ''} }
+.via { width: 50%; height: 100%; display: flex; flex-direction: column; font-size: 9.5pt; padding: 6mm 7mm; box-sizing: border-box; }
 .h1 { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.5mm; }
 .h-nome { font-size: 18pt; font-weight: bold; }
 .oc-box { border: 1.5px solid #000; padding: 1mm 4mm; font-size: 11pt; font-weight: bold; text-align: center; min-width: 30mm; }
@@ -218,7 +218,7 @@ body { font-family: Arial, sans-serif; font-size: 10pt; background: ${preview ? 
 .h3 { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2mm; padding-bottom: 1.5mm; border-bottom: 1px solid #000; }
 .h-rede-loja { font-size: 11pt; font-weight: bold; padding-left: 1mm; }
 .date-box { border: 1px solid #000; padding: 1mm 3mm; font-size: 11pt; font-weight: bold; min-width: 24mm; text-align: center; }
-.table-outer { border: 1px solid #000; overflow: visible; }
+.table-outer { flex: 1; border: 1px solid #000; overflow: hidden; min-height: 0; }
 table { width: 100%; border-collapse: collapse; }
 th, td { border: none; padding: 0.8mm 1.5mm; font-size: 9.5pt; }
 thead tr { border-bottom: 1px solid #000; }
@@ -233,7 +233,7 @@ th.c-qty, th.c-un, th.c-val, th.c-tot { text-align: center; font-weight: normal;
 .ft-data { font-size: 9pt; white-space: nowrap; }
 .sig-line { flex: 1; padding-top: 20mm; border-bottom: 1px solid #000; }
 .div-line { border-left: 1px dashed #999; align-self: stretch; }
-@media print { @page { size: A4 landscape; margin: 0; } body { background: #fff; } .toolbar { display: none; } .page-wrap { padding: 0; overflow: visible; } .page { width: 297mm; min-height: 210mm; flex-direction: row; } .via { width: 50%; min-height: 210mm; padding: 8mm 9mm; } }
+@media print { @page { size: A4 landscape; margin: 0; } body { background: #fff; } .toolbar { display: none; } .page-wrap { padding: 0; } .page { width: 297mm; height: 210mm; flex-direction: row; } .via { width: 50%; height: 210mm; padding: 8mm 9mm; } }
 </style>
 </head>
 <script>document.addEventListener('keydown', function(e){ if(e.key==='Escape') window.close(); });</script>

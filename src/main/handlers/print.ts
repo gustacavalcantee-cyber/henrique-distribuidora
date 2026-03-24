@@ -66,20 +66,26 @@ export function registerPrintHandlers() {
     const data = getPrintData(pedidoId)
     const html = generateShareHtml(data)
 
-    // A5 portrait at 96dpi: 148mm × 190mm ≈ 559 × 719px
-    // frame: false removes the title bar so height is pure content area
+    // 148mm at 96dpi ≈ 559px wide; height is dynamic based on content
     const win = new BrowserWindow({
       width: 559,
-      height: 719,
+      height: 800,
       show: false,
       frame: false,
       webPreferences: { sandbox: false },
     })
-    await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
-    await new Promise(r => setTimeout(r, 200))
-    const image = await win.webContents.capturePage()
-    win.close()
-    return image.toDataURL()
+    try {
+      await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
+      await new Promise(r => setTimeout(r, 200))
+      // Resize window to exact content height so the screenshot has no blank space
+      const contentHeight: number = await win.webContents.executeJavaScript('document.body.scrollHeight || 0')
+      win.setSize(559, Math.min(Math.max(contentHeight + 4, 200), 4000))
+      await new Promise(r => setTimeout(r, 80))
+      const image = await win.webContents.capturePage()
+      return image.toDataURL()
+    } finally {
+      win.close()
+    }
   })
 
   ipcMain.handle(IPC.PRINT_HTML, async (_event, html: string, title = 'Relatório') => {
