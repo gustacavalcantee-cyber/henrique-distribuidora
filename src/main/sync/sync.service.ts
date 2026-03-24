@@ -249,14 +249,25 @@ async function pullFromSupabase(supabase: any): Promise<void> {
 // Lock: prevents concurrent syncs that cause conflicts
 let _isSyncing = false
 
-async function runSync(supabase: any, win: BrowserWindow): Promise<void> {
+function dataSignature(sqlite: ReturnType<typeof getRawSqlite>): string {
+  const p = (sqlite.prepare('SELECT COUNT(*) as c FROM pedidos').get() as { c: number }).c
+  const i = (sqlite.prepare('SELECT COALESCE(MAX(id),0) as m FROM itens_pedido').get() as { m: number }).m
+  return `${p}-${i}`
+}
+
+// alwaysNotify=true  → broadcast path (another device changed data, always show orange)
+// alwaysNotify=false → polling path (only show orange if local data actually changed)
+async function runSync(supabase: any, win: BrowserWindow, alwaysNotify: boolean): Promise<void> {
   if (_isSyncing) return
   _isSyncing = true
   try {
+    const sqlite = getRawSqlite()
+    const before = alwaysNotify ? '' : dataSignature(sqlite)
     await pushPendingPedidos(supabase)
     await pushPendingOthers(supabase)
     await pullFromSupabase(supabase)
-    if (!win.isDestroyed()) win.webContents.send(IPC.DB_SYNCED)
+    const changed = alwaysNotify || dataSignature(sqlite) !== before
+    if (!win.isDestroyed() && changed) win.webContents.send(IPC.DB_SYNCED)
   } catch (err: unknown) {
     console.warn('[sync] Sync failed:', (err as Error).message)
   } finally {
@@ -272,7 +283,7 @@ export async function startSync(win: BrowserWindow): Promise<void> {
     return
   }
 
-  // Initial sync on startup (no notification — just load fresh data)
+  // Initial sync on startup — silent (no orange icon on load)
   _isSyncing = true
   try {
     await pushPendingPedidos(supabase)
@@ -286,18 +297,18 @@ export async function startSync(win: BrowserWindow): Promise<void> {
 
   const deviceId = getDeviceId()
 
-  // ── Broadcast: instant notification when another device saves (< 1s) ──
+  // ── Broadcast: instant notification when another device saves ──
   _broadcastChannel = supabase
     .channel('sync-broadcast')
     .on('broadcast', { event: 'updated' }, async (msg: { payload?: { from?: string } }) => {
       if (msg.payload?.from === deviceId) return // ignore own broadcasts
-      await runSync(supabase, win)
+      await runSync(supabase, win, true) // always show orange — remote device changed
     })
     .subscribe()
 
-  // ── Polling every 30s — fallback for reconnects / offline recovery ──
+  // ── Polling every 30s — only notifies if data actually changed ──
   setInterval(() => {
-    if (!win.isDestroyed()) runSync(supabase, win)
+    if (!win.isDestroyed()) runSync(supabase, win, false)
   }, 30_000)
 }
 
@@ -309,20 +320,30 @@ export async function pushDeletePedido(supabaseId: number): Promise<void> {
   await supabase.from('pedidos').delete().eq('id', supabaseId)
 }
 
-/** Call after any write — push to Supabase then broadcast to other devices */
+/** Call after any write — push, broadcast, then pull locally (syncs Supabase-assigned IDs silently) */
 export function triggerSync(_win?: BrowserWindow): void {
   const supabase = getSupabase()
   if (!supabase) return
-  Promise.all([pushPendingPedidos(supabase), pushPendingOthers(supabase)])
-    .then(() => {
-      // Broadcast immediately to other devices — they pull and show the icon instantly
+  ;(async () => {
+    if (_isSyncing) return
+    _isSyncing = true
+    try {
+      await pushPendingPedidos(supabase)
+      await pushPendingOthers(supabase)
+      // Broadcast first — other devices get notified while we pull locally
       _broadcastChannel?.send({
         type: 'broadcast',
         event: 'updated',
         payload: { from: getDeviceId() },
       })
-    })
-    .catch(err => console.warn('[sync] triggerSync error:', err.message))
+      // Pull locally so our signature stays consistent — no notification sent
+      await pullFromSupabase(supabase)
+    } catch (err: unknown) {
+      console.warn('[sync] triggerSync error:', (err as Error).message)
+    } finally {
+      _isSyncing = false
+    }
+  })()
 }
 
 // Keep a reference accessible from handlers

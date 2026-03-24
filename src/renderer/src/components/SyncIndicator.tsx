@@ -1,12 +1,17 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Cloud, CloudDownload, Check } from 'lucide-react'
 import { IPC } from '../../../shared/ipc-channels'
 
 export function SyncIndicator() {
   const [hasUpdate, setHasUpdate] = useState(false)
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
-    window.electron.on(IPC.DB_SYNCED, () => setHasUpdate(true))
+    window.electron.on(IPC.DB_SYNCED, () => {
+      // Debounce: collapse rapid back-to-back events into one state change
+      if (timerRef.current) clearTimeout(timerRef.current)
+      timerRef.current = setTimeout(() => setHasUpdate(true), 300)
+    })
   }, [])
 
   if (hasUpdate) {
