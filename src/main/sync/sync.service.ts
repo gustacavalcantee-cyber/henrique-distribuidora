@@ -246,7 +246,25 @@ async function pullFromSupabase(supabase: any): Promise<void> {
 // PUBLIC API
 // --------------------------------------------------------------------------
 
-/** Called on app startup — push pending, pull fresh, start Realtime + Broadcast */
+// Lock: prevents concurrent syncs that cause conflicts
+let _isSyncing = false
+
+async function runSync(supabase: any, win: BrowserWindow): Promise<void> {
+  if (_isSyncing) return
+  _isSyncing = true
+  try {
+    await pushPendingPedidos(supabase)
+    await pushPendingOthers(supabase)
+    await pullFromSupabase(supabase)
+    if (!win.isDestroyed()) win.webContents.send(IPC.DB_SYNCED)
+  } catch (err: unknown) {
+    console.warn('[sync] Sync failed:', (err as Error).message)
+  } finally {
+    _isSyncing = false
+  }
+}
+
+/** Called on app startup — push pending, pull fresh, start Broadcast + polling */
 export async function startSync(win: BrowserWindow): Promise<void> {
   const supabase = getSupabase()
   if (!supabase) {
@@ -254,65 +272,32 @@ export async function startSync(win: BrowserWindow): Promise<void> {
     return
   }
 
+  // Initial sync on startup (no notification — just load fresh data)
+  _isSyncing = true
   try {
     await pushPendingPedidos(supabase)
     await pushPendingOthers(supabase)
     await pullFromSupabase(supabase)
   } catch (err: unknown) {
     console.warn('[sync] Startup sync failed:', (err as Error).message)
+  } finally {
+    _isSyncing = false
   }
 
   const deviceId = getDeviceId()
 
-  // ── Broadcast channel: near-instant cross-device notification (< 500ms) ──
-  // When another device pushes data, it broadcasts 'updated' → we pull immediately
+  // ── Broadcast: instant notification when another device saves (< 1s) ──
   _broadcastChannel = supabase
     .channel('sync-broadcast')
     .on('broadcast', { event: 'updated' }, async (msg: { payload?: { from?: string } }) => {
       if (msg.payload?.from === deviceId) return // ignore own broadcasts
-      try {
-        await pushPendingPedidos(supabase)
-        await pushPendingOthers(supabase)
-        await pullFromSupabase(supabase)
-        if (!win.isDestroyed()) win.webContents.send(IPC.DB_SYNCED)
-      } catch (err: unknown) {
-        console.warn('[sync] Broadcast sync failed:', (err as Error).message)
-      }
+      await runSync(supabase, win)
     })
     .subscribe()
 
-  // ── postgres_changes fallback: catches cases where broadcast is missed ──
-  let syncTimer: ReturnType<typeof setTimeout> | null = null
-  supabase
-    .channel('db-changes')
-    .on('postgres_changes', { event: '*', schema: 'public' }, async () => {
-      try {
-        await pushPendingPedidos(supabase)
-        await pushPendingOthers(supabase)
-        await pullFromSupabase(supabase)
-        if (!win.isDestroyed()) {
-          if (syncTimer) clearTimeout(syncTimer)
-          syncTimer = setTimeout(() => {
-            if (!win.isDestroyed()) win.webContents.send(IPC.DB_SYNCED)
-          }, 1500)
-        }
-      } catch (err: unknown) {
-        console.warn('[sync] Realtime sync failed:', (err as Error).message)
-      }
-    })
-    .subscribe()
-
-  // ── Polling fallback every 30s (for offline/reconnect scenarios) ──
-  setInterval(async () => {
-    if (win.isDestroyed()) return
-    try {
-      await pushPendingPedidos(supabase)
-      await pushPendingOthers(supabase)
-      await pullFromSupabase(supabase)
-      if (!win.isDestroyed()) win.webContents.send(IPC.DB_SYNCED)
-    } catch (err: unknown) {
-      console.warn('[sync] Poll sync failed:', (err as Error).message)
-    }
+  // ── Polling every 30s — fallback for reconnects / offline recovery ──
+  setInterval(() => {
+    if (!win.isDestroyed()) runSync(supabase, win)
   }, 30_000)
 }
 
