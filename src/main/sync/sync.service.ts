@@ -213,15 +213,18 @@ async function pullFromSupabase(supabase: any): Promise<void> {
     upsertLocal(sqlite, 'precos', precos, 'id')
     upsertLocal(sqlite, 'pedidos', pedidosRemote, 'id')
 
-    // For itens_pedido: only update if parent pedido is synced
+    // For itens_pedido: delete and re-insert for every synced pedido to avoid
+    // stale/duplicate rows caused by local IDs differing from Supabase IDs
+    for (const remotePedido of pedidosRemote) {
+      const local = sqlite.prepare('SELECT synced FROM pedidos WHERE id = ?').get(remotePedido['id']) as { synced: number } | undefined
+      if (!local || local.synced === 0) continue
+      sqlite.prepare('DELETE FROM itens_pedido WHERE pedido_id = ?').run(remotePedido['id'])
+    }
     for (const item of itensPedido) {
       const parent = sqlite.prepare('SELECT synced FROM pedidos WHERE id = ?').get(item['pedido_id']) as { synced: number } | undefined
-      if (parent?.synced === 0) continue // parent is offline-edited, skip
-      const exists = sqlite.prepare('SELECT id FROM itens_pedido WHERE id = ?').get(item['id'])
-      if (!exists) {
-        const cols = Object.keys(item)
-        sqlite.prepare(`INSERT OR IGNORE INTO itens_pedido (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`).run(cols.map(c => item[c] ?? null))
-      }
+      if (!parent || parent.synced === 0) continue
+      const cols = Object.keys(item)
+      sqlite.prepare(`INSERT INTO itens_pedido (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`).run(cols.map(c => item[c] ?? null))
     }
 
     upsertLocal(sqlite, 'despesas', despesas, 'id')
