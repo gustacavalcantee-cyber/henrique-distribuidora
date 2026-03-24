@@ -238,9 +238,18 @@ export function Lancamentos() {
     }
   }, [activeRedeId, dataPedido, saveRow, enrichRow])
 
-  // Columns = union of all products selected across all rows
+  // Columns = union of all products selected across all rows, deduplicated by nome+unidade
   const allSelectedProdIds = new Set(Object.values(rowProdIds).flatMap(s => [...s]))
-  const visibleProdutos = produtos.filter(p => allSelectedProdIds.has(p.id))
+  const visibleProdutos = (() => {
+    const all = produtos.filter(p => allSelectedProdIds.has(p.id))
+    const seen = new Set<string>()
+    return all.filter(p => {
+      const key = `${p.nome}|${p.unidade}`
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+  })()
 
   // Column totals (only rows that have the product active)
   const totals: Record<number, number> = {}

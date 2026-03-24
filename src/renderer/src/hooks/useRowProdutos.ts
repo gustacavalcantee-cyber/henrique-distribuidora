@@ -21,6 +21,8 @@ export function useRowProdutos({ activeRedeId, rows, produtos, historicProdIds }
 
   // Track which lojaIds have been initialized to avoid re-running on each dependency change
   const initializedRef = useRef<Set<number>>(new Set())
+  // Prevents concurrent init runs (async race condition)
+  const initRunningRef = useRef(false)
   // Incrementing this forces the init effect to re-run (e.g. after DB_READY)
   const [initTrigger, forceInit] = useReducer((n: number) => n + 1, 0)
 
@@ -42,6 +44,8 @@ export function useRowProdutos({ activeRedeId, rows, produtos, historicProdIds }
     if (pending.length === 0) return
 
     async function init() {
+      if (initRunningRef.current) return
+      initRunningRef.current = true
       const additions: Record<number, Set<number>> = {}
       for (const row of pending) {
         const key = configKey(activeRedeId!, row.loja_id)
@@ -50,22 +54,32 @@ export function useRowProdutos({ activeRedeId, rows, produtos, historicProdIds }
           const ids: number[] = JSON.parse(saved)
           additions[row.loja_id] = new Set(ids.filter(id => produtos.some(p => p.id === id)))
         } else {
-          // Fallbacks in order of preference:
-          // 1) products assigned to this rede
-          const redeProds = produtos.filter(p => p.rede_id === activeRedeId).map(p => p.id)
-          // 2) products from today's order
-          const fromOrder = Object.entries(row.quantidades)
-            .filter(([, qty]) => qty != null)
-            .map(([id]) => Number(id))
-          // 3) products from any historical order (fallback for fresh devices)
-          const fromHistory = [...historicProdIds].filter(id => produtos.some(p => p.id === id))
-          additions[row.loja_id] = new Set([...redeProds, ...fromOrder, ...fromHistory])
+          // Migration: check if localStorage still has data from before SQLite sync
+          const fromLocalStorage = localStorage.getItem(key)
+          if (fromLocalStorage) {
+            const ids: number[] = JSON.parse(fromLocalStorage)
+            const filtered = ids.filter(id => produtos.some(p => p.id === id))
+            additions[row.loja_id] = new Set(filtered)
+            // Persist to SQLite and remove from localStorage
+            window.electron.invoke(IPC.CONFIG_SET, key, JSON.stringify(filtered))
+            localStorage.removeItem(key)
+          } else {
+            // Fallback for brand-new lojas with no config anywhere:
+            // 1) products assigned to this rede
+            const redeProds = produtos.filter(p => p.rede_id === activeRedeId).map(p => p.id)
+            // 2) products from today's order
+            const fromOrder = Object.entries(row.quantidades)
+              .filter(([, qty]) => qty != null)
+              .map(([id]) => Number(id))
+            additions[row.loja_id] = new Set([...redeProds, ...fromOrder])
+          }
         }
         initializedRef.current.add(row.loja_id)
       }
       if (Object.keys(additions).length > 0) {
         setRowProdIds(prev => ({ ...prev, ...additions }))
       }
+      initRunningRef.current = false
     }
 
     init()
@@ -74,6 +88,7 @@ export function useRowProdutos({ activeRedeId, rows, produtos, historicProdIds }
   // Chame isso ao trocar de rede ou data
   const resetRowProdIds = useCallback(() => {
     initializedRef.current = new Set()
+    initRunningRef.current = false
     setRowProdIds({})
     setShowRowProdMenu(null)
   }, [])
