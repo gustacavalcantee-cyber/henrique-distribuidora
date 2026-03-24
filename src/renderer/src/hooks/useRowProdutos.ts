@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect, useRef, useReducer } from 'react'
 import type { Produto, LancamentoRow } from '../../../shared/types'
 import { IPC } from '../../../shared/ipc-channels'
 
@@ -21,12 +21,15 @@ export function useRowProdutos({ activeRedeId, rows, produtos, historicProdIds }
 
   // Track which lojaIds have been initialized to avoid re-running on each dependency change
   const initializedRef = useRef<Set<number>>(new Set())
+  // Incrementing this forces the init effect to re-run (e.g. after DB_READY)
+  const [initTrigger, forceInit] = useReducer((n: number) => n + 1, 0)
 
-  // When startup pull completes (DB_READY), re-init to pick up fresh Supabase configs
+  // When startup pull completes (DB_READY), clear initialized state and re-read from SQLite
   useEffect(() => {
     window.electron.on(IPC.DB_READY, () => {
       initializedRef.current = new Set()
       setRowProdIds({})
+      forceInit()
     })
   }, [])
 
@@ -66,7 +69,7 @@ export function useRowProdutos({ activeRedeId, rows, produtos, historicProdIds }
     }
 
     init()
-  }, [activeRedeId, rows, produtos, historicProdIds])
+  }, [activeRedeId, rows, produtos, historicProdIds, initTrigger])
 
   // Chame isso ao trocar de rede ou data
   const resetRowProdIds = useCallback(() => {

@@ -133,9 +133,15 @@ function initSchema(sqlite: Database.Database): void {
     );
     CREATE TABLE IF NOT EXISTS configuracoes (
       chave TEXT PRIMARY KEY,
-      valor TEXT
+      valor TEXT,
+      synced INTEGER DEFAULT 1,
+      updated_at TEXT
     );
   `)
+
+  // Idempotent migrations for existing databases
+  try { sqlite.exec(`ALTER TABLE configuracoes ADD COLUMN synced INTEGER DEFAULT 1`) } catch { /* already exists */ }
+  try { sqlite.exec(`ALTER TABLE configuracoes ADD COLUMN updated_at TEXT`) } catch { /* already exists */ }
 
   // Init device_id if not present
   const existing = sqlite.prepare('SELECT value FROM sync_meta WHERE key = ?').get('device_id') as { value: string } | undefined

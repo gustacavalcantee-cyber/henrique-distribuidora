@@ -124,6 +124,8 @@ export const despesas = sqliteTable('despesas', {
 export const configuracoes = sqliteTable('configuracoes', {
   chave: text('chave').primaryKey(),
   valor: text('valor'),
+  synced: integer('synced').default(1),
+  updated_at: text('updated_at'),
 })
 
 // --- Relations ---
