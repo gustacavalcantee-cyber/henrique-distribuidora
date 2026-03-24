@@ -56,13 +56,11 @@ export function useRowProdutos({ activeRedeId, rows, produtos, historicProdIds }
           const ids: number[] = JSON.parse(saved)
           additions[row.loja_id] = new Set(ids.filter(id => produtos.some(p => p.id === id)))
         } else {
-          // Fallback for lojas with no config yet:
-          // products assigned to this rede + products from today's order
+          // No saved config: start with products assigned to this rede only.
+          // If no rede-specific products exist, start empty so the user
+          // can configure columns manually per franchise without contamination.
           const redeProds = produtos.filter(p => p.rede_id === activeRedeId).map(p => p.id)
-          const fromOrder = Object.entries(row.quantidades)
-            .filter(([, qty]) => qty != null)
-            .map(([id]) => Number(id))
-          additions[row.loja_id] = new Set([...redeProds, ...fromOrder])
+          additions[row.loja_id] = new Set(redeProds)
         }
         initializedRef.current.add(row.loja_id)
       }
