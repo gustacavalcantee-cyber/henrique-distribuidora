@@ -58,7 +58,7 @@ export function registerPedidosHandlers() {
 
   ipcMain.handle(IPC.PEDIDOS_ITENS, (_event, pedido_id: number) => getPedidoItens(pedido_id))
 
-  ipcMain.handle(IPC.PEDIDOS_UPDATE_BY_ID, (_event, id: number, data: { numero_oc: string; itens: Array<{ produto_id: number; quantidade: number; preco_unit?: number; custo_unit?: number }> }) => {
+  ipcMain.handle(IPC.PEDIDOS_UPDATE_BY_ID, (_event, id: number, data: { numero_oc: string; data_pedido?: string; itens: Array<{ produto_id: number; quantidade: number; preco_unit?: number; custo_unit?: number }> }) => {
     const result = updatePedidoById(id, data)
     triggerSync(getMainWindow() ?? undefined)
     return result

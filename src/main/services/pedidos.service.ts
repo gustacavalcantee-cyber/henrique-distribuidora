@@ -112,11 +112,13 @@ export function salvarPedido(input: SalvarPedidoInput): number {
   }
 }
 
-export function updatePedidoById(id: number, data: { numero_oc: string; itens: SalvarPedidoInput['itens'] }): number {
+export function updatePedidoById(id: number, data: { numero_oc: string; data_pedido?: string; itens: SalvarPedidoInput['itens'] }): number {
   const db = getDb()
   const pedido = db.select({ loja_id: pedidos.loja_id }).from(pedidos).where(eq(pedidos.id, id)).limit(1).all()[0]
   if (!pedido) throw new Error(`Pedido ${id} not found`)
-  db.update(pedidos).set({ numero_oc: data.numero_oc, synced: 0 }).where(eq(pedidos.id, id)).run()
+  const updateFields: Record<string, unknown> = { numero_oc: data.numero_oc, synced: 0 }
+  if (data.data_pedido) updateFields.data_pedido = data.data_pedido
+  db.update(pedidos).set(updateFields).where(eq(pedidos.id, id)).run()
   db.delete(itensPedido).where(eq(itensPedido.pedido_id, id)).run()
   const resolvedItens = resolveItens(db, pedido.loja_id!, data.itens)
   for (const item of resolvedItens) {

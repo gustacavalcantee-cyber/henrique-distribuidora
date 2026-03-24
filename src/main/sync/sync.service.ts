@@ -248,8 +248,10 @@ async function pullFromSupabase(supabase: any): Promise<void> {
 
 // Lock: prevents concurrent syncs that cause conflicts
 let _isSyncing = false
-// Pending flag: a triggerSync arrived while _isSyncing was true — retry when done
+// Pending flag: a triggerSync (local write) arrived while _isSyncing — retry when done
 let _pendingSync = false
+// Pending flag: a broadcast (remote change) arrived while _isSyncing — pull+notify when done
+let _pendingBroadcast = false
 
 function dataSignature(sqlite: ReturnType<typeof getRawSqlite>): string {
   const p = (sqlite.prepare('SELECT COUNT(*) as c FROM pedidos').get() as { c: number }).c
@@ -260,7 +262,11 @@ function dataSignature(sqlite: ReturnType<typeof getRawSqlite>): string {
 // alwaysNotify=true  → broadcast path (another device changed data, always show orange)
 // alwaysNotify=false → polling path (only show orange if local data actually changed)
 async function runSync(supabase: any, win: BrowserWindow, alwaysNotify: boolean): Promise<void> {
-  if (_isSyncing) return
+  if (_isSyncing) {
+    // Don't drop remote broadcasts — queue them so we process after current sync
+    if (alwaysNotify) _pendingBroadcast = true
+    return
+  }
   _isSyncing = true
   try {
     const sqlite = getRawSqlite()
@@ -270,6 +276,12 @@ async function runSync(supabase: any, win: BrowserWindow, alwaysNotify: boolean)
     await pullFromSupabase(supabase)
     const changed = alwaysNotify || dataSignature(sqlite) !== before
     if (!win.isDestroyed() && changed) win.webContents.send(IPC.DB_SYNCED)
+    // A broadcast arrived while we were syncing — pull once more and notify
+    if (_pendingBroadcast && !win.isDestroyed()) {
+      _pendingBroadcast = false
+      await pullFromSupabase(supabase)
+      win.webContents.send(IPC.DB_SYNCED)
+    }
   } catch (err: unknown) {
     console.warn('[sync] Sync failed:', (err as Error).message)
   } finally {

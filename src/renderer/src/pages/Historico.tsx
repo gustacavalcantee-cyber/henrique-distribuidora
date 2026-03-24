@@ -17,6 +17,7 @@ export function Historico() {
   const [editState, setEditState] = useState<EditState | null>(null)
   const [editQtds, setEditQtds] = useState<Record<number, string>>({})
   const [editNumeroOc, setEditNumeroOc] = useState('')
+  const [editDataPedido, setEditDataPedido] = useState('')
   const [filters, setFilters] = useState({
     data_inicio: '',
     data_fim: '',
@@ -74,6 +75,7 @@ export function Historico() {
     }
     setEditQtds(qtds)
     setEditNumeroOc(pedido.numero_oc)
+    setEditDataPedido(pedido.data_pedido)
     setEditState({ pedido, itens, produtos: produtos.filter(p => itens.some(i => i.produto_id === p.id)) })
   }
 
@@ -88,6 +90,7 @@ export function Historico() {
     }))
     await window.electron.invoke(IPC.PEDIDOS_UPDATE_BY_ID, pedido.id, {
       numero_oc: editNumeroOc,
+      data_pedido: editDataPedido,
       itens: updatedItens,
     })
     setEditState(null)
@@ -214,14 +217,25 @@ export function Historico() {
               </button>
             </div>
 
-            {/* OC field */}
-            <div className="flex items-center gap-2 px-5 pb-3 flex-shrink-0">
-              <label className="text-sm font-medium text-gray-700 whitespace-nowrap">Nº OC:</label>
-              <input
-                className="border rounded px-2 py-1 text-sm font-mono w-32"
-                value={editNumeroOc}
-                onChange={e => setEditNumeroOc(e.target.value)}
-              />
+            {/* OC + Data fields */}
+            <div className="flex items-center gap-4 px-5 pb-3 flex-shrink-0">
+              <div className="flex items-center gap-2">
+                <label className="text-sm font-medium text-gray-700 whitespace-nowrap">Nº OC:</label>
+                <input
+                  className="border rounded px-2 py-1 text-sm font-mono w-32"
+                  value={editNumeroOc}
+                  onChange={e => setEditNumeroOc(e.target.value)}
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-sm font-medium text-gray-700 whitespace-nowrap">Data:</label>
+                <input
+                  type="date"
+                  className="border rounded px-2 py-1 text-sm"
+                  value={editDataPedido}
+                  onChange={e => setEditDataPedido(e.target.value)}
+                />
+              </div>
             </div>
 
             {/* Scrollable table */}
