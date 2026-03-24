@@ -237,16 +237,6 @@ async function pullFromSupabase(supabase: any): Promise<void> {
 // PUBLIC API
 // --------------------------------------------------------------------------
 
-// Tracks the last time THIS device wrote data, to avoid notifying for own changes
-let _lastOwnWriteMs = 0
-const OWN_WRITE_COOLDOWN_MS = 12_000
-
-function dataSignature(sqlite: ReturnType<typeof getRawSqlite>): string {
-  const pCount = (sqlite.prepare('SELECT COUNT(*) as c FROM pedidos').get() as { c: number }).c
-  const iMax = (sqlite.prepare('SELECT COALESCE(MAX(id),0) as m FROM itens_pedido').get() as { m: number }).m
-  return `${pCount}-${iMax}`
-}
-
 /** Called on app startup — push pending, pull fresh, start Realtime */
 export async function startSync(win: BrowserWindow): Promise<void> {
   const supabase = getSupabase()
@@ -259,28 +249,20 @@ export async function startSync(win: BrowserWindow): Promise<void> {
     await pushPendingPedidos(supabase)
     await pushPendingOthers(supabase)
     await pullFromSupabase(supabase)
-    // Do NOT send DB_SYNCED on startup — no notification for initial load
   } catch (err: unknown) {
     console.warn('[sync] Startup sync failed:', (err as Error).message)
   }
 
-  // Realtime: fires when ANY device changes Supabase (including this device)
-  // Only notify if it's been >12s since our own last write (i.e. remote change)
+  // Realtime: notify whenever Supabase changes (any device)
   let syncTimer: ReturnType<typeof setTimeout> | null = null
   supabase
     .channel('db-changes')
     .on('postgres_changes', { event: '*', schema: 'public' }, async () => {
       try {
-        const isOwnChange = Date.now() - _lastOwnWriteMs < OWN_WRITE_COOLDOWN_MS
-        if (isOwnChange) return // ignore own changes
-
-        const sqlite = getRawSqlite()
-        const before = dataSignature(sqlite)
         await pushPendingPedidos(supabase)
         await pushPendingOthers(supabase)
         await pullFromSupabase(supabase)
-        const after = dataSignature(sqlite)
-        if (!win.isDestroyed() && after !== before) {
+        if (!win.isDestroyed()) {
           if (syncTimer) clearTimeout(syncTimer)
           syncTimer = setTimeout(() => {
             if (!win.isDestroyed()) win.webContents.send(IPC.DB_SYNCED)
@@ -292,20 +274,14 @@ export async function startSync(win: BrowserWindow): Promise<void> {
     })
     .subscribe()
 
-  // Polling fallback every 30s — silently updates SQLite, shows banner only if remote changed
+  // Polling fallback every 30s
   setInterval(async () => {
     if (win.isDestroyed()) return
     try {
-      const isOwnChange = Date.now() - _lastOwnWriteMs < OWN_WRITE_COOLDOWN_MS
-      if (isOwnChange) return // skip poll right after own write (Realtime covers it)
-
-      const sqlite = getRawSqlite()
-      const before = dataSignature(sqlite)
       await pushPendingPedidos(supabase)
       await pushPendingOthers(supabase)
       await pullFromSupabase(supabase)
-      const after = dataSignature(sqlite)
-      if (!win.isDestroyed() && after !== before) win.webContents.send(IPC.DB_SYNCED)
+      if (!win.isDestroyed()) win.webContents.send(IPC.DB_SYNCED)
     } catch (err: unknown) {
       console.warn('[sync] Poll sync failed:', (err as Error).message)
     }
@@ -322,7 +298,6 @@ export async function pushDeletePedido(supabaseId: number): Promise<void> {
 
 /** Call after any write — fire and forget push to Supabase */
 export function triggerSync(_win?: BrowserWindow): void {
-  _lastOwnWriteMs = Date.now() // mark own write to suppress Realtime self-notification
   const supabase = getSupabase()
   if (!supabase) return
   Promise.all([pushPendingPedidos(supabase), pushPendingOthers(supabase)])

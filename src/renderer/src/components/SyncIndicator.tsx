@@ -1,48 +1,39 @@
 import { useState, useEffect } from 'react'
-import { CheckCircle2, RefreshCw } from 'lucide-react'
+import { Cloud, CloudDownload, Check } from 'lucide-react'
 import { IPC } from '../../../shared/ipc-channels'
 
 export function SyncIndicator() {
   const [hasUpdate, setHasUpdate] = useState(false)
-  const [syncing, setSyncing] = useState(false)
 
   useEffect(() => {
     window.electron.on(IPC.DB_SYNCED, () => setHasUpdate(true))
   }, [])
 
-  async function handleSync() {
-    if (hasUpdate) {
-      window.location.reload()
-      return
-    }
-    // Manual sync: reload to pull latest from Supabase
-    setSyncing(true)
-    await new Promise(r => setTimeout(r, 500))
-    window.location.reload()
-  }
-
   if (hasUpdate) {
     return (
       <button
-        onClick={handleSync}
-        className="fixed top-3 right-4 z-50 flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-white border border-amber-300 text-amber-600 text-xs font-medium shadow-sm hover:bg-amber-50 transition-colors"
-        title="Clique para carregar os dados atualizados"
+        onClick={() => window.location.reload()}
+        className="fixed top-3 right-4 z-50 p-1.5 rounded-md bg-white shadow-sm border border-orange-200 hover:bg-orange-50 transition-colors"
+        title="Dados atualizados — clique para recarregar"
       >
-        <RefreshCw size={12} className="shrink-0" />
-        Atualizar dados
+        <CloudDownload size={18} className="text-orange-500" />
       </button>
     )
   }
 
   return (
-    <button
-      onClick={handleSync}
-      disabled={syncing}
-      className="fixed top-3 right-4 z-50 flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-white border border-emerald-300 text-emerald-600 text-xs font-medium shadow-sm hover:bg-emerald-50 transition-colors disabled:opacity-60"
-      title="Clique para sincronizar agora"
+    <div
+      className="fixed top-3 right-4 z-50 p-1.5 rounded-md bg-white shadow-sm border border-emerald-200"
+      title="Sincronizado"
     >
-      <CheckCircle2 size={12} className="shrink-0" />
-      {syncing ? 'Sincronizando...' : 'Sincronizado'}
-    </button>
+      <div className="relative">
+        <Cloud size={18} className="text-emerald-500" />
+        <Check
+          size={9}
+          strokeWidth={3}
+          className="absolute bottom-0 right-0 text-emerald-600"
+        />
+      </div>
+    </div>
   )
 }
