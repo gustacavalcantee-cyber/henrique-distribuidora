@@ -321,18 +321,33 @@ export async function startSync(win: BrowserWindow): Promise<void> {
   const deviceId = getDeviceId()
 
   // ── Broadcast: instant notification when another device saves ──
-  _broadcastChannel = supabase
-    .channel('sync-broadcast')
-    .on('broadcast', { event: 'updated' }, async (msg: { payload?: { from?: string } }) => {
-      if (msg.payload?.from === deviceId) return // ignore own broadcasts
-      await runSync(supabase, win, true) // always show orange — remote device changed
-    })
-    .subscribe()
+  function subscribeBroadcast() {
+    _broadcastChannel = supabase
+      .channel('sync-broadcast')
+      .on('broadcast', { event: 'updated' }, async (msg: { payload?: { from?: string } }) => {
+        if (msg.payload?.from === deviceId) return // ignore own broadcasts
+        console.log('[sync] broadcast received — pulling from remote')
+        await runSync(supabase, win, true) // always show orange — remote device changed
+      })
+      .subscribe((status: string) => {
+        console.log('[sync] broadcast channel status:', status)
+        // If channel closed unexpectedly, reconnect after 3s
+        if (status === 'CLOSED' || status === 'CHANNEL_ERROR') {
+          console.warn('[sync] broadcast channel lost — reconnecting in 3s...')
+          setTimeout(() => {
+            if (!win.isDestroyed()) subscribeBroadcast()
+          }, 3_000)
+        }
+      })
+  }
 
-  // ── Polling every 30s — only notifies if data actually changed ──
+  subscribeBroadcast()
+
+  // ── Polling every 8s — only notifies if data actually changed ──
+  // Fast fallback in case broadcast channel misses an event
   setInterval(() => {
     if (!win.isDestroyed()) runSync(supabase, win, false)
-  }, 30_000)
+  }, 8_000)
 }
 
 /** Delete a pedido (and its itens) from Supabase — call before local delete */
