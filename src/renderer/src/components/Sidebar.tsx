@@ -1,8 +1,7 @@
 import { NavLink } from 'react-router-dom'
-import { LayoutDashboard, ClipboardList, History, BarChart2, Wallet, Settings, RefreshCw, RotateCcw, CloudDownload, X } from 'lucide-react'
+import { LayoutDashboard, ClipboardList, History, BarChart2, Wallet, Settings, RefreshCw, RotateCcw } from 'lucide-react'
 import logoImg from '../assets/logo.png'
-import { useState, useEffect } from 'react'
-import { IPC } from '../../../shared/ipc-channels'
+import { useState } from 'react'
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard', end: true },
@@ -16,13 +15,7 @@ const navItems = [
 
 export function Sidebar() {
   const [confirm, setConfirm] = useState(false)
-  // pendingSync = another machine updated the DB; user chooses when to reload
-  const [pendingSync, setPendingSync] = useState(false)
   const appVersion = (window as unknown as { __APP_VERSION__?: string }).__APP_VERSION__ ?? '—'
-
-  useEffect(() => {
-    window.electron.on(IPC.DB_SYNCED, () => setPendingSync(true))
-  }, [])
 
   function handleReload() {
     if (!confirm) { setConfirm(true); return }
@@ -97,30 +90,6 @@ export function Sidebar() {
         )}
         <p className="text-xs text-slate-300 text-center">v{appVersion}</p>
       </div>
-
-      {/* Floating sync notification — fixed top-right, hard to miss */}
-      {pendingSync && (
-        <div className="fixed top-4 right-4 z-50 flex items-center gap-3 bg-emerald-600 text-white rounded-xl shadow-lg px-4 py-3 animate-bounce">
-          <CloudDownload size={18} className="shrink-0" />
-          <div>
-            <p className="text-sm font-semibold leading-tight">Dados atualizados!</p>
-            <p className="text-xs opacity-80">Outro dispositivo fez alterações.</p>
-          </div>
-          <button
-            onClick={() => window.location.reload()}
-            className="ml-1 bg-white text-emerald-700 text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-emerald-50 transition"
-          >
-            Recarregar
-          </button>
-          <button
-            onClick={() => setPendingSync(false)}
-            className="text-white/70 hover:text-white shrink-0"
-            title="Dispensar"
-          >
-            <X size={14} />
-          </button>
-        </div>
-      )}
     </aside>
   )
 }
