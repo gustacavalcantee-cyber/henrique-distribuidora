@@ -12,6 +12,7 @@ import {
   getLancamentosParaData,
   getPedidoItens,
 } from '../services/pedidos.service'
+import { triggerSync, getMainWindow } from '../sync/sync.service'
 import type { SalvarPedidoInput } from '../../shared/types'
 import type { PedidoFilters } from '../services/pedidos.service'
 
@@ -22,11 +23,22 @@ export function registerPedidosHandlers() {
     getLancamentosParaData(rede_id, data_pedido)
   )
 
-  ipcMain.handle(IPC.PEDIDOS_CREATE, (_event, input: SalvarPedidoInput) => salvarPedido(input))
+  ipcMain.handle(IPC.PEDIDOS_CREATE, (_event, input: SalvarPedidoInput) => {
+    const result = salvarPedido(input)
+    triggerSync(getMainWindow() ?? undefined)
+    return result
+  })
 
-  ipcMain.handle(IPC.PEDIDOS_UPDATE, (_event, input: SalvarPedidoInput) => salvarPedido(input))
+  ipcMain.handle(IPC.PEDIDOS_UPDATE, (_event, input: SalvarPedidoInput) => {
+    const result = salvarPedido(input)
+    triggerSync(getMainWindow() ?? undefined)
+    return result
+  })
 
-  ipcMain.handle(IPC.PEDIDOS_DELETE, (_event, id: number) => deletePedido(id))
+  ipcMain.handle(IPC.PEDIDOS_DELETE, (_event, id: number) => {
+    deletePedido(id)
+    triggerSync(getMainWindow() ?? undefined)
+  })
 
   ipcMain.handle(IPC.PEDIDOS_CHECK_DUPLICATE, (_event, rede_id: number, loja_id: number, data_pedido: string, numero_oc: string) =>
     checkDuplicate(rede_id, loja_id, data_pedido, numero_oc)
@@ -34,9 +46,11 @@ export function registerPedidosHandlers() {
 
   ipcMain.handle(IPC.PEDIDOS_ITENS, (_event, pedido_id: number) => getPedidoItens(pedido_id))
 
-  ipcMain.handle(IPC.PEDIDOS_UPDATE_BY_ID, (_event, id: number, data: { numero_oc: string; itens: Array<{ produto_id: number; quantidade: number; preco_unit?: number; custo_unit?: number }> }) =>
-    updatePedidoById(id, data)
-  )
+  ipcMain.handle(IPC.PEDIDOS_UPDATE_BY_ID, (_event, id: number, data: { numero_oc: string; itens: Array<{ produto_id: number; quantidade: number; preco_unit?: number; custo_unit?: number }> }) => {
+    const result = updatePedidoById(id, data)
+    triggerSync(getMainWindow() ?? undefined)
+    return result
+  })
 
   ipcMain.handle(IPC.PEDIDOS_LAST_OC, (_event, rede_id: number) => {
     const last = getDb().select({ numero_oc: pedidos.numero_oc })
@@ -49,9 +63,11 @@ export function registerPedidosHandlers() {
     getDb().update(itensPedido).set({ preco_unit: new_preco }).where(eq(itensPedido.id, item_id)).returning().all()[0]
   )
 
-  ipcMain.handle(IPC.PEDIDOS_UPDATE_STATUS, (_event, id: number, status: string) =>
-    getDb().update(pedidos).set({ status_pagamento: status }).where(eq(pedidos.id, id)).returning().all()[0]
-  )
+  ipcMain.handle(IPC.PEDIDOS_UPDATE_STATUS, (_event, id: number, status: string) => {
+    const result = getDb().update(pedidos).set({ status_pagamento: status, synced: 0 }).where(eq(pedidos.id, id)).returning().all()[0]
+    triggerSync(getMainWindow() ?? undefined)
+    return result
+  })
 
   ipcMain.handle(IPC.ITENS_UPDATE_PRECO, (
     _event,

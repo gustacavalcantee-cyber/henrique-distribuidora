@@ -8,6 +8,7 @@ import { registerAllHandlers } from './handlers'
 import { setDownloadedUpdatePath } from './handlers/atualizacao'
 import { closeDb } from './db/client-local'
 import { seedFromSupabase } from './db/seed-from-supabase'
+import { startSync, setSyncWindow } from './sync/sync.service'
 import { IPC } from '../shared/ipc-channels'
 
 // Load .env.local in dev mode
@@ -70,6 +71,11 @@ function createWindow(): void {
 
   mainWindow.on('ready-to-show', () => {
     mainWindow!.show()
+    setSyncWindow(mainWindow!)
+    // Seed first (no-op if already seeded), then start bidirectional sync + Realtime
+    seedFromSupabase()
+      .then(() => startSync(mainWindow!))
+      .catch((err: Error) => console.error('[sync] startup failed:', err.message))
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
@@ -100,11 +106,6 @@ app.whenReady().then(async () => {
   removeQuarentena()
   createWindow()
   setupAutoUpdater()
-
-  // Seed local SQLite from Supabase on first run (runs in background, non-blocking)
-  seedFromSupabase().catch((err) => {
-    console.error('[seed] Failed to seed from Supabase:', err.message)
-  })
 
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
