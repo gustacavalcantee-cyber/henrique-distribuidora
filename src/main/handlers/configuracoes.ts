@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm'
 import { getDb } from '../db/client-local'
 import { configuracoes } from '../db/schema-local'
 import { IPC } from '../../shared/ipc-channels'
-import { triggerSync, getMainWindow } from '../sync/sync.service'
+import { triggerSync, getMainWindow, markConfigDirty } from '../sync/sync.service'
 
 export function registerConfiguracoesHandlers() {
   ipcMain.handle(IPC.CONFIG_GET, (_event, chave: string) => {
@@ -15,7 +15,8 @@ export function registerConfiguracoesHandlers() {
     const result = getDb().insert(configuracoes).values({ chave, valor })
       .onConflictDoUpdate({ target: configuracoes.chave, set: { valor } })
       .returning().all()[0]
-    // Sync to Supabase and broadcast to other devices
+    // Mark as locally modified so this key gets pushed to Supabase
+    markConfigDirty(chave)
     triggerSync(getMainWindow() ?? undefined)
     return result
   })

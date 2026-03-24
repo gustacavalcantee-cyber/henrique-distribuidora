@@ -20,6 +20,15 @@ let _supabase: any = null
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _broadcastChannel: any = null
 
+// Tracks which configuracoes keys were changed locally and need to be pushed
+// Only locally-modified keys are pushed — prevents devices from overwriting each other's configs
+const _dirtyConfigKeys = new Set<string>()
+
+/** Mark a config key as locally modified — call from CONFIG_SET handler */
+export function markConfigDirty(chave: string) {
+  _dirtyConfigKeys.add(chave)
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function getSupabase(): any | null {
   if (_supabase) return _supabase
@@ -134,13 +143,24 @@ async function pushPendingOthers(supabase: any): Promise<void> {
     sqlite.prepare(`UPDATE ${table} SET synced = 1 WHERE synced = 0`).run()
   }
 
-  // configuracoes has no synced column — always push all rows (tiny table, key-value config)
-  const configs = sqlite.prepare('SELECT * FROM configuracoes').all() as AnyRow[]
-  if (configs.length > 0) {
-    const { error } = await supabase
-      .from('configuracoes')
-      .upsert(configs, { onConflict: 'chave', ignoreDuplicates: false })
-    if (error) console.warn('[sync] push configuracoes error:', error.message)
+  // Only push configuracoes that were changed locally (dirty set)
+  // Pushing ALL configs on every sync would cause devices to overwrite each other's config
+  if (_dirtyConfigKeys.size > 0) {
+    const keys = [..._dirtyConfigKeys]
+    _dirtyConfigKeys.clear() // clear before push; re-add on error
+    const placeholders = keys.map(() => '?').join(', ')
+    const dirtyRows = sqlite.prepare(
+      `SELECT * FROM configuracoes WHERE chave IN (${placeholders})`
+    ).all(...keys) as AnyRow[]
+    if (dirtyRows.length > 0) {
+      const { error } = await supabase
+        .from('configuracoes')
+        .upsert(dirtyRows, { onConflict: 'chave', ignoreDuplicates: false })
+      if (error) {
+        console.warn('[sync] push configuracoes error:', error.message)
+        for (const k of keys) _dirtyConfigKeys.add(k) // retry next sync
+      }
+    }
   }
 }
 
