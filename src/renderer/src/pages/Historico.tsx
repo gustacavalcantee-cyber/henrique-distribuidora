@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
-import { Trash2, Pencil, Printer, X } from 'lucide-react'
+import { Trash2, Pencil, Printer, X, Share2 } from 'lucide-react'
 import type { Pedido, Rede, Loja, ItemPedido, Produto } from '../../../shared/types'
 import { IPC } from '../../../shared/ipc-channels'
+import { ShareModal } from '../components/Lancamentos/ShareModal'
 
 interface EditState {
   pedido: Pedido
@@ -18,6 +19,9 @@ export function Historico() {
   const [editQtds, setEditQtds] = useState<Record<number, string>>({})
   const [editNumeroOc, setEditNumeroOc] = useState('')
   const [editDataPedido, setEditDataPedido] = useState('')
+  const [sharePreview, setSharePreview] = useState<{ image: string; pedidoId: number } | null>(null)
+  const [shareCopied, setShareCopied] = useState(false)
+  const [shareLoading, setShareLoading] = useState<number | null>(null)
   const [filters, setFilters] = useState({
     data_inicio: '',
     data_fim: '',
@@ -77,6 +81,17 @@ export function Historico() {
     setEditNumeroOc(pedido.numero_oc)
     setEditDataPedido(pedido.data_pedido)
     setEditState({ pedido, itens, produtos: produtos.filter(p => itens.some(i => i.produto_id === p.id)) })
+  }
+
+  const handleShare = async (id: number) => {
+    setShareLoading(id)
+    try {
+      const image = await window.electron.invoke<string>(IPC.GET_NOTA_IMAGE, id)
+      setSharePreview({ image, pedidoId: id })
+      setShareCopied(false)
+    } finally {
+      setShareLoading(null)
+    }
   }
 
   const handleSaveEdit = async () => {
@@ -171,6 +186,16 @@ export function Historico() {
                       className="text-green-600 hover:text-green-800 p-1 rounded hover:bg-green-50">
                       <Printer size={14} />
                     </button>
+                    <button
+                      onClick={() => handleShare(p.id)}
+                      disabled={shareLoading === p.id}
+                      className="text-blue-500 hover:text-blue-700 p-1 rounded hover:bg-blue-50 disabled:opacity-40"
+                      title="Compartilhar nota"
+                    >
+                      {shareLoading === p.id
+                        ? <span className="inline-block w-3.5 h-3.5 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+                        : <Share2 size={14} />}
+                    </button>
                     <button onClick={() => handleEdit(p)}
                       className="text-blue-600 hover:text-blue-800 p-1 rounded hover:bg-blue-50">
                       <Pencil size={14} />
@@ -189,6 +214,19 @@ export function Historico() {
           </table>
         </div>
       )}
+
+      {/* Share Modal */}
+      <ShareModal
+        sharePreview={sharePreview}
+        shareCopied={shareCopied}
+        onClose={() => setSharePreview(null)}
+        onCopy={async () => {
+          if (!sharePreview) return
+          await window.electron.invoke(IPC.CLIPBOARD_WRITE_IMAGE, sharePreview.image)
+          setShareCopied(true)
+          setTimeout(() => setShareCopied(false), 2000)
+        }}
+      />
 
       {/* Edit Modal */}
       {editState && (
