@@ -35,15 +35,21 @@ export function registerPedidosHandlers() {
     return result
   })
 
-  ipcMain.handle(IPC.PEDIDOS_DELETE, async (_event, id: number) => {
+  ipcMain.handle(IPC.PEDIDOS_DELETE, (_event, id: number) => {
     const db = getDb()
     const row = db.select({ remote_id: pedidos.remote_id, synced: pedidos.synced })
       .from(pedidos).where(eq(pedidos.id, id)).limit(1).all()[0]
     // supabaseId: for seeded pedidos id===supabase id; for locally-created use remote_id
     const supabaseId = row?.remote_id ?? (row?.synced === 1 ? id : null)
-    deletePedido(id) // local delete (CASCADE removes itens_pedido)
-    if (supabaseId) await pushDeletePedido(supabaseId)
-    triggerSync(getMainWindow() ?? undefined)
+    deletePedido(id) // local delete (CASCADE removes itens_pedido) — immediate, unblocks UI
+    // Push to Supabase in background — same pattern as create/update
+    if (supabaseId) {
+      pushDeletePedido(supabaseId)
+        .then(() => triggerSync(getMainWindow() ?? undefined))
+        .catch(err => console.warn('[sync] delete push error:', (err as Error).message))
+    } else {
+      triggerSync(getMainWindow() ?? undefined)
+    }
   })
 
   ipcMain.handle(IPC.PEDIDOS_CHECK_DUPLICATE, (_event, rede_id: number, loja_id: number, data_pedido: string, numero_oc: string) =>
