@@ -24,11 +24,10 @@ export function useRowProdutos({ activeRedeId, rows, produtos, historicProdIds }
 
   // When startup pull completes (DB_READY), re-init to pick up fresh Supabase configs
   useEffect(() => {
-    const unsub = window.electron.on(IPC.DB_READY, () => {
+    window.electron.on(IPC.DB_READY, () => {
       initializedRef.current = new Set()
       setRowProdIds({})
     })
-    return () => unsub?.()
   }, [])
 
   useEffect(() => {
