@@ -21,6 +21,9 @@ export function Sidebar() {
   const appVersion = (window as unknown as { __APP_VERSION__?: string }).__APP_VERSION__ ?? '—'
 
   useEffect(() => {
+    // Realtime: another device changed data → auto-reload immediately
+    window.electron.on(IPC.DB_RELOAD, () => window.location.reload())
+    // Polling fallback: new records detected → show banner
     window.electron.on(IPC.DB_SYNCED, () => setPendingSync(true))
   }, [])
 

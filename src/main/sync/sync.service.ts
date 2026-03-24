@@ -254,7 +254,9 @@ export async function startSync(win: BrowserWindow): Promise<void> {
     console.warn('[sync] Startup sync failed:', (err as Error).message)
   }
 
-  // Realtime: when another device changes Supabase, pull and show banner
+  // Realtime: when another device changes Supabase, pull and auto-reload
+  // (only fires when another device actually changes data — not on a timer)
+  let reloadTimer: ReturnType<typeof setTimeout> | null = null
   supabase
     .channel('db-changes')
     .on('postgres_changes', { event: '*', schema: 'public' }, async () => {
@@ -262,25 +264,35 @@ export async function startSync(win: BrowserWindow): Promise<void> {
         await pushPendingPedidos(supabase)
         await pushPendingOthers(supabase)
         await pullFromSupabase(supabase)
-        if (!win.isDestroyed()) win.webContents.send(IPC.DB_SYNCED)
+        if (!win.isDestroyed()) {
+          // Debounce: multiple rapid events → only one reload
+          if (reloadTimer) clearTimeout(reloadTimer)
+          reloadTimer = setTimeout(() => {
+            if (!win.isDestroyed()) win.webContents.send(IPC.DB_RELOAD)
+          }, 2000)
+        }
       } catch (err: unknown) {
         console.warn('[sync] Realtime sync failed:', (err as Error).message)
       }
     })
     .subscribe()
 
-  // Polling fallback every 60s — silently updates SQLite and shows banner
+  // Polling fallback every 30s — silently updates SQLite and shows banner
   setInterval(async () => {
     if (win.isDestroyed()) return
     try {
+      const sqlite = getRawSqlite()
+      const before = (sqlite.prepare('SELECT COUNT(*) as c FROM pedidos').get() as { c: number }).c
       await pushPendingPedidos(supabase)
       await pushPendingOthers(supabase)
       await pullFromSupabase(supabase)
-      if (!win.isDestroyed()) win.webContents.send(IPC.DB_SYNCED)
+      const after = (sqlite.prepare('SELECT COUNT(*) as c FROM pedidos').get() as { c: number }).c
+      // Only show banner if number of pedidos changed (new/deleted records)
+      if (!win.isDestroyed() && after !== before) win.webContents.send(IPC.DB_SYNCED)
     } catch (err: unknown) {
       console.warn('[sync] Poll sync failed:', (err as Error).message)
     }
-  }, 60_000)
+  }, 30_000)
 }
 
 /** Delete a pedido (and its itens) from Supabase — call before local delete */
@@ -292,14 +304,10 @@ export async function pushDeletePedido(supabaseId: number): Promise<void> {
 }
 
 /** Call after any write — fire and forget push to Supabase */
-export function triggerSync(win?: BrowserWindow): void {
+export function triggerSync(_win?: BrowserWindow): void {
   const supabase = getSupabase()
   if (!supabase) return
   Promise.all([pushPendingPedidos(supabase), pushPendingOthers(supabase)])
-    .then(async () => {
-      await pullFromSupabase(supabase)
-      if (win && !win.isDestroyed()) win.webContents.send(IPC.DB_SYNCED)
-    })
     .catch(err => console.warn('[sync] triggerSync error:', err.message))
 }
 
