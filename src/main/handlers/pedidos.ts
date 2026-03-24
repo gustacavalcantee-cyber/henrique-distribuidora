@@ -12,7 +12,7 @@ import {
   getLancamentosParaData,
   getPedidoItens,
 } from '../services/pedidos.service'
-import { triggerSync, getMainWindow } from '../sync/sync.service'
+import { triggerSync, getMainWindow, pushDeletePedido } from '../sync/sync.service'
 import type { SalvarPedidoInput } from '../../shared/types'
 import type { PedidoFilters } from '../services/pedidos.service'
 
@@ -35,8 +35,14 @@ export function registerPedidosHandlers() {
     return result
   })
 
-  ipcMain.handle(IPC.PEDIDOS_DELETE, (_event, id: number) => {
-    deletePedido(id)
+  ipcMain.handle(IPC.PEDIDOS_DELETE, async (_event, id: number) => {
+    const db = getDb()
+    const row = db.select({ remote_id: pedidos.remote_id, synced: pedidos.synced })
+      .from(pedidos).where(eq(pedidos.id, id)).limit(1).all()[0]
+    // supabaseId: for seeded pedidos id===supabase id; for locally-created use remote_id
+    const supabaseId = row?.remote_id ?? (row?.synced === 1 ? id : null)
+    deletePedido(id) // local delete (CASCADE removes itens_pedido)
+    if (supabaseId) await pushDeletePedido(supabaseId)
     triggerSync(getMainWindow() ?? undefined)
   })
 

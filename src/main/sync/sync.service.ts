@@ -271,6 +271,14 @@ export async function startSync(win: BrowserWindow): Promise<void> {
     .subscribe()
 }
 
+/** Delete a pedido (and its itens) from Supabase — call before local delete */
+export async function pushDeletePedido(supabaseId: number): Promise<void> {
+  const supabase = getSupabase()
+  if (!supabase) return
+  await supabase.from('itens_pedido').delete().eq('pedido_id', supabaseId)
+  await supabase.from('pedidos').delete().eq('id', supabaseId)
+}
+
 /** Call after any write — fire and forget push to Supabase */
 export function triggerSync(win?: BrowserWindow): void {
   const supabase = getSupabase()
