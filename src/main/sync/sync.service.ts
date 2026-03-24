@@ -144,6 +144,16 @@ async function pushPendingOthers(supabase: any): Promise<void> {
     })
     sqlite.prepare('UPDATE configuracoes SET synced = 1 WHERE synced = 0').run()
   }
+
+  // Push layout_config where synced=0
+  const pendingLayouts = sqlite.prepare('SELECT * FROM layout_config WHERE synced = 0').all() as AnyRow[]
+  if (pendingLayouts.length > 0) {
+    await pushTable(supabase, 'layout_config', pendingLayouts, {
+      upsertOn: 'rede_id,loja_id',
+      skipCols: ['synced', 'updated_at'],
+    })
+    sqlite.prepare('UPDATE layout_config SET synced = 1 WHERE synced = 0').run()
+  }
 }
 
 // --------------------------------------------------------------------------
@@ -209,7 +219,7 @@ async function pullFromSupabase(supabase: any): Promise<void> {
 
   console.log('[sync] Pulling from Supabase...')
 
-  const [redes, franqueados, lojas, produtos, custos, precos, pedidosRemote, itensPedido, despesas, configuracoes] =
+  const [redes, franqueados, lojas, produtos, custos, precos, pedidosRemote, itensPedido, despesas, configuracoes, layoutConfigs] =
     await Promise.all([
       fetchAllSupabase(supabase, 'redes'),
       fetchAllSupabase(supabase, 'franqueados'),
@@ -221,6 +231,7 @@ async function pullFromSupabase(supabase: any): Promise<void> {
       fetchAllSupabase(supabase, 'itens_pedido'),
       fetchAllSupabase(supabase, 'despesas'),
       fetchAllSupabase(supabase, 'configuracoes'),
+      fetchAllSupabase(supabase, 'layout_config'),
     ])
 
   sqlite.transaction(() => {
@@ -248,6 +259,23 @@ async function pullFromSupabase(supabase: any): Promise<void> {
 
     upsertLocal(sqlite, 'despesas', despesas, 'id')
     upsertLocal(sqlite, 'configuracoes', configuracoes, 'chave', true)
+
+    // layout_config: upsert by (rede_id, loja_id), skip if local synced=0
+    for (const row of layoutConfigs) {
+      const existing = sqlite
+        .prepare('SELECT synced FROM layout_config WHERE rede_id = ? AND loja_id = ?')
+        .get(row['rede_id'], row['loja_id']) as { synced: number } | undefined
+      if (existing?.synced === 0) continue
+      sqlite.prepare(
+        `INSERT INTO layout_config (id, rede_id, loja_id, produto_ids, synced, updated_at)
+         VALUES (?, ?, ?, ?, 1, ?)
+         ON CONFLICT(rede_id, loja_id) DO UPDATE SET
+           id = excluded.id,
+           produto_ids = excluded.produto_ids,
+           synced = 1,
+           updated_at = excluded.updated_at`
+      ).run(row['id'] ?? null, row['rede_id'], row['loja_id'], row['produto_ids'] ?? '[]', row['updated_at'] ?? null)
+    }
   })()
 
   console.log('[sync] Pull complete.')

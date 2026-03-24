@@ -128,6 +128,21 @@ export const configuracoes = sqliteTable('configuracoes', {
   updated_at: text('updated_at'),
 })
 
+export const layoutConfig = sqliteTable(
+  'layout_config',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    rede_id: integer('rede_id').notNull().references(() => redes.id),
+    loja_id: integer('loja_id').notNull().references(() => lojas.id),
+    produto_ids: text('produto_ids').notNull().default('[]'),
+    synced: integer('synced').default(0),
+    updated_at: text('updated_at'),
+  },
+  (t) => ({
+    uniqueLayout: uniqueIndex('unique_layout').on(t.rede_id, t.loja_id),
+  })
+)
+
 // --- Relations ---
 export const redesRelations = relations(redes, ({ many }) => ({
   lojas: many(lojas),

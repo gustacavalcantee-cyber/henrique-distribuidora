@@ -12,6 +12,7 @@ import { registerRelatoriosHandlers } from './relatorios'
 import { registerFranqueadosHandlers } from './franqueados'
 import { registerEstoqueHandlers } from './estoque'
 import { registerAtualizacaoHandlers } from './atualizacao'
+import { registerLayoutConfigHandlers } from './layout-config'
 
 export function registerAllHandlers() {
   ipcMain.handle('ping', () => 'pong')
@@ -29,4 +30,5 @@ export function registerAllHandlers() {
   registerFranqueadosHandlers()
   registerEstoqueHandlers()
   registerAtualizacaoHandlers()
+  registerLayoutConfigHandlers()
 }

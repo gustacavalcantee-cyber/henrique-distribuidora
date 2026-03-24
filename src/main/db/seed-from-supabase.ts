@@ -37,7 +37,7 @@ export async function seedFromSupabase(): Promise<void> {
   const db = getDb()
 
   // Fetch all tables in FK-safe order
-  const [redes, franqueados, lojas, produtos, configuracoes, custos, precos, pedidos, itensPedido, despesas] =
+  const [redes, franqueados, lojas, produtos, configuracoes, custos, precos, pedidos, itensPedido, despesas, layoutConfigs] =
     await Promise.all([
       fetchAll(supabase, 'redes'),
       fetchAll(supabase, 'franqueados'),
@@ -49,6 +49,7 @@ export async function seedFromSupabase(): Promise<void> {
       fetchAll(supabase, 'pedidos'),
       fetchAll(supabase, 'itens_pedido'),
       fetchAll(supabase, 'despesas'),
+      fetchAll(supabase, 'layout_config'),
     ])
 
   console.log(`[seed] Fetched: redes=${redes.length}, franqueados=${franqueados.length}, lojas=${lojas.length}, produtos=${produtos.length}, pedidos=${pedidos.length}, itens=${itensPedido.length}`)
@@ -81,6 +82,7 @@ export async function seedFromSupabase(): Promise<void> {
     bulkInsert('pedidos', pedidos.map(p => ({ ...p, remote_id: p['id'] })), { synced: 1 })
     bulkInsert('itens_pedido', itensPedido, { synced: 1 })
     bulkInsert('despesas', despesas, { synced: 1 })
+    bulkInsert('layout_config', layoutConfigs, { synced: 1 })
   })
 
   insertAll()
