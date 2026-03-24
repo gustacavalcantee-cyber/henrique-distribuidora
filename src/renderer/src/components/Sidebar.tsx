@@ -22,8 +22,6 @@ export function Sidebar() {
 
   useEffect(() => {
     window.electron.on(IPC.DB_SYNCED, () => setPendingSync(true))
-    // Remote change from another device — reload automatically
-    window.electron.on(IPC.DB_RELOAD, () => window.location.reload())
   }, [])
 
   function handleReload() {

@@ -62,7 +62,12 @@ async function pushPendingPedidos(supabase: any): Promise<void> {
 
   for (const pedido of pending) {
     // Build payload (no local-only columns)
+    // remote_id = Supabase ID for locally-created pedidos that were already pushed
+    // For seeded pedidos remote_id is null, but local id === Supabase id
+    const supabaseIdForPayload: number = pedido['remote_id'] ?? pedido['id']
+
     const payload: AnyRow = {
+      id: supabaseIdForPayload,
       rede_id: pedido['rede_id'],
       loja_id: pedido['loja_id'],
       data_pedido: pedido['data_pedido'],
@@ -72,15 +77,9 @@ async function pushPendingPedidos(supabase: any): Promise<void> {
       status_pagamento: pedido['status_pagamento'],
     }
 
-    if (pedido['remote_id']) {
-      // Existing Supabase record — update by remote_id
-      payload['id'] = pedido['remote_id']
-    }
-    // If no remote_id, insert (Supabase will assign an ID)
-
     const { data: result, error } = await supabase
       .from('pedidos')
-      .upsert(payload, { onConflict: pedido['remote_id'] ? 'id' : 'rede_id,loja_id,data_pedido,numero_oc' })
+      .upsert(payload, { onConflict: 'id' })
       .select('id')
 
     if (error) {
@@ -255,7 +254,7 @@ export async function startSync(win: BrowserWindow): Promise<void> {
     console.warn('[sync] Startup sync failed:', (err as Error).message)
   }
 
-  // Realtime: when another device changes Supabase, pull and auto-reload
+  // Realtime: when another device changes Supabase, pull and show banner
   supabase
     .channel('db-changes')
     .on('postgres_changes', { event: '*', schema: 'public' }, async () => {
@@ -263,25 +262,25 @@ export async function startSync(win: BrowserWindow): Promise<void> {
         await pushPendingPedidos(supabase)
         await pushPendingOthers(supabase)
         await pullFromSupabase(supabase)
-        if (!win.isDestroyed()) win.webContents.send(IPC.DB_RELOAD)
+        if (!win.isDestroyed()) win.webContents.send(IPC.DB_SYNCED)
       } catch (err: unknown) {
         console.warn('[sync] Realtime sync failed:', (err as Error).message)
       }
     })
     .subscribe()
 
-  // Polling fallback every 30s — catches changes even if Realtime is unavailable
+  // Polling fallback every 60s — silently updates SQLite and shows banner
   setInterval(async () => {
     if (win.isDestroyed()) return
     try {
       await pushPendingPedidos(supabase)
       await pushPendingOthers(supabase)
       await pullFromSupabase(supabase)
-      if (!win.isDestroyed()) win.webContents.send(IPC.DB_RELOAD)
+      if (!win.isDestroyed()) win.webContents.send(IPC.DB_SYNCED)
     } catch (err: unknown) {
       console.warn('[sync] Poll sync failed:', (err as Error).message)
     }
-  }, 30_000)
+  }, 60_000)
 }
 
 /** Delete a pedido (and its itens) from Supabase — call before local delete */
