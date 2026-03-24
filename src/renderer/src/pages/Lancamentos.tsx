@@ -382,6 +382,7 @@ export function Lancamentos() {
           onCellBlur: (lojaId: number) => handleCellBlur(lojaId),
           onDeleteRow: handleDeleteRow,
           onToggleRowProd: handleToggleRowProd,
+          onRemoveColumn: handleRemoveColumn,
           onSaveLojaNome: handleSaveLojaNome,
           onPrint: handlePrint,
           onShare: handleShare,

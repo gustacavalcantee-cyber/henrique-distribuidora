@@ -332,6 +332,8 @@ export async function startSync(win: BrowserWindow): Promise<void> {
     await pushPendingPedidos(supabase)
     await pushPendingOthers(supabase)
     await pullFromSupabase(supabase)
+    // Notify renderer that fresh data (including configs) is in SQLite
+    if (!win.isDestroyed()) win.webContents.send(IPC.DB_READY)
   } catch (err: unknown) {
     console.warn('[sync] Startup sync failed:', (err as Error).message)
   } finally {

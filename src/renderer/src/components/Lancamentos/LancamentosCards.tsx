@@ -15,6 +15,7 @@ interface LancamentosCardsProps {
   onCellBlur: (lojaId: number) => void
   onDeleteRow: (lojaId: number) => void
   onToggleRowProd: (lojaId: number, prodId: number) => void
+  onRemoveColumn: (prodId: number) => void
   onSaveLojaNome: (lojaId: number) => void
   onPrint: (row: LancamentoRow) => void
   onShare: (row: LancamentoRow) => void
@@ -27,7 +28,7 @@ interface LancamentosCardsProps {
 export function LancamentosCards({
   rows, visibleProdutos, rowProdIds, editMode,
   ocPlaceholders, editingLojaId, editingLojaNome, shareLoading,
-  onQuantidadeChange, onOcChange, onCellBlur, onDeleteRow, onToggleRowProd,
+  onQuantidadeChange, onOcChange, onCellBlur, onDeleteRow, onToggleRowProd, onRemoveColumn,
   onSaveLojaNome, onPrint, onShare, onOpenRowProdMenu,
   onEditLoja, onEditLojaNameChange, onEditLojaKeyDown,
 }: LancamentosCardsProps) {
@@ -125,16 +126,27 @@ export function LancamentosCards({
                         </span>
                         <span className="text-xs text-gray-400 flex-shrink-0">{p.unidade}</span>
                         {isActive ? (
-                          <input
-                            className="w-14 px-1 py-0.5 text-xs text-center text-slate-800 border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-emerald-400 bg-white flex-shrink-0"
-                            type="number"
-                            step={p.unidade === 'KG' ? '0.1' : '1'}
-                            min="0"
-                            value={qty ?? ''}
-                            onChange={e => onQuantidadeChange(row.loja_id, p.id, e.target.value)}
-                            onBlur={() => onCellBlur(row.loja_id)}
-                            onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
-                          />
+                          <div className="flex items-center gap-1 flex-shrink-0">
+                            <input
+                              className="w-14 px-1 py-0.5 text-xs text-center text-slate-800 border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-emerald-400 bg-white"
+                              type="number"
+                              step={p.unidade === 'KG' ? '0.1' : '1'}
+                              min="0"
+                              value={qty ?? ''}
+                              onChange={e => onQuantidadeChange(row.loja_id, p.id, e.target.value)}
+                              onBlur={() => onCellBlur(row.loja_id)}
+                              onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                            />
+                            {editMode && (
+                              <button
+                                onClick={e => { e.stopPropagation(); onRemoveColumn(p.id) }}
+                                title="Remover de todas as lojas"
+                                className="text-gray-300 hover:text-red-400"
+                              >
+                                <X size={11} />
+                              </button>
+                            )}
+                          </div>
                         ) : editMode ? (
                           <button
                             className="w-14 h-5 flex items-center justify-center text-gray-300 hover:text-blue-400 hover:bg-blue-50 rounded border border-dashed border-gray-200 flex-shrink-0"

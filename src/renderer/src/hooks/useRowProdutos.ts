@@ -22,6 +22,15 @@ export function useRowProdutos({ activeRedeId, rows, produtos, historicProdIds }
   // Track which lojaIds have been initialized to avoid re-running on each dependency change
   const initializedRef = useRef<Set<number>>(new Set())
 
+  // When startup pull completes (DB_READY), re-init to pick up fresh Supabase configs
+  useEffect(() => {
+    const unsub = window.electron.on(IPC.DB_READY, () => {
+      initializedRef.current = new Set()
+      setRowProdIds({})
+    })
+    return () => unsub?.()
+  }, [])
+
   useEffect(() => {
     if (!activeRedeId || rows.length === 0 || produtos.length === 0) return
 
