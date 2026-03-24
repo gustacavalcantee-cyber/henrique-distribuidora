@@ -5,15 +5,16 @@ interface UseRowProdutosArgs {
   activeRedeId: number | null
   rows: LancamentoRow[]
   produtos: Produto[]
+  historicProdIds: Set<number>
 }
 
-export function useRowProdutos({ activeRedeId, rows, produtos }: UseRowProdutosArgs) {
+export function useRowProdutos({ activeRedeId, rows, produtos, historicProdIds }: UseRowProdutosArgs) {
   const [rowProdIds, setRowProdIds] = useState<Record<number, Set<number>>>({})
   const [showRowProdMenu, setShowRowProdMenu] = useState<number | null>(null)
   const [rowProdSearch, setRowProdSearch] = useState('')
   const [rowProdMenuPos, setRowProdMenuPos] = useState<{ top: number; left: number } | null>(null)
 
-  // Inicializa do localStorage ou dos produtos da rede + quantidades existentes
+  // Inicializa do localStorage ou dos produtos da rede + quantidades existentes + histórico
   useEffect(() => {
     if (!activeRedeId || rows.length === 0 || produtos.length === 0) return
     setRowProdIds(prev => {
@@ -26,16 +27,20 @@ export function useRowProdutos({ activeRedeId, rows, produtos }: UseRowProdutosA
           const ids: number[] = JSON.parse(saved)
           next[row.loja_id] = new Set(ids.filter(id => produtos.some(p => p.id === id)))
         } else {
+          // 1) products assigned to this rede
           const redeProds = produtos.filter(p => p.rede_id === activeRedeId).map(p => p.id)
+          // 2) products from today's order
           const fromOrder = Object.entries(row.quantidades)
             .filter(([, qty]) => qty != null)
             .map(([id]) => Number(id))
-          next[row.loja_id] = new Set([...redeProds, ...fromOrder])
+          // 3) products from any historical order for this rede (fallback for fresh devices)
+          const fromHistory = [...historicProdIds].filter(id => produtos.some(p => p.id === id))
+          next[row.loja_id] = new Set([...redeProds, ...fromOrder, ...fromHistory])
         }
       }
       return next
     })
-  }, [activeRedeId, rows, produtos])
+  }, [activeRedeId, rows, produtos, historicProdIds])
 
   // Chame isso ao trocar de rede ou data
   const resetRowProdIds = useCallback(() => {

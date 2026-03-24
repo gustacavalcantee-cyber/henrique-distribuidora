@@ -25,6 +25,7 @@ export function Lancamentos() {
   const [editingLojaId, setEditingLojaId] = useState<number | null>(null)
   const [editingLojaNome, setEditingLojaNome] = useState('')
   const [layoutMode, setLayoutMode] = useState<LayoutMode>('tabela')
+  const [historicProdIds, setHistoricProdIds] = useState<Set<number>>(new Set())
   const { rows, setRows, loading, load, saveRow } = useLancamentos(activeRedeId, dataPedido)
   const allRowsRef = useRef<LancamentoRow[]>([])
   // Always-current snapshot of rows — used by handleCellBlur to avoid stale closures
@@ -42,7 +43,7 @@ export function Lancamentos() {
     handleToggleRowProd,
     handleRemoveColumn,
     handleToggleGlobalProd,
-  } = useRowProdutos({ activeRedeId, rows, produtos })
+  } = useRowProdutos({ activeRedeId, rows, produtos, historicProdIds })
 
   const { ocPlaceholders, handleOcChange } = useOcNumbers({ activeRedeId, rows, setRows })
 
@@ -77,6 +78,13 @@ export function Lancamentos() {
     window.electron.invoke<Preco[]>(IPC.PRECOS_LIST).then(setPrecos)
   }, [activeRedeId])
 
+  // Load historic product IDs for this rede — auto-populates product columns on fresh devices
+  useEffect(() => {
+    if (!activeRedeId || activeRedeId < 0) return
+    window.electron.invoke<Produto[]>(IPC.PRODUTOS_COM_PEDIDOS_NA_REDE, activeRedeId)
+      .then(prods => setHistoricProdIds(new Set(prods.map(p => p.id))))
+  }, [activeRedeId])
+
   // Load lancamentos
   useEffect(() => {
     load()
@@ -100,6 +108,7 @@ export function Lancamentos() {
     allRowsRef.current = []
     setShowAddMenu(false)
     setShowGlobalProdMenu(false)
+    setHistoricProdIds(new Set())
     resetRowProdIds()
   }, [activeRedeId, dataPedido])
 
