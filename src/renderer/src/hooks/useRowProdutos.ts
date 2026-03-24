@@ -19,12 +19,18 @@ export function useRowProdutos({ activeRedeId, rows, produtos, historicProdIds }
   const initializedRef = useRef<Set<number>>(new Set())
   // Prevents concurrent init runs (async race condition)
   const initRunningRef = useRef(false)
-  // Incrementing this forces the init effect to re-run (e.g. after DB_READY)
+  // Incrementing this forces the init effect to re-run (e.g. after DB_READY or DB_SYNCED)
   const [initTrigger, forceInit] = useReducer((n: number) => n + 1, 0)
 
-  // When startup pull completes (DB_READY), clear initialized state and re-read from SQLite
+  // Re-read layout from SQLite after startup pull (DB_READY) or when another device
+  // changes layout and it syncs to this device (DB_SYNCED)
   useEffect(() => {
     window.electron.on(IPC.DB_READY, () => {
+      initializedRef.current = new Set()
+      setRowProdIds({})
+      forceInit()
+    })
+    window.electron.on(IPC.DB_SYNCED, () => {
       initializedRef.current = new Set()
       setRowProdIds({})
       forceInit()
@@ -44,42 +50,19 @@ export function useRowProdutos({ activeRedeId, rows, produtos, historicProdIds }
       initRunningRef.current = true
       const additions: Record<number, Set<number>> = {}
       for (const row of pending) {
-        // 1) Try new layout_config table (per-franchise, isolated)
+        // Try layout_config table (per-franchise, isolated)
         const saved: string | null = await window.electron.invoke(IPC.LAYOUT_GET, activeRedeId!, row.loja_id)
         if (saved) {
           const ids: number[] = JSON.parse(saved)
           additions[row.loja_id] = new Set(ids.filter(id => produtos.some(p => p.id === id)))
         } else {
-          // 2) Migration: check old configuracoes key (row_prods_<redeId>_<lojaId>)
-          const oldKey = `row_prods_${activeRedeId}_${row.loja_id}`
-          const fromOldConfig: string | null = await window.electron.invoke(IPC.CONFIG_GET, oldKey)
-          if (fromOldConfig) {
-            const ids: number[] = JSON.parse(fromOldConfig)
-            const filtered = ids.filter(id => produtos.some(p => p.id === id))
-            additions[row.loja_id] = new Set(filtered)
-            // Persist to layout_config and remove old key
-            window.electron.invoke(IPC.LAYOUT_SET, activeRedeId!, row.loja_id, filtered)
-          } else {
-            // 3) Migration: check if localStorage still has data
-            const fromLocalStorage = localStorage.getItem(oldKey)
-            if (fromLocalStorage) {
-              const ids: number[] = JSON.parse(fromLocalStorage)
-              const filtered = ids.filter(id => produtos.some(p => p.id === id))
-              additions[row.loja_id] = new Set(filtered)
-              // Persist to layout_config and remove from localStorage
-              window.electron.invoke(IPC.LAYOUT_SET, activeRedeId!, row.loja_id, filtered)
-              localStorage.removeItem(oldKey)
-            } else {
-              // 4) Fallback for brand-new lojas with no config anywhere:
-              // 1) products assigned to this rede
-              const redeProds = produtos.filter(p => p.rede_id === activeRedeId).map(p => p.id)
-              // 2) products from today's order
-              const fromOrder = Object.entries(row.quantidades)
-                .filter(([, qty]) => qty != null)
-                .map(([id]) => Number(id))
-              additions[row.loja_id] = new Set([...redeProds, ...fromOrder])
-            }
-          }
+          // Fallback for lojas with no config yet:
+          // products assigned to this rede + products from today's order
+          const redeProds = produtos.filter(p => p.rede_id === activeRedeId).map(p => p.id)
+          const fromOrder = Object.entries(row.quantidades)
+            .filter(([, qty]) => qty != null)
+            .map(([id]) => Number(id))
+          additions[row.loja_id] = new Set([...redeProds, ...fromOrder])
         }
         initializedRef.current.add(row.loja_id)
       }

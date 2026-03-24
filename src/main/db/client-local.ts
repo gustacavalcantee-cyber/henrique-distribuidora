@@ -152,18 +152,6 @@ function initSchema(sqlite: Database.Database): void {
   try { sqlite.exec(`ALTER TABLE configuracoes ADD COLUMN synced INTEGER DEFAULT 1`) } catch { /* already exists */ }
   try { sqlite.exec(`ALTER TABLE configuracoes ADD COLUMN updated_at TEXT`) } catch { /* already exists */ }
 
-  // One-time migration: move row_prods_<redeId>_<lojaId> keys from configuracoes → layout_config
-  const rowProdRows = sqlite.prepare("SELECT chave, valor FROM configuracoes WHERE chave LIKE 'row_prods_%'").all() as { chave: string; valor: string }[]
-  for (const { chave, valor } of rowProdRows) {
-    const match = chave.match(/^row_prods_(\d+)_(\d+)$/)
-    if (!match) continue
-    const redeId = Number(match[1])
-    const lojaId = Number(match[2])
-    sqlite.prepare(
-      `INSERT OR IGNORE INTO layout_config (rede_id, loja_id, produto_ids, synced, updated_at)
-       VALUES (?, ?, ?, 0, datetime('now'))`
-    ).run(redeId, lojaId, valor)
-  }
 
   // Init device_id if not present
   const existing = sqlite.prepare('SELECT value FROM sync_meta WHERE key = ?').get('device_id') as { value: string } | undefined
