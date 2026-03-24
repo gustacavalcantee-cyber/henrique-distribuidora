@@ -8,7 +8,7 @@
 
 import { createClient } from '@supabase/supabase-js'
 import type { BrowserWindow } from 'electron'
-import { getDb, getRawSqlite } from '../db/client-local'
+import { getRawSqlite } from '../db/client-local'
 import { IPC } from '../../shared/ipc-channels'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
