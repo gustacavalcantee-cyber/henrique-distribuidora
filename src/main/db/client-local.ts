@@ -152,13 +152,13 @@ function initSchema(sqlite: Database.Database): void {
   try { sqlite.exec(`ALTER TABLE configuracoes ADD COLUMN synced INTEGER DEFAULT 1`) } catch { /* already exists */ }
   try { sqlite.exec(`ALTER TABLE configuracoes ADD COLUMN updated_at TEXT`) } catch { /* already exists */ }
 
-  // One-time cleanup: remove contaminated layout_config data that was imported from
-  // the old configuracoes migration in v1.0.63. After this runs once per device,
-  // each franchise starts fresh and the user configures columns independently.
-  const layoutReset = sqlite.prepare("SELECT value FROM sync_meta WHERE key = 'layout_config_reset_v1'").get()
+  // Forced cleanup v2: delete ALL layout_config on every device so contaminated data
+  // (re-pushed from other devices after v1 ran) is fully wiped. Each franchise starts
+  // completely fresh — user configures columns independently via edit mode.
+  const layoutReset = sqlite.prepare("SELECT value FROM sync_meta WHERE key = 'layout_config_reset_v2'").get()
   if (!layoutReset) {
     sqlite.prepare('DELETE FROM layout_config').run()
-    sqlite.prepare("INSERT OR REPLACE INTO sync_meta (key, value) VALUES ('layout_config_reset_v1', '1')").run()
+    sqlite.prepare("INSERT OR REPLACE INTO sync_meta (key, value) VALUES ('layout_config_reset_v2', '1')").run()
   }
 
   // Init device_id if not present
