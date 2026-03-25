@@ -109,6 +109,7 @@ export function Lancamentos() {
     setShowAddMenu(false)
     setShowGlobalProdMenu(false)
     setHistoricProdIds(new Set())
+    setRows([])          // <- clear stale rows immediately so init never runs with wrong-rede lojas
     resetRowProdIds()
   }, [activeRedeId, dataPedido])
 

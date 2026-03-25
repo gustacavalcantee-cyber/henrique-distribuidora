@@ -48,14 +48,23 @@ export function useRowProdutos({ activeRedeId, rows, produtos, historicProdIds }
         // Try layout_config table (per-franchise, isolated)
         const saved: string | null = await window.electron.invoke(IPC.LAYOUT_GET, activeRedeId!, row.loja_id)
         if (saved) {
+          // Use saved config
           const ids: number[] = JSON.parse(saved)
           additions[row.loja_id] = new Set(ids.filter(id => produtos.some(p => p.id === id)))
+          initializedRef.current.add(row.loja_id)
+        } else if (historicProdIds.size > 0) {
+          // No saved config but we have history for this rede — auto-populate and persist.
+          // historicProdIds is fetched per activeRedeId so it is franchise-isolated.
+          const filtered = new Set([...historicProdIds].filter(id => produtos.some(p => p.id === id)))
+          additions[row.loja_id] = filtered
+          // Save immediately so the config persists on next switch / restart
+          window.electron.invoke(IPC.LAYOUT_SET, activeRedeId!, row.loja_id, [...filtered])
+          initializedRef.current.add(row.loja_id)
         } else {
-          // No saved config: start with no columns so the user configures
-          // each franchise independently via edit mode.
+          // historicProdIds not loaded yet — show empty for now but do NOT mark as
+          // initialized so we retry automatically once historicProdIds arrives.
           additions[row.loja_id] = new Set()
         }
-        initializedRef.current.add(row.loja_id)
       }
       if (Object.keys(additions).length > 0) {
         setRowProdIds(prev => ({ ...prev, ...additions }))
