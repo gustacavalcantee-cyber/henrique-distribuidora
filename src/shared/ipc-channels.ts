@@ -50,6 +50,8 @@ export const IPC = {
   GET_NOTA_IMAGE: 'nota:getImage',
   CLIPBOARD_WRITE_IMAGE: 'clipboard:writeImage',
   ESTOQUE_QUANTIDADES_DIA: 'estoque:quantidadesDia',
+  ESTOQUE_ENTRADAS_GET: 'estoque:entradasGet',
+  ESTOQUE_ENTRADA_UPSERT: 'estoque:entradaUpsert',
   UPDATE_CHECK: 'update:check',
   UPDATE_INSTALL: 'update:install',
   UPDATE_AVAILABLE: 'update:available',
