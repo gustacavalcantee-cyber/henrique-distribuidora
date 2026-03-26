@@ -154,6 +154,15 @@ async function pushPendingOthers(supabase: any): Promise<void> {
     })
     sqlite.prepare('UPDATE layout_config SET synced = 1 WHERE synced = 0').run()
   }
+
+  // Push estoque_entradas where synced=0
+  const pendingEntradas = sqlite.prepare('SELECT * FROM estoque_entradas WHERE synced = 0').all() as AnyRow[]
+  if (pendingEntradas.length > 0) {
+    await pushTable(supabase, 'estoque_entradas', pendingEntradas, {
+      upsertOn: 'produto_id,data',
+    })
+    sqlite.prepare('UPDATE estoque_entradas SET synced = 1 WHERE synced = 0').run()
+  }
 }
 
 // --------------------------------------------------------------------------
@@ -219,7 +228,7 @@ async function pullFromSupabase(supabase: any): Promise<void> {
 
   console.log('[sync] Pulling from Supabase...')
 
-  const [redes, franqueados, lojas, produtos, custos, precos, pedidosRemote, itensPedido, despesas, configuracoes, layoutConfigs] =
+  const [redes, franqueados, lojas, produtos, custos, precos, pedidosRemote, itensPedido, despesas, configuracoes, layoutConfigs, estoqueEntradas] =
     await Promise.all([
       fetchAllSupabase(supabase, 'redes'),
       fetchAllSupabase(supabase, 'franqueados'),
@@ -232,6 +241,7 @@ async function pullFromSupabase(supabase: any): Promise<void> {
       fetchAllSupabase(supabase, 'despesas'),
       fetchAllSupabase(supabase, 'configuracoes'),
       fetchAllSupabase(supabase, 'layout_config'),
+      fetchAllSupabase(supabase, 'estoque_entradas'),
     ])
 
   sqlite.transaction(() => {
@@ -287,6 +297,31 @@ async function pullFromSupabase(supabase: any): Promise<void> {
            synced = 1,
            updated_at = excluded.updated_at`
       ).run(row['id'] ?? null, row['rede_id'], row['loja_id'], row['produto_ids'] ?? '[]', row['updated_at'] ?? null)
+    }
+
+    // estoque_entradas: upsert por (produto_id, data), skip se local synced=0
+    for (const row of estoqueEntradas) {
+      const existing = sqlite
+        .prepare('SELECT synced FROM estoque_entradas WHERE produto_id = ? AND data = ?')
+        .get(row['produto_id'], row['data']) as { synced: number } | undefined
+      if (existing?.synced === 0) continue
+      sqlite.prepare(`
+        INSERT INTO estoque_entradas (id, produto_id, data, quantidade, synced, device_id, updated_at)
+        VALUES (?, ?, ?, ?, 1, ?, ?)
+        ON CONFLICT(produto_id, data) DO UPDATE SET
+          id = excluded.id,
+          quantidade = excluded.quantidade,
+          synced = 1,
+          device_id = excluded.device_id,
+          updated_at = excluded.updated_at
+      `).run(
+        row['id'] ?? null,
+        row['produto_id'],
+        row['data'],
+        row['quantidade'],
+        row['device_id'] ?? null,
+        row['updated_at'] ?? null
+      )
     }
   })()
 
