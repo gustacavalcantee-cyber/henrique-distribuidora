@@ -146,6 +146,16 @@ function initSchema(sqlite: Database.Database): void {
       updated_at TEXT,
       UNIQUE(rede_id, loja_id)
     );
+    CREATE TABLE IF NOT EXISTS estoque_entradas (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      produto_id INTEGER NOT NULL REFERENCES produtos(id),
+      data TEXT NOT NULL,
+      quantidade REAL NOT NULL,
+      synced INTEGER DEFAULT 0,
+      device_id TEXT,
+      updated_at TEXT,
+      UNIQUE(produto_id, data)
+    );
   `)
 
   // Idempotent migrations for existing databases

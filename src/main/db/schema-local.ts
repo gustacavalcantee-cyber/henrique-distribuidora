@@ -143,6 +143,22 @@ export const layoutConfig = sqliteTable(
   })
 )
 
+export const estoqueEntradas = sqliteTable(
+  'estoque_entradas',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    produto_id: integer('produto_id').notNull().references(() => produtos.id),
+    data: text('data').notNull(),           // 'YYYY-MM-DD'
+    quantidade: real('quantidade').notNull(),
+    synced: integer('synced').default(0),
+    device_id: text('device_id'),
+    updated_at: text('updated_at'),
+  },
+  (t) => ({
+    uniqueEntrada: uniqueIndex('uq_estoque_entrada').on(t.produto_id, t.data),
+  })
+)
+
 // --- Relations ---
 export const redesRelations = relations(redes, ({ many }) => ({
   lojas: many(lojas),
