@@ -42,6 +42,7 @@ export function Lancamentos() {
     resetRowProdIds,
     handleToggleRowProd,
     handleRemoveColumn,
+    handleReorderColumn,
     handleToggleGlobalProd,
   } = useRowProdutos({ activeRedeId, rows, produtos, historicProdIds })
 
@@ -169,6 +170,19 @@ export function Lancamentos() {
     await saveRow(enriched, activeRedeId, dataPedido)
     await load(true)
   }, [activeRedeId, dataPedido, saveRow, load, enrichRow, setRows])
+
+  const handleReorderRow = useCallback((fromLojaId: number, toLojaId: number) => {
+    setRows(prev => {
+      const fromIdx = prev.findIndex(r => r.loja_id === fromLojaId)
+      const toIdx = prev.findIndex(r => r.loja_id === toLojaId)
+      if (fromIdx === -1 || toIdx === -1 || fromIdx === toIdx) return prev
+      const updated = [...prev]
+      const [item] = updated.splice(fromIdx, 1)
+      updated.splice(toIdx, 0, item)
+      if (activeRedeId) localStorage.setItem(`row_order_${activeRedeId}`, JSON.stringify(updated.map(r => r.loja_id)))
+      return updated
+    })
+  }, [setRows, activeRedeId])
 
   const handleMoveUp = useCallback((lojaId: number) => {
     setRows(prev => {
@@ -426,6 +440,8 @@ export function Lancamentos() {
             onMoveUp={handleMoveUp}
             onMoveDown={handleMoveDown}
             onRemoveColumn={handleRemoveColumn}
+            onReorderRow={handleReorderRow}
+            onReorderColumn={handleReorderColumn}
             onApplyAll={(prodId, qty) => {
               setRows(prev => prev.map(row => {
                 if (!rowProdIds[row.loja_id]?.has(prodId)) return row

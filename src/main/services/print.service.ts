@@ -31,6 +31,12 @@ export function getPrintData(pedidoId: number): PrintData {
   const [configNome] = db.select().from(configuracoes).where(eq(configuracoes.chave, 'nome_fornecedor')).all()
   const [configTel] = db.select().from(configuracoes).where(eq(configuracoes.chave, 'telefone')).all()
 
+  // Try to use the user-defined column order from layout_config for this loja
+  const rawSqlite = (db as any).$client
+  const layoutRow = rawSqlite
+    .prepare('SELECT produto_ids FROM layout_config WHERE rede_id = ? AND loja_id = ?')
+    .get(pedido.rede_id, pedido.loja_id) as { produto_ids: string } | undefined
+
   let redeProds = db.select({ id: produtos.id, nome: produtos.nome, unidade: produtos.unidade })
     .from(produtos).where(eq(produtos.rede_id, pedido.rede_id!)).orderBy(produtos.nome).all()
 
@@ -46,6 +52,17 @@ export function getPrintData(pedidoId: number): PrintData {
           .from(produtos).where(inArray(produtos.id, uniqueProdIds)).orderBy(produtos.nome).all()
       }
     }
+  }
+
+  // If layout_config exists, re-order redeProds to match user's column order
+  if (layoutRow) {
+    const orderedIds: number[] = JSON.parse(layoutRow.produto_ids)
+    const prodMap = new Map(redeProds.map(p => [p.id, p]))
+    const ordered = orderedIds.map(id => prodMap.get(id)).filter(Boolean) as typeof redeProds
+    // Append any products not in layout_config at the end (alphabetical fallback)
+    const inLayout = new Set(orderedIds)
+    const rest = redeProds.filter(p => !inLayout.has(p.id))
+    redeProds = [...ordered, ...rest]
   }
 
   const orderedWithInfo = db.select({

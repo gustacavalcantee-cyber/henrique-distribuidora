@@ -490,10 +490,15 @@ function FinanceiroTab() {
     setNotas(prev => prev ? prev.map(n => n.pedido_id === pedido_id ? { ...n, status_pagamento: status } : n) : prev)
   }
 
-  const handleCompartilhar = async () => {
+  const handleCompartilhar = async (tipo: 'abertas' | 'pagas') => {
     if (!notas) return
-    const abertas = notas.filter(n => n.status_pagamento === 'aberto' || n.status_pagamento === 'atrasada')
-    if (abertas.length === 0) { alert('Não há notas em aberto para compartilhar.'); return }
+    const abertas = tipo === 'pagas'
+      ? notas.filter(n => n.status_pagamento === 'paga')
+      : notas.filter(n => n.status_pagamento === 'aberto' || n.status_pagamento === 'atrasada')
+    if (abertas.length === 0) {
+      alert(tipo === 'pagas' ? 'Não há notas pagas para compartilhar.' : 'Não há notas em aberto para compartilhar.')
+      return
+    }
     setShareLoading(true)
     const nomeFornecedor: string = await window.electron.invoke(IPC.CONFIG_GET, 'nome_fornecedor') ?? ''
     const fmt = (v: number) => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -522,7 +527,7 @@ td { font-size: 11px; padding: 4px 6px; border-bottom: 1px solid #eee; }
 .s-atrasada { color: #dc2626; font-size: 10px; font-weight: bold; }
 .total-row { background: #1e293b; color: white; padding: 10px 14px; margin-top: 16px; display: flex; justify-content: space-between; font-weight: bold; font-size: 13px; border-radius: 4px; }
 </style></head><body>
-<h1>NOTAS EM ABERTO</h1>
+<h1>${tipo === 'pagas' ? 'NOTAS PAGAS' : 'NOTAS EM ABERTO'}</h1>
 <div class="sub">${nomeFornecedor.toUpperCase()} — ${periodoStr}</div>
 ${Object.values(byLoja).map(ns => {
   const n0 = ns[0]
@@ -538,22 +543,25 @@ ${Object.values(byLoja).map(ns => {
   <td>${fmtDate(n.data_pedido)}</td>
   <td>${n.numero_oc ?? '—'}</td>
   <td class="right">R$ ${fmt(n.total_venda)}</td>
-  <td class="s-${n.status_pagamento}">${n.status_pagamento === 'atrasada' ? 'Atrasada' : 'Em Aberto'}</td>
+  <td class="s-${n.status_pagamento}">${n.status_pagamento === 'atrasada' ? 'Atrasada' : n.status_pagamento === 'paga' ? 'Paga' : 'Em Aberto'}</td>
 </tr>`).join('')}</tbody></table>`
 }).join('')}
-<div class="total-row"><span>TOTAL EM ABERTO</span><span>R$ ${fmt(total)}</span></div>
+<div class="total-row"><span>${tipo === 'pagas' ? 'TOTAL PAGO' : 'TOTAL EM ABERTO'}</span><span>R$ ${fmt(total)}</span></div>
 </body></html>`
     const image = await window.electron.invoke<string>(IPC.RENDER_HTML_IMAGE, html, 600)
     setShareImage(image)
     setShareLoading(false)
   }
 
+  const notasAbertas = notas?.filter(n => n.status_pagamento === 'aberto') ?? []
+  const notasAtrasadas = notas?.filter(n => n.status_pagamento === 'atrasada') ?? []
+  const valorAberto = notasAbertas.reduce((s, n) => s + n.total_venda, 0)
+  const valorAtrasado = notasAtrasadas.reduce((s, n) => s + n.total_venda, 0)
+
   const cards = summary ? [
     { label: 'RECEITA BRUTA', value: `R$ ${formatMoney(summary.receita_bruta)}`, color: 'green' },
-    { label: 'CUSTO PRODUTOS', value: `R$ ${formatMoney(summary.custo_produtos)}`, color: 'red' },
-    { label: 'MARGEM BRUTA', value: `${summary.margem_bruta.toFixed(1)}%`, color: 'blue' },
-    { label: 'DESPESAS', value: `R$ ${formatMoney(summary.despesas)}`, color: 'orange' },
-    { label: 'LUCRO LÍQUIDO', value: `${summary.lucro_liquido.toFixed(1)}%`, color: summary.lucro_liquido >= 0 ? 'green' : 'red' },
+    { label: `NOTAS EM ABERTO (${notasAbertas.length})`, value: `R$ ${formatMoney(valorAberto)}`, color: 'orange' },
+    { label: `NOTAS EM ATRASO (${notasAtrasadas.length})`, value: `R$ ${formatMoney(valorAtrasado)}`, color: 'red' },
   ] : []
 
   const colorMap: Record<string, string> = {
@@ -613,7 +621,7 @@ ${Object.values(byLoja).map(ns => {
 
       {summary && (
         <>
-          <div className="grid grid-cols-5 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             {cards.map(card => (
               <div key={card.label} className={`border rounded p-3 ${colorMap[card.color] ?? 'bg-gray-50 border-gray-200 text-gray-700'}`}>
                 <div className="text-xs opacity-70">{card.label}</div>
@@ -626,14 +634,24 @@ ${Object.values(byLoja).map(ns => {
             <div>
               <div className="flex items-center justify-between mb-2">
                 <h3 className="font-semibold text-gray-700 text-sm">{mes === 0 ? `Notas de ${ano}` : 'Notas do Mês'}</h3>
-                <button
-                  onClick={handleCompartilhar}
-                  disabled={shareLoading}
-                  className="flex items-center gap-1.5 px-3 py-1 text-sm bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
-                >
-                  <Share2 size={13} />
-                  {shareLoading ? 'Gerando...' : 'Compartilhar em Aberto'}
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => handleCompartilhar('abertas')}
+                    disabled={shareLoading}
+                    className="flex items-center gap-1.5 px-3 py-1 text-sm bg-yellow-600 text-white rounded hover:bg-yellow-700 disabled:opacity-50"
+                  >
+                    <Share2 size={13} />
+                    {shareLoading ? 'Gerando...' : 'Em Aberto'}
+                  </button>
+                  <button
+                    onClick={() => handleCompartilhar('pagas')}
+                    disabled={shareLoading}
+                    className="flex items-center gap-1.5 px-3 py-1 text-sm bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
+                  >
+                    <Share2 size={13} />
+                    {shareLoading ? 'Gerando...' : 'Pagas'}
+                  </button>
+                </div>
               </div>
               <div className="flex flex-col gap-3">
                 {Object.entries(notasByLoja).map(([lojaName, lojaNotas]) => (

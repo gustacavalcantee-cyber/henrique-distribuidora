@@ -110,6 +110,26 @@ export function useRowProdutos({ activeRedeId, rows, produtos, historicProdIds }
     })
   }, [activeRedeId])
 
+  // Reordena colunas de produto em TODAS as lojas (drag & drop de colunas)
+  const handleReorderColumn = useCallback((fromProdId: number, toProdId: number) => {
+    if (!activeRedeId || fromProdId === toProdId) return
+    setRowProdIds(prev => {
+      const next = { ...prev }
+      for (const lojaIdStr of Object.keys(next)) {
+        const lojaId = Number(lojaIdStr)
+        const arr = [...next[lojaId]]
+        const fromIdx = arr.indexOf(fromProdId)
+        const toIdx = arr.indexOf(toProdId)
+        if (fromIdx === -1 || toIdx === -1) continue
+        arr.splice(fromIdx, 1)
+        arr.splice(toIdx, 0, fromProdId)
+        next[lojaId] = new Set(arr)
+        window.electron.invoke(IPC.LAYOUT_SET, activeRedeId, lojaId, arr)
+      }
+      return next
+    })
+  }, [activeRedeId])
+
   // Liga/desliga um produto para TODAS as lojas simultaneamente
   const handleToggleGlobalProd = useCallback((prodId: number) => {
     if (!activeRedeId) return
@@ -135,6 +155,7 @@ export function useRowProdutos({ activeRedeId, rows, produtos, historicProdIds }
     resetRowProdIds,
     handleToggleRowProd,
     handleRemoveColumn,
+    handleReorderColumn,
     handleToggleGlobalProd,
   }
 }

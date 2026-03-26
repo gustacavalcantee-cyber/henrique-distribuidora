@@ -243,6 +243,18 @@ async function pullFromSupabase(supabase: any): Promise<void> {
     upsertLocal(sqlite, 'precos', precos, 'id')
     upsertLocal(sqlite, 'pedidos', pedidosRemote, 'id')
 
+    // Propagate remote deletions: delete local synced=1 pedidos absent from Supabase
+    if (pedidosRemote.length > 0) {
+      const remoteIds = new Set(pedidosRemote.map((p: AnyRow) => p['id']))
+      const localSynced = sqlite.prepare('SELECT id FROM pedidos WHERE synced = 1').all() as { id: number }[]
+      for (const { id } of localSynced) {
+        if (!remoteIds.has(id)) {
+          sqlite.prepare('DELETE FROM itens_pedido WHERE pedido_id = ?').run(id)
+          sqlite.prepare('DELETE FROM pedidos WHERE id = ?').run(id)
+        }
+      }
+    }
+
     // For itens_pedido: delete and re-insert for every synced pedido to avoid
     // stale/duplicate rows caused by local IDs differing from Supabase IDs
     for (const remotePedido of pedidosRemote) {

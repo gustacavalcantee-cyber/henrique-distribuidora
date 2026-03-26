@@ -1,5 +1,5 @@
 import { useRef } from 'react'
-import { ChevronUp, ChevronDown, X, Plus, Printer, Share2 } from 'lucide-react'
+import { ChevronUp, ChevronDown, X, Plus, Printer, Share2, GripVertical } from 'lucide-react'
 import type { Produto, LancamentoRow } from '../../../../shared/types'
 
 interface LancamentosTableProps {
@@ -28,6 +28,8 @@ interface LancamentosTableProps {
   onEditLojaNameChange: (v: string) => void
   onEditLojaKeyDown: (e: React.KeyboardEvent, lojaId: number) => void
   onApplyAll: (prodId: number, qty: number | null) => void
+  onReorderRow?: (fromLojaId: number, toLojaId: number) => void
+  onReorderColumn?: (fromProdId: number, toProdId: number) => void
 }
 
 export function LancamentosTable({
@@ -37,9 +39,11 @@ export function LancamentosTable({
   onQuantidadeChange, onOcChange, onCellBlur, onMoveUp, onMoveDown,
   onDeleteRow, onRemoveColumn, onToggleRowProd, onSaveLojaNome,
   onPrint, onShare, onOpenRowProdMenu, onEditLoja, onEditLojaNameChange,
-  onEditLojaKeyDown, onApplyAll,
+  onEditLojaKeyDown, onApplyAll, onReorderRow, onReorderColumn,
 }: LancamentosTableProps) {
   const tableRef = useRef<HTMLDivElement>(null)
+  const dragRowRef = useRef<number | null>(null)
+  const dragColRef = useRef<number | null>(null)
 
   return (
     <div ref={tableRef} style={{ overflowX: 'auto', width: '100%', minWidth: 0 }}>
@@ -88,8 +92,22 @@ export function LancamentosTable({
             <th className="border px-2 py-1 text-left text-xs text-gray-600">NOTA</th>
             <th className="border px-2 py-1 text-left text-xs text-gray-600">LOJA</th>
             {visibleProdutos.map(p => (
-              <th key={p.id} className="border px-1 py-1 text-center text-xs text-gray-600 uppercase">
+              <th
+                key={p.id}
+                className={`border px-1 py-1 text-center text-xs text-gray-600 uppercase${editMode ? ' cursor-grab select-none' : ''}`}
+                draggable={editMode}
+                onDragStart={editMode ? () => { dragColRef.current = p.id } : undefined}
+                onDragOver={editMode ? (e) => { e.preventDefault() } : undefined}
+                onDrop={editMode ? (e) => {
+                  e.preventDefault()
+                  if (dragColRef.current != null && dragColRef.current !== p.id) {
+                    onReorderColumn?.(dragColRef.current, p.id)
+                  }
+                  dragColRef.current = null
+                } : undefined}
+              >
                 <div className="flex items-center justify-center gap-1">
+                  {editMode && <GripVertical size={10} className="text-gray-300" />}
                   <span>{p.nome}</span>
                   {editMode && (
                     <button
@@ -109,7 +127,20 @@ export function LancamentosTable({
         </thead>
         <tbody>
           {rows.map((row, rowIndex) => (
-            <tr key={row.loja_id} className="hover:bg-gray-50">
+            <tr
+              key={row.loja_id}
+              className="hover:bg-gray-50"
+              draggable={editMode}
+              onDragStart={editMode ? () => { dragRowRef.current = row.loja_id } : undefined}
+              onDragOver={editMode ? (e) => { e.preventDefault() } : undefined}
+              onDrop={editMode ? (e) => {
+                e.preventDefault()
+                if (dragRowRef.current != null && dragRowRef.current !== row.loja_id) {
+                  onReorderRow?.(dragRowRef.current, row.loja_id)
+                }
+                dragRowRef.current = null
+              } : undefined}
+            >
               {/* Campo OC */}
               <td className="border px-1 py-0.5">
                 <input
@@ -138,12 +169,15 @@ export function LancamentosTable({
                     onKeyDown={e => onEditLojaKeyDown(e, row.loja_id)}
                   />
                 ) : (
-                  <span
-                    className="block px-1 py-0.5 cursor-pointer hover:bg-gray-100 rounded"
-                    title="Clique duplo para editar"
-                    onDoubleClick={() => onEditLoja(row.loja_id, row.loja_nome)}
-                  >
-                    {row.loja_nome}
+                  <span className="flex items-center gap-1">
+                    {editMode && <GripVertical size={12} className="text-gray-300 cursor-grab flex-shrink-0" />}
+                    <span
+                      className="block px-1 py-0.5 cursor-pointer hover:bg-gray-100 rounded flex-1"
+                      title="Clique duplo para editar"
+                      onDoubleClick={() => onEditLoja(row.loja_id, row.loja_nome)}
+                    >
+                      {row.loja_nome}
+                    </span>
                   </span>
                 )}
               </td>
