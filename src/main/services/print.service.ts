@@ -37,34 +37,7 @@ export function getPrintData(pedidoId: number): PrintData {
     .prepare('SELECT produto_ids FROM layout_config WHERE rede_id = ? AND loja_id = ?')
     .get(pedido.rede_id, pedido.loja_id) as { produto_ids: string } | undefined
 
-  let redeProds = db.select({ id: produtos.id, nome: produtos.nome, unidade: produtos.unidade })
-    .from(produtos).where(eq(produtos.rede_id, pedido.rede_id!)).orderBy(produtos.nome).all()
-
-  if (redeProds.length === 0) {
-    const allRedeOrderIds = db.select({ id: pedidos.id }).from(pedidos).where(eq(pedidos.rede_id, pedido.rede_id!)).all().map(p => p.id)
-    if (allRedeOrderIds.length > 0) {
-      const uniqueProdIds = [...new Set(
-        db.select({ produto_id: itensPedido.produto_id }).from(itensPedido).where(inArray(itensPedido.pedido_id, allRedeOrderIds)).all()
-          .map(i => i.produto_id).filter(Boolean) as number[]
-      )]
-      if (uniqueProdIds.length > 0) {
-        redeProds = db.select({ id: produtos.id, nome: produtos.nome, unidade: produtos.unidade })
-          .from(produtos).where(inArray(produtos.id, uniqueProdIds)).orderBy(produtos.nome).all()
-      }
-    }
-  }
-
-  // If layout_config exists, re-order redeProds to match user's column order
-  if (layoutRow) {
-    const orderedIds: number[] = JSON.parse(layoutRow.produto_ids)
-    const prodMap = new Map(redeProds.map(p => [p.id, p]))
-    const ordered = orderedIds.map(id => prodMap.get(id)).filter(Boolean) as typeof redeProds
-    // Append any products not in layout_config at the end (alphabetical fallback)
-    const inLayout = new Set(orderedIds)
-    const rest = redeProds.filter(p => !inLayout.has(p.id))
-    redeProds = [...ordered, ...rest]
-  }
-
+  // Fetch all itens for this pedido first — used for product filtering
   const orderedWithInfo = db.select({
     produto_id: itensPedido.produto_id,
     quantidade: itensPedido.quantidade,
@@ -75,6 +48,38 @@ export function getPrintData(pedidoId: number): PrintData {
     .innerJoin(produtos, eq(itensPedido.produto_id, produtos.id))
     .where(eq(itensPedido.pedido_id, pedidoId))
     .all()
+
+  let redeProds = db.select({ id: produtos.id, nome: produtos.nome, unidade: produtos.unidade })
+    .from(produtos).where(eq(produtos.rede_id, pedido.rede_id!)).orderBy(produtos.nome).all()
+
+  let usingLayout = false
+
+  if (layoutRow) {
+    // Layout config exists: only show the products the user explicitly configured, in their order
+    const orderedIds: number[] = JSON.parse(layoutRow.produto_ids)
+    const prodMap = new Map(redeProds.map(p => [p.id, p]))
+    redeProds = orderedIds.map(id => prodMap.get(id)).filter(Boolean) as typeof redeProds
+    usingLayout = true
+  } else {
+    // No layout config: show only products that actually appear in this pedido's itens
+    const itemProdIds = new Set(orderedWithInfo.map(i => i.produto_id).filter(Boolean) as number[])
+    if (itemProdIds.size > 0) {
+      redeProds = redeProds.filter(p => itemProdIds.has(p.id))
+    } else if (redeProds.length === 0) {
+      // Last resort: fetch from historical rede pedidos
+      const allRedeOrderIds = db.select({ id: pedidos.id }).from(pedidos).where(eq(pedidos.rede_id, pedido.rede_id!)).all().map(p => p.id)
+      if (allRedeOrderIds.length > 0) {
+        const uniqueProdIds = [...new Set(
+          db.select({ produto_id: itensPedido.produto_id }).from(itensPedido).where(inArray(itensPedido.pedido_id, allRedeOrderIds)).all()
+            .map(i => i.produto_id).filter(Boolean) as number[]
+        )]
+        if (uniqueProdIds.length > 0) {
+          redeProds = db.select({ id: produtos.id, nome: produtos.nome, unidade: produtos.unidade })
+            .from(produtos).where(inArray(produtos.id, uniqueProdIds)).orderBy(produtos.nome).all()
+        }
+      }
+    }
+  }
 
   const itensById = new Map(orderedWithInfo.map(i => [i.produto_id, i]))
   const itensByName = new Map(orderedWithInfo.map(i => [i.nome.toUpperCase(), i]))
@@ -104,7 +109,10 @@ export function getPrintData(pedidoId: number): PrintData {
     }
   }
 
-  linhas.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+  // Only sort alphabetically when NOT using layout_config (which has user-defined order)
+  if (!usingLayout) {
+    linhas.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+  }
 
   const totalGeral = linhas.reduce((sum, l) => sum + (l.total ?? 0), 0)
   const [y, m, d] = pedido.data_pedido.split('-')

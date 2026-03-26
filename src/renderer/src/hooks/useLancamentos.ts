@@ -6,9 +6,9 @@ export function useLancamentos(redeId: number | null, dataPedido: string) {
   const [rows, setRows] = useState<LancamentoRow[]>([])
   const [loading, setLoading] = useState(false)
 
-  const load = useCallback(async (preserveOrder?: boolean) => {
+  const load = useCallback(async (preserveOrder?: boolean, silent?: boolean) => {
     if (!redeId || !dataPedido) return
-    setLoading(true)
+    if (!silent) setLoading(true)
     try {
       const data = await window.electron.invoke<LancamentoRow[]>(IPC.PEDIDOS_BY_DATE_REDE, redeId, dataPedido)
       if (preserveOrder) {
@@ -36,7 +36,7 @@ export function useLancamentos(redeId: number | null, dataPedido: string) {
         }
       }
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }, [redeId, dataPedido])
 

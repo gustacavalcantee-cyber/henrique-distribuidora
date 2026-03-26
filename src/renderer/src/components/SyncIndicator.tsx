@@ -8,29 +8,28 @@ export function SyncIndicator() {
 
   useEffect(() => {
     window.electron.on(IPC.DB_SYNCED, () => {
-      // Debounce: collapse rapid back-to-back events into one state change
+      setHasUpdate(true)
+      // Auto-dismiss after 3s — data is already silently reloaded in the background
       if (timerRef.current) clearTimeout(timerRef.current)
-      timerRef.current = setTimeout(() => setHasUpdate(true), 300)
+      timerRef.current = setTimeout(() => setHasUpdate(false), 3_000)
     })
   }, [])
 
   if (hasUpdate) {
     return (
-      <button
-        onClick={() => window.location.reload()}
-        className="flex items-center justify-center w-8 h-8 rounded-md bg-white border border-orange-200 shadow-sm hover:bg-orange-50 transition-colors cursor-pointer"
-        title="Dados atualizados — clique para recarregar"
+      <div
+        className="flex items-center justify-center w-8 h-8 rounded-md bg-white border border-orange-200 shadow-sm"
+        title="Sincronizando dados..."
       >
         <CloudDownload size={17} className="text-orange-500" />
-      </button>
+      </div>
     )
   }
 
   return (
-    <button
-      onClick={() => window.location.reload()}
-      className="flex items-center justify-center w-8 h-8 rounded-md bg-white border border-emerald-200 shadow-sm hover:bg-emerald-50 transition-colors cursor-pointer"
-      title="Sincronizado — clique para recarregar"
+    <div
+      className="flex items-center justify-center w-8 h-8 rounded-md bg-white border border-emerald-200 shadow-sm"
+      title="Sincronizado"
     >
       <div className="relative w-[17px] h-[17px]">
         <Cloud size={17} className="text-emerald-500" />
@@ -40,6 +39,6 @@ export function SyncIndicator() {
           className="absolute bottom-0 right-0 text-emerald-600"
         />
       </div>
-    </button>
+    </div>
   )
 }

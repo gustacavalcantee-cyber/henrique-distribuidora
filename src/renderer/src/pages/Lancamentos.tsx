@@ -30,6 +30,10 @@ export function Lancamentos() {
   const allRowsRef = useRef<LancamentoRow[]>([])
   // Always-current snapshot of rows — used by handleCellBlur to avoid stale closures
   const latestRowsRef = useRef<LancamentoRow[]>(rows)
+  // Debounce timers for auto-save per loja
+  const autoSaveTimerRef = useRef<Record<number, ReturnType<typeof setTimeout>>>({})
+  // Stable ref to handleCellBlur — allows auto-save timer to call latest version without circular deps
+  const handleCellBlurRef = useRef<(lojaId: number) => void>(() => {})
   const [showAddMenu, setShowAddMenu] = useState(false)
   const [editMode, setEditMode] = useState(false)
 
@@ -91,6 +95,19 @@ export function Lancamentos() {
     load()
   }, [load])
 
+  // Ref-stable wrappers so the DB_SYNCED listener (registered once) always calls latest values
+  const activeRedeIdRef = useRef(activeRedeId)
+  useEffect(() => { activeRedeIdRef.current = activeRedeId }, [activeRedeId])
+  const loadRef = useRef(load)
+  useEffect(() => { loadRef.current = load }, [load])
+
+  // Silently refresh data when another device syncs — no loading spinner, no scroll to top
+  useEffect(() => {
+    window.electron.on(IPC.DB_SYNCED, () => {
+      if (activeRedeIdRef.current && activeRedeIdRef.current > 0) loadRef.current(true, true)
+    })
+  }, [])
+
   // Keep latestRowsRef always current so handleCellBlur never reads stale state
   useEffect(() => { latestRowsRef.current = rows }, [rows])
 
@@ -132,6 +149,11 @@ export function Lancamentos() {
       }
       return updatedRow
     }))
+    // Auto-save 1s after the last keystroke (no need to press Enter)
+    if (autoSaveTimerRef.current[lojaId]) clearTimeout(autoSaveTimerRef.current[lojaId])
+    autoSaveTimerRef.current[lojaId] = setTimeout(() => {
+      handleCellBlurRef.current(lojaId)
+    }, 1000)
   }, [setRows, ocPlaceholders])
 
   // Enrich row with all active products so they appear in print even without a quantity
@@ -168,8 +190,12 @@ export function Lancamentos() {
 
     if (!row.numero_oc) return
     await saveRow(enriched, activeRedeId, dataPedido)
-    await load(true)
+    // Silent reload: gets updated pedido_id from DB without showing loading spinner or scrolling to top
+    await load(true, true)
   }, [activeRedeId, dataPedido, saveRow, load, enrichRow, setRows])
+
+  // Keep handleCellBlurRef current so auto-save timer always calls the latest version
+  useEffect(() => { handleCellBlurRef.current = handleCellBlur }, [handleCellBlur])
 
   const handleReorderRow = useCallback((fromLojaId: number, toLojaId: number) => {
     setRows(prev => {
