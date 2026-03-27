@@ -23,19 +23,4 @@ export function registerLayoutConfigHandlers() {
     triggerSync(getMainWindow() ?? undefined)
     return { redeId, lojaId }
   })
-
-  // Saves the global column order for a rede (source of truth for print ordering)
-  ipcMain.handle(IPC.LAYOUT_SAVE_COL_ORDER, (_event, redeId: number, produtoIds: number[]) => {
-    getRawSqlite().prepare(
-      `INSERT OR REPLACE INTO sync_meta (key, value) VALUES (?, ?)`
-    ).run(`col_order_rede_${redeId}`, JSON.stringify(produtoIds))
-    return { redeId }
-  })
-
-  ipcMain.handle(IPC.LAYOUT_GET_COL_ORDER, (_event, redeId: number) => {
-    const row = getRawSqlite()
-      .prepare('SELECT value FROM sync_meta WHERE key = ?')
-      .get(`col_order_rede_${redeId}`) as { value: string } | undefined
-    return row?.value ?? null
-  })
 }
