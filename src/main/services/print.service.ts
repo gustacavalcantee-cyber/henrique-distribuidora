@@ -55,10 +55,30 @@ export function getPrintData(pedidoId: number): PrintData {
   let usingLayout = false
 
   if (layoutRow) {
-    // Layout config exists: only show the products the user explicitly configured, in their order
-    const orderedIds: number[] = JSON.parse(layoutRow.produto_ids)
+    // Layout config exists. The column ORDER must match the grid (union of all lojas, sorted by
+    // loja_id asc — same algorithm as visibleProdutos in the frontend). Then filter to only the
+    // products configured for this specific loja.
+    const allLayoutRows = rawSqlite
+      .prepare('SELECT loja_id, produto_ids FROM layout_config WHERE rede_id = ? ORDER BY loja_id ASC')
+      .all(pedido.rede_id) as { loja_id: number; produto_ids: string }[]
+
+    const thisLojaIds = new Set<number>(JSON.parse(layoutRow.produto_ids))
+
+    // Build global column order (same union logic as visibleProdutos in the frontend)
+    const seenIds = new Set<number>()
+    const globalOrderedIds: number[] = []
+    for (const row of allLayoutRows) {
+      const ids: number[] = JSON.parse(row.produto_ids)
+      for (const id of ids) {
+        if (!seenIds.has(id)) { seenIds.add(id); globalOrderedIds.push(id) }
+      }
+    }
+
     const prodMap = new Map(redeProds.map(p => [p.id, p]))
-    redeProds = orderedIds.map(id => prodMap.get(id)).filter(Boolean) as typeof redeProds
+    redeProds = globalOrderedIds
+      .filter(id => thisLojaIds.has(id))
+      .map(id => prodMap.get(id))
+      .filter(Boolean) as typeof redeProds
     usingLayout = true
   } else {
     // No layout config: show only products that actually appear in this pedido's itens
