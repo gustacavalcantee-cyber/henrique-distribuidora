@@ -55,30 +55,33 @@ export function getPrintData(pedidoId: number): PrintData {
   let usingLayout = false
 
   if (layoutRow) {
-    // Layout config exists. The column ORDER must match the grid (union of all lojas, sorted by
-    // loja_id asc — same algorithm as visibleProdutos in the frontend). Then filter to only the
-    // products configured for this specific loja.
-    const allLayoutRows = rawSqlite
-      .prepare('SELECT loja_id, produto_ids FROM layout_config WHERE rede_id = ? ORDER BY loja_id ASC')
-      .all(pedido.rede_id) as { loja_id: number; produto_ids: string }[]
-
     const thisLojaIds = new Set<number>(JSON.parse(layoutRow.produto_ids))
 
-    // Build global column order (same union logic as visibleProdutos in the frontend)
-    const seenIds = new Set<number>()
-    const globalOrderedIds: number[] = []
-    for (const row of allLayoutRows) {
-      const ids: number[] = JSON.parse(row.produto_ids)
-      for (const id of ids) {
-        if (!seenIds.has(id)) { seenIds.add(id); globalOrderedIds.push(id) }
-      }
+    // Prefer the saved global column order (updated whenever user drags columns in Lançamentos)
+    const globalOrderRow = rawSqlite
+      .prepare('SELECT value FROM sync_meta WHERE key = ?')
+      .get(`col_order_rede_${pedido.rede_id}`) as { value: string } | undefined
+
+    let canonicalIds: number[]
+    if (globalOrderRow) {
+      canonicalIds = JSON.parse(globalOrderRow.value)
+    } else {
+      // Fallback: use most recently updated layout_config row as canonical order
+      const recentRow = rawSqlite
+        .prepare('SELECT produto_ids FROM layout_config WHERE rede_id = ? ORDER BY updated_at DESC LIMIT 1')
+        .get(pedido.rede_id) as { produto_ids: string } | undefined
+      canonicalIds = recentRow ? JSON.parse(recentRow.produto_ids) : []
     }
 
     const prodMap = new Map(redeProds.map(p => [p.id, p]))
-    redeProds = globalOrderedIds
+    // Products in canonical order, filtered to this loja; any extras appended at end
+    const inCanonical = canonicalIds
       .filter(id => thisLojaIds.has(id))
       .map(id => prodMap.get(id))
       .filter(Boolean) as typeof redeProds
+    const canonicalSet = new Set(canonicalIds)
+    const extras = redeProds.filter(p => thisLojaIds.has(p.id) && !canonicalSet.has(p.id))
+    redeProds = [...inCanonical, ...extras]
     usingLayout = true
   } else {
     // No layout config: show only products that actually appear in this pedido's itens

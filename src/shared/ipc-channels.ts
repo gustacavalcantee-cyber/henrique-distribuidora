@@ -64,6 +64,8 @@ export const IPC = {
   DB_READY: 'db:ready',
   LAYOUT_GET: 'layout:get',
   LAYOUT_SET: 'layout:set',
+  LAYOUT_SAVE_COL_ORDER: 'layout:saveColOrder',
+  LAYOUT_GET_COL_ORDER: 'layout:getColOrder',
   RELATORIO_POR_PRODUTO: 'relatorio:porProduto',
   PRODUTOS_COM_PEDIDOS_NA_REDE: 'produtos:comPedidosNaRede',
   RELATORIO_PRECO_CUSTO: 'relatorio:precoCusto',

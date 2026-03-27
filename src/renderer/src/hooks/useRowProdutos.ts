@@ -126,6 +126,15 @@ export function useRowProdutos({ activeRedeId, rows, produtos, historicProdIds }
         next[lojaId] = new Set(arr)
         window.electron.invoke(IPC.LAYOUT_SET, activeRedeId, lojaId, arr)
       }
+      // Save global column order (union of all lojas in new order) — used by print
+      const seenIds = new Set<number>()
+      const globalOrder: number[] = []
+      for (const s of Object.values(next)) {
+        for (const id of s) {
+          if (!seenIds.has(id)) { seenIds.add(id); globalOrder.push(id) }
+        }
+      }
+      window.electron.invoke(IPC.LAYOUT_SAVE_COL_ORDER, activeRedeId, globalOrder)
       return next
     })
   }, [activeRedeId])
