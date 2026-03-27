@@ -30,6 +30,8 @@ export function Lancamentos() {
   const allRowsRef = useRef<LancamentoRow[]>([])
   // Always-current snapshot of rows — used by handleCellBlur to avoid stale closures
   const latestRowsRef = useRef<LancamentoRow[]>(rows)
+  // Always-current column order — used by print/share to pass the exact visible order
+  const colOrderRef = useRef<number[]>([])
   // Debounce timers for auto-save per loja
   const autoSaveTimerRef = useRef<Record<number, ReturnType<typeof setTimeout>>>({})
   // Stable ref to handleCellBlur — allows auto-save timer to call latest version without circular deps
@@ -259,7 +261,7 @@ export function Lancamentos() {
     const updated = await window.electron.invoke<import('../../../shared/types').LancamentoRow[]>(IPC.PEDIDOS_BY_DATE_REDE, activeRedeId, dataPedido)
     const freshRow = updated.find(r => r.loja_id === row.loja_id)
     if (!freshRow?.pedido_id) return
-    await window.electron.invoke(IPC.PRINT_PEDIDO, freshRow.pedido_id)
+    await window.electron.invoke(IPC.PRINT_PEDIDO, freshRow.pedido_id, colOrderRef.current)
   }, [activeRedeId, dataPedido, saveRow, enrichRow])
 
   const handleShare = useCallback(async (row: LancamentoRow) => {
@@ -271,7 +273,7 @@ export function Lancamentos() {
       const updated = await window.electron.invoke<import('../../../shared/types').LancamentoRow[]>(IPC.PEDIDOS_BY_DATE_REDE, activeRedeId, dataPedido)
       const freshRow = updated.find(r => r.loja_id === row.loja_id)
       if (!freshRow?.pedido_id) return
-      const image = await window.electron.invoke<string>(IPC.GET_NOTA_IMAGE, freshRow.pedido_id)
+      const image = await window.electron.invoke<string>(IPC.GET_NOTA_IMAGE, freshRow.pedido_id, colOrderRef.current)
       setSharePreview({ image, pedidoId: freshRow.pedido_id })
       setShareCopied(false)
     } finally {
@@ -280,6 +282,7 @@ export function Lancamentos() {
   }, [activeRedeId, dataPedido, saveRow, enrichRow])
 
   // Columns = union of all products selected, in the order the user added them
+  // colOrderRef is updated every render so print/share always get the latest order
   const visibleProdutos = (() => {
     // Collect IDs in insertion order (Set preserves insertion order)
     const seenIds = new Set<number>()
@@ -302,6 +305,9 @@ export function Lancamentos() {
         return true
       })
   })()
+
+  // Keep ref in sync with the latest column order on every render
+  colOrderRef.current = visibleProdutos.map(p => p.id)
 
   // Column totals (only rows that have the product active)
   const totals: Record<number, number> = {}

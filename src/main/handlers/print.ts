@@ -3,8 +3,8 @@ import { IPC } from '../../shared/ipc-channels'
 import { getPrintData, generatePrintHtml, generateShareHtml } from '../services/print.service'
 
 export function registerPrintHandlers() {
-  ipcMain.handle(IPC.PRINT_PEDIDO, async (_event, pedidoId: number) => {
-    const data = getPrintData(pedidoId)
+  ipcMain.handle(IPC.PRINT_PEDIDO, async (_event, pedidoId: number, colOrder?: number[]) => {
+    const data = getPrintData(pedidoId, colOrder)
     const html = generatePrintHtml(data, true) // true = show preview controls
 
     const win = new BrowserWindow({
@@ -62,8 +62,8 @@ export function registerPrintHandlers() {
     ].join('\n')
   })
 
-  ipcMain.handle(IPC.GET_NOTA_IMAGE, async (_event, pedidoId: number) => {
-    const data = getPrintData(pedidoId)
+  ipcMain.handle(IPC.GET_NOTA_IMAGE, async (_event, pedidoId: number, colOrder?: number[]) => {
+    const data = getPrintData(pedidoId, colOrder)
     const html = generateShareHtml(data)
 
     // 148mm at 96dpi ≈ 559px wide; height is dynamic based on content

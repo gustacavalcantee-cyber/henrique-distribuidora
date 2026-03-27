@@ -19,7 +19,14 @@ export interface PrintData {
   totalGeral: number
 }
 
-export function getPrintData(pedidoId: number): PrintData {
+/**
+ * @param pedidoId  The pedido to render
+ * @param colOrder  Optional: product IDs in the exact display order as seen in the
+ *                  Lançamentos grid. When provided (called from the Lançamentos page)
+ *                  this is used as-is — no DB lookup needed. When omitted (called
+ *                  from Histórico, Relatórios, etc.) falls back to rede_col_order table.
+ */
+export function getPrintData(pedidoId: number, colOrder?: number[]): PrintData {
   const db = getDb()
 
   const [pedido] = db.select().from(pedidos).where(eq(pedidos.id, pedidoId)).all()
@@ -50,25 +57,29 @@ export function getPrintData(pedidoId: number): PrintData {
 
   let usingLayout = false
 
-  // ── Single source of truth: rede_col_order (one row per rede) ──────────────
-  // This table is written by the frontend every time the column order changes
-  // (on init, drag, add or remove). The per-loja layout_config only controls
-  // WHICH products are shown for each loja; the ORDER always comes from here.
-  const colOrderRow = rawSqlite
-    .prepare('SELECT produto_ids FROM rede_col_order WHERE rede_id = ?')
-    .get(pedido.rede_id) as { produto_ids: string } | undefined
-
+  // Per-loja product selection (which products are visible for this loja)
   const layoutRow = rawSqlite
     .prepare('SELECT produto_ids FROM layout_config WHERE rede_id = ? AND loja_id = ?')
     .get(pedido.rede_id, pedido.loja_id) as { produto_ids: string } | undefined
 
-  if (colOrderRow || layoutRow) {
-    // Column order: use rede_col_order when available, otherwise fall back to
-    // the loja-specific layout_config (handles pedidos from before the migration)
-    const canonicalIds: number[] = colOrderRow
-      ? JSON.parse(colOrderRow.produto_ids)
-      : JSON.parse(layoutRow!.produto_ids)
+  // Resolve canonical column order:
+  //   1. colOrder (passed directly from the Lançamentos frontend — always correct)
+  //   2. rede_col_order table (saved by frontend on every order change, used as fallback)
+  //   3. layout_config for this loja (last resort, from before migration)
+  let canonicalIds: number[] | null = colOrder && colOrder.length > 0 ? colOrder : null
 
+  if (!canonicalIds) {
+    const colOrderRow = rawSqlite
+      .prepare('SELECT produto_ids FROM rede_col_order WHERE rede_id = ?')
+      .get(pedido.rede_id) as { produto_ids: string } | undefined
+    if (colOrderRow) canonicalIds = JSON.parse(colOrderRow.produto_ids)
+  }
+
+  if (!canonicalIds && layoutRow) {
+    canonicalIds = JSON.parse(layoutRow.produto_ids)
+  }
+
+  if (canonicalIds) {
     // Which products are active for this loja
     const thisLojaIds = new Set<number>(
       layoutRow ? JSON.parse(layoutRow.produto_ids) : canonicalIds
