@@ -9,6 +9,18 @@ interface UseRowProdutosArgs {
   historicProdIds: Set<number>
 }
 
+/** Computes the global column order (union of all lojas in numeric loja_id order). */
+function buildGlobalOrder(state: Record<number, Set<number>>): number[] {
+  const seenIds = new Set<number>()
+  const globalOrder: number[] = []
+  for (const s of Object.values(state)) {
+    for (const id of s) {
+      if (!seenIds.has(id)) { seenIds.add(id); globalOrder.push(id) }
+    }
+  }
+  return globalOrder
+}
+
 export function useRowProdutos({ activeRedeId, rows, produtos, historicProdIds }: UseRowProdutosArgs) {
   const [rowProdIds, setRowProdIds] = useState<Record<number, Set<number>>>({})
   const [showRowProdMenu, setShowRowProdMenu] = useState<number | null>(null)
@@ -67,7 +79,15 @@ export function useRowProdutos({ activeRedeId, rows, produtos, historicProdIds }
         }
       }
       if (Object.keys(additions).length > 0) {
-        setRowProdIds(prev => ({ ...prev, ...additions }))
+        setRowProdIds(prev => {
+          const next = { ...prev, ...additions }
+          // Always persist the global column order after init so print matches the grid
+          const globalOrder = buildGlobalOrder(next)
+          if (globalOrder.length > 0) {
+            window.electron.invoke(IPC.LAYOUT_SAVE_COL_ORDER, activeRedeId!, globalOrder)
+          }
+          return next
+        })
       }
       initRunningRef.current = false
     }
@@ -106,6 +126,8 @@ export function useRowProdutos({ activeRedeId, rows, produtos, historicProdIds }
         next[lojaId] = s
         window.electron.invoke(IPC.LAYOUT_SET, activeRedeId, lojaId, [...s])
       }
+      const globalOrder = buildGlobalOrder(next)
+      window.electron.invoke(IPC.LAYOUT_SAVE_COL_ORDER, activeRedeId, globalOrder)
       return next
     })
   }, [activeRedeId])
@@ -126,14 +148,7 @@ export function useRowProdutos({ activeRedeId, rows, produtos, historicProdIds }
         next[lojaId] = new Set(arr)
         window.electron.invoke(IPC.LAYOUT_SET, activeRedeId, lojaId, arr)
       }
-      // Save global column order (union of all lojas in new order) — used by print
-      const seenIds = new Set<number>()
-      const globalOrder: number[] = []
-      for (const s of Object.values(next)) {
-        for (const id of s) {
-          if (!seenIds.has(id)) { seenIds.add(id); globalOrder.push(id) }
-        }
-      }
+      const globalOrder = buildGlobalOrder(next)
       window.electron.invoke(IPC.LAYOUT_SAVE_COL_ORDER, activeRedeId, globalOrder)
       return next
     })
@@ -152,6 +167,8 @@ export function useRowProdutos({ activeRedeId, rows, produtos, historicProdIds }
         next[row.loja_id] = s
         window.electron.invoke(IPC.LAYOUT_SET, activeRedeId, row.loja_id, [...s])
       }
+      const globalOrder = buildGlobalOrder(next)
+      window.electron.invoke(IPC.LAYOUT_SAVE_COL_ORDER, activeRedeId, globalOrder)
       return next
     })
   }, [activeRedeId, rows])
