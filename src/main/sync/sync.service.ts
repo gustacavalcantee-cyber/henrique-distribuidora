@@ -163,6 +163,16 @@ async function pushPendingOthers(supabase: any): Promise<void> {
     })
     sqlite.prepare('UPDATE estoque_entradas SET synced = 1 WHERE synced = 0').run()
   }
+
+  // Push rede_col_order where synced=0 (single source of truth for column order)
+  const pendingColOrders = sqlite.prepare('SELECT * FROM rede_col_order WHERE synced = 0').all() as AnyRow[]
+  if (pendingColOrders.length > 0) {
+    await pushTable(supabase, 'rede_col_order', pendingColOrders, {
+      upsertOn: 'rede_id',
+      skipCols: ['synced', 'updated_at'],
+    })
+    sqlite.prepare('UPDATE rede_col_order SET synced = 1 WHERE synced = 0').run()
+  }
 }
 
 // --------------------------------------------------------------------------
@@ -228,7 +238,7 @@ async function pullFromSupabase(supabase: any): Promise<void> {
 
   console.log('[sync] Pulling from Supabase...')
 
-  const [redes, franqueados, lojas, produtos, custos, precos, pedidosRemote, itensPedido, despesas, configuracoes, layoutConfigs, estoqueEntradas] =
+  const [redes, franqueados, lojas, produtos, custos, precos, pedidosRemote, itensPedido, despesas, configuracoes, layoutConfigs, estoqueEntradas, redeColOrders] =
     await Promise.all([
       fetchAllSupabase(supabase, 'redes'),
       fetchAllSupabase(supabase, 'franqueados'),
@@ -242,6 +252,7 @@ async function pullFromSupabase(supabase: any): Promise<void> {
       fetchAllSupabase(supabase, 'configuracoes'),
       fetchAllSupabase(supabase, 'layout_config'),
       fetchAllSupabase(supabase, 'estoque_entradas'),
+      fetchAllSupabase(supabase, 'rede_col_order'),
     ])
 
   sqlite.transaction(() => {
@@ -297,6 +308,22 @@ async function pullFromSupabase(supabase: any): Promise<void> {
            synced = 1,
            updated_at = excluded.updated_at`
       ).run(row['id'] ?? null, row['rede_id'], row['loja_id'], row['produto_ids'] ?? '[]', row['updated_at'] ?? null)
+    }
+
+    // rede_col_order: upsert by rede_id, skip if local synced=0 (local changes win)
+    for (const row of redeColOrders) {
+      const existing = sqlite
+        .prepare('SELECT synced FROM rede_col_order WHERE rede_id = ?')
+        .get(row['rede_id']) as { synced: number } | undefined
+      if (existing?.synced === 0) continue
+      sqlite.prepare(
+        `INSERT INTO rede_col_order (rede_id, produto_ids, synced, updated_at)
+         VALUES (?, ?, 1, ?)
+         ON CONFLICT(rede_id) DO UPDATE SET
+           produto_ids = excluded.produto_ids,
+           synced = 1,
+           updated_at = excluded.updated_at`
+      ).run(row['rede_id'], row['produto_ids'] ?? '[]', row['updated_at'] ?? null)
     }
 
     // estoque_entradas: upsert por (produto_id, data), skip se local synced=0

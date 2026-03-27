@@ -31,13 +31,9 @@ export function getPrintData(pedidoId: number): PrintData {
   const [configNome] = db.select().from(configuracoes).where(eq(configuracoes.chave, 'nome_fornecedor')).all()
   const [configTel] = db.select().from(configuracoes).where(eq(configuracoes.chave, 'telefone')).all()
 
-  // Try to use the user-defined column order from layout_config for this loja
   const rawSqlite = (db as any).$client
-  const layoutRow = rawSqlite
-    .prepare('SELECT produto_ids FROM layout_config WHERE rede_id = ? AND loja_id = ?')
-    .get(pedido.rede_id, pedido.loja_id) as { produto_ids: string } | undefined
 
-  // Fetch all itens for this pedido first — used for product filtering
+  // Fetch all itens for this pedido — used for product filtering and quantity lookup
   const orderedWithInfo = db.select({
     produto_id: itensPedido.produto_id,
     quantidade: itensPedido.quantidade,
@@ -54,37 +50,42 @@ export function getPrintData(pedidoId: number): PrintData {
 
   let usingLayout = false
 
-  if (layoutRow) {
-    const thisLojaIds = new Set<number>(JSON.parse(layoutRow.produto_ids))
+  // ── Single source of truth: rede_col_order (one row per rede) ──────────────
+  // This table is written by the frontend every time the column order changes
+  // (on init, drag, add or remove). The per-loja layout_config only controls
+  // WHICH products are shown for each loja; the ORDER always comes from here.
+  const colOrderRow = rawSqlite
+    .prepare('SELECT produto_ids FROM rede_col_order WHERE rede_id = ?')
+    .get(pedido.rede_id) as { produto_ids: string } | undefined
 
-    // Prefer the saved global column order (updated whenever user drags columns in Lançamentos)
-    const globalOrderRow = rawSqlite
-      .prepare('SELECT value FROM sync_meta WHERE key = ?')
-      .get(`col_order_rede_${pedido.rede_id}`) as { value: string } | undefined
+  const layoutRow = rawSqlite
+    .prepare('SELECT produto_ids FROM layout_config WHERE rede_id = ? AND loja_id = ?')
+    .get(pedido.rede_id, pedido.loja_id) as { produto_ids: string } | undefined
 
-    let canonicalIds: number[]
-    if (globalOrderRow) {
-      canonicalIds = JSON.parse(globalOrderRow.value)
-    } else {
-      // Fallback: use most recently updated layout_config row as canonical order
-      const recentRow = rawSqlite
-        .prepare('SELECT produto_ids FROM layout_config WHERE rede_id = ? ORDER BY updated_at DESC LIMIT 1')
-        .get(pedido.rede_id) as { produto_ids: string } | undefined
-      canonicalIds = recentRow ? JSON.parse(recentRow.produto_ids) : []
-    }
+  if (colOrderRow || layoutRow) {
+    // Column order: use rede_col_order when available, otherwise fall back to
+    // the loja-specific layout_config (handles pedidos from before the migration)
+    const canonicalIds: number[] = colOrderRow
+      ? JSON.parse(colOrderRow.produto_ids)
+      : JSON.parse(layoutRow!.produto_ids)
+
+    // Which products are active for this loja
+    const thisLojaIds = new Set<number>(
+      layoutRow ? JSON.parse(layoutRow.produto_ids) : canonicalIds
+    )
 
     const prodMap = new Map(redeProds.map(p => [p.id, p]))
-    // Products in canonical order, filtered to this loja; any extras appended at end
-    const inCanonical = canonicalIds
+    const inOrder = canonicalIds
       .filter(id => thisLojaIds.has(id))
       .map(id => prodMap.get(id))
       .filter(Boolean) as typeof redeProds
+    // Append any loja products not yet in the canonical order (edge case)
     const canonicalSet = new Set(canonicalIds)
     const extras = redeProds.filter(p => thisLojaIds.has(p.id) && !canonicalSet.has(p.id))
-    redeProds = [...inCanonical, ...extras]
+    redeProds = [...inOrder, ...extras]
     usingLayout = true
   } else {
-    // No layout config: show only products that actually appear in this pedido's itens
+    // No layout configured: show only products that appear in this pedido's itens
     const itemProdIds = new Set(orderedWithInfo.map(i => i.produto_id).filter(Boolean) as number[])
     if (itemProdIds.size > 0) {
       redeProds = redeProds.filter(p => itemProdIds.has(p.id))

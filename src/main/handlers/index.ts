@@ -13,6 +13,7 @@ import { registerFranqueadosHandlers } from './franqueados'
 import { registerEstoqueHandlers } from './estoque'
 import { registerAtualizacaoHandlers } from './atualizacao'
 import { registerLayoutConfigHandlers } from './layout-config'
+import { registerRedeColOrderHandlers } from './rede-col-order'
 
 export function registerAllHandlers() {
   ipcMain.handle('ping', () => 'pong')
@@ -31,4 +32,5 @@ export function registerAllHandlers() {
   registerEstoqueHandlers()
   registerAtualizacaoHandlers()
   registerLayoutConfigHandlers()
+  registerRedeColOrderHandlers()
 }

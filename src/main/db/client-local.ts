@@ -156,6 +156,12 @@ function initSchema(sqlite: Database.Database): void {
       updated_at TEXT,
       UNIQUE(produto_id, data)
     );
+    CREATE TABLE IF NOT EXISTS rede_col_order (
+      rede_id INTEGER PRIMARY KEY REFERENCES redes(id),
+      produto_ids TEXT NOT NULL DEFAULT '[]',
+      synced INTEGER DEFAULT 0,
+      updated_at TEXT
+    );
   `)
 
   // Idempotent migrations for existing databases

@@ -84,7 +84,7 @@ export function useRowProdutos({ activeRedeId, rows, produtos, historicProdIds }
           // Always persist the global column order after init so print matches the grid
           const globalOrder = buildGlobalOrder(next)
           if (globalOrder.length > 0) {
-            window.electron.invoke(IPC.LAYOUT_SAVE_COL_ORDER, activeRedeId!, globalOrder)
+            window.electron.invoke(IPC.REDE_COL_ORDER_SET, activeRedeId!, globalOrder)
           }
           return next
         })
@@ -127,7 +127,7 @@ export function useRowProdutos({ activeRedeId, rows, produtos, historicProdIds }
         window.electron.invoke(IPC.LAYOUT_SET, activeRedeId, lojaId, [...s])
       }
       const globalOrder = buildGlobalOrder(next)
-      window.electron.invoke(IPC.LAYOUT_SAVE_COL_ORDER, activeRedeId, globalOrder)
+      window.electron.invoke(IPC.REDE_COL_ORDER_SET, activeRedeId, globalOrder)
       return next
     })
   }, [activeRedeId])
@@ -149,7 +149,7 @@ export function useRowProdutos({ activeRedeId, rows, produtos, historicProdIds }
         window.electron.invoke(IPC.LAYOUT_SET, activeRedeId, lojaId, arr)
       }
       const globalOrder = buildGlobalOrder(next)
-      window.electron.invoke(IPC.LAYOUT_SAVE_COL_ORDER, activeRedeId, globalOrder)
+      window.electron.invoke(IPC.REDE_COL_ORDER_SET, activeRedeId, globalOrder)
       return next
     })
   }, [activeRedeId])
@@ -168,7 +168,7 @@ export function useRowProdutos({ activeRedeId, rows, produtos, historicProdIds }
         window.electron.invoke(IPC.LAYOUT_SET, activeRedeId, row.loja_id, [...s])
       }
       const globalOrder = buildGlobalOrder(next)
-      window.electron.invoke(IPC.LAYOUT_SAVE_COL_ORDER, activeRedeId, globalOrder)
+      window.electron.invoke(IPC.REDE_COL_ORDER_SET, activeRedeId, globalOrder)
       return next
     })
   }, [activeRedeId, rows])
