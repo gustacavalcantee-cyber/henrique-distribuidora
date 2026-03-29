@@ -57,16 +57,40 @@ export function getPrintData(pedidoId: number, colOrder?: number[]): PrintData {
 
   let usingLayout = false
 
-  // Per-loja product selection (which products are visible for this loja)
+  // Resolve product list + order for this loja's print.
+  //
+  // Priority for per-loja product set (which products belong to this loja):
+  //   1. print_order table — dedicated per-(rede, loja) print list, written by
+  //      useRowProdutos on every layout change. Most reliable source.
+  //   2. layout_config — fallback for lojas not yet in print_order.
+  //
+  // Priority for column order (in what sequence products appear):
+  //   1. colOrder passed directly from the Lançamentos frontend (most current).
+  //   2. print_order itself (if no frontend order available).
+  //   3. rede_col_order table (global fallback for Histórico prints).
+
+  const printOrderRow = rawSqlite
+    .prepare('SELECT produto_ids FROM print_order WHERE rede_id = ? AND loja_id = ?')
+    .get(pedido.rede_id, pedido.loja_id) as { produto_ids: string } | undefined
+
   const layoutRow = rawSqlite
     .prepare('SELECT produto_ids FROM layout_config WHERE rede_id = ? AND loja_id = ?')
     .get(pedido.rede_id, pedido.loja_id) as { produto_ids: string } | undefined
 
-  // Resolve canonical column order:
-  //   1. colOrder (passed directly from the Lançamentos frontend — always correct)
-  //   2. rede_col_order table (saved by frontend on every order change, used as fallback)
-  //   3. layout_config for this loja (last resort, from before migration)
-  let canonicalIds: number[] | null = colOrder && colOrder.length > 0 ? colOrder : null
+  // The per-loja product set: what products are enabled for this loja's print
+  const lojaProductIds: number[] | null = printOrderRow
+    ? JSON.parse(printOrderRow.produto_ids)
+    : layoutRow
+      ? JSON.parse(layoutRow.produto_ids)
+      : null
+
+  // The column order: how products are sequenced on the note
+  const colOrderFromFrontend = colOrder && colOrder.length > 0
+  let canonicalIds: number[] | null = colOrderFromFrontend ? colOrder! : null
+
+  if (!canonicalIds && printOrderRow) {
+    canonicalIds = JSON.parse(printOrderRow.produto_ids)
+  }
 
   if (!canonicalIds) {
     const colOrderRow = rawSqlite
@@ -80,20 +104,28 @@ export function getPrintData(pedidoId: number, colOrder?: number[]): PrintData {
   }
 
   if (canonicalIds) {
-    // Which products are active for this loja
-    const thisLojaIds = new Set<number>(
-      layoutRow ? JSON.parse(layoutRow.produto_ids) : canonicalIds
-    )
+    // Fetch ALL products by their explicit IDs — not filtered by rede_id.
+    const allColProds = canonicalIds.length > 0
+      ? db.select({ id: produtos.id, nome: produtos.nome, unidade: produtos.unidade })
+          .from(produtos).where(inArray(produtos.id, canonicalIds)).all()
+      : redeProds
+    const prodMap = new Map(allColProds.map(p => [p.id, p]))
 
-    const prodMap = new Map(redeProds.map(p => [p.id, p]))
+    // Use the per-loja product set for filtering, canonical order for sequencing.
+    const thisLojaIds: Set<number> = lojaProductIds
+      ? new Set<number>(lojaProductIds)
+      : new Set<number>(canonicalIds)
+
     const inOrder = canonicalIds
       .filter(id => thisLojaIds.has(id))
       .map(id => prodMap.get(id))
       .filter(Boolean) as typeof redeProds
     // Append any loja products not yet in the canonical order (edge case)
     const canonicalSet = new Set(canonicalIds)
-    const extras = redeProds.filter(p => thisLojaIds.has(p.id) && !canonicalSet.has(p.id))
-    redeProds = [...inOrder, ...extras]
+    const lojaExtras = lojaProductIds
+      ? lojaProductIds.filter(id => !canonicalSet.has(id)).map(id => prodMap.get(id)).filter(Boolean) as typeof redeProds
+      : []
+    redeProds = [...inOrder, ...lojaExtras]
     usingLayout = true
   } else {
     // No layout configured: show only products that appear in this pedido's itens
@@ -124,6 +156,7 @@ export function getPrintData(pedidoId: number, colOrder?: number[]): PrintData {
 
   for (const prod of redeProds) {
     const nameKey = prod.nome.toUpperCase()
+    if (coveredNames.has(nameKey)) continue  // skip duplicate product names
     const item = itensById.get(prod.id) ?? itensByName.get(nameKey)
     coveredNames.add(nameKey)
     linhas.push({
@@ -134,22 +167,45 @@ export function getPrintData(pedidoId: number, colOrder?: number[]): PrintData {
     })
   }
 
+  // Always add every item from orderedWithInfo — even if the product name is already in
+  // coveredNames. The mergedLinhas dedup below will reconcile duplicates and prefer the
+  // entry with an actual quantity over a null placeholder (handles stale produto_id case
+  // where the layout product Y has qty=null but the synced item X has the real qty).
   for (const item of orderedWithInfo) {
-    if (!coveredNames.has(item.nome.toUpperCase())) {
-      linhas.push({
-        nome: item.nome.toUpperCase(), unidade: item.unidade,
-        quantidade: item.quantidade, precoUnit: item.preco_unit,
-        total: item.quantidade * item.preco_unit,
-      })
+    linhas.push({
+      nome: item.nome.toUpperCase(), unidade: item.unidade,
+      quantidade: item.quantidade, precoUnit: item.preco_unit,
+      total: item.quantidade != null ? item.quantidade * item.preco_unit : null,
+    })
+  }
+
+  // Post-process: deduplicate by name+unit, keeping the row with actual quantity.
+  // This handles cases where the same product appears in both the layout loop and the
+  // safety-net loop (e.g. two DB rows with the same nome but different IDs / redes).
+  const mergedLinhas: PrintData['linhas'] = []
+  const seenMergeKeys = new Map<string, number>() // key → index in mergedLinhas
+  for (const linha of linhas) {
+    const key = `${linha.nome.trim().toUpperCase()}|${linha.unidade.trim()}`
+    if (!seenMergeKeys.has(key)) {
+      seenMergeKeys.set(key, mergedLinhas.length)
+      mergedLinhas.push(linha)
+    } else {
+      const idx = seenMergeKeys.get(key)!
+      const existing = mergedLinhas[idx]
+      // Replace placeholder row ("-") with the row that has actual quantity
+      if ((existing.quantidade === null || existing.quantidade === 0) &&
+          linha.quantidade != null && linha.quantidade > 0) {
+        mergedLinhas[idx] = { ...existing, quantidade: linha.quantidade, precoUnit: linha.precoUnit, total: linha.total }
+      }
     }
   }
 
   // Only sort alphabetically when NOT using layout_config (which has user-defined order)
   if (!usingLayout) {
-    linhas.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+    mergedLinhas.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
   }
 
-  const totalGeral = linhas.reduce((sum, l) => sum + (l.total ?? 0), 0)
+  const totalGeral = mergedLinhas.reduce((sum, l) => sum + (l.total ?? 0), 0)
   const [y, m, d] = pedido.data_pedido.split('-')
   const dataFormatada = `${d}/${m}/${y}`
 
@@ -160,7 +216,7 @@ export function getPrintData(pedidoId: number, colOrder?: number[]): PrintData {
     lojaNome: loja?.nome?.toUpperCase() ?? '',
     numerOc: pedido.numero_oc,
     data: dataFormatada,
-    linhas,
+    linhas: mergedLinhas,
     totalGeral,
   }
 }
