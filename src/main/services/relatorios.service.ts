@@ -10,14 +10,31 @@ export function getRelatorioQuinzena(rede_id: number, loja_id: number, mes: numb
   const lastDay = new Date(ano, mes, 0).getDate()
   const data_fim = quinzena === 1 ? `${ano}-${mesStr}-15` : `${ano}-${mesStr}-${lastDay}`
 
-  const conditions = [
+  const todasLojasQuinzena = db.select().from(lojas).all()
+  // Resolve effective loja IDs: include any duplicate loja records with the same name+rede
+  // (ghost lojas from cross-rede contamination may have caused pedidos to be saved under
+  // a sibling loja_id that shares the same display name).
+  let effectiveLojaIds: number[] | null = null
+  if (loja_id) {
+    const target = todasLojasQuinzena.find(l => l.id === loja_id)
+    const siblings = todasLojasQuinzena.filter(l =>
+      l.rede_id === (target?.rede_id ?? rede_id) && l.nome?.toUpperCase() === target?.nome?.toUpperCase()
+    )
+    effectiveLojaIds = siblings.length > 0 ? siblings.map(l => l.id) : [loja_id]
+  }
+
+  const baseConditions = [
     gte(pedidos.data_pedido, data_inicio),
     lte(pedidos.data_pedido, data_fim),
     eq(pedidos.rede_id, rede_id),
   ]
-  if (loja_id) conditions.push(eq(pedidos.loja_id, loja_id))
+  if (effectiveLojaIds && effectiveLojaIds.length === 1) {
+    baseConditions.push(eq(pedidos.loja_id, effectiveLojaIds[0]))
+  } else if (effectiveLojaIds && effectiveLojaIds.length > 1) {
+    baseConditions.push(inArray(pedidos.loja_id, effectiveLojaIds))
+  }
 
-  const pedidosList = db.select().from(pedidos).where(and(...conditions)).orderBy(pedidos.data_pedido).all()
+  const pedidosList = db.select().from(pedidos).where(and(...baseConditions)).orderBy(pedidos.data_pedido).all()
   const pedidoIds = pedidosList.map(p => p.id)
 
   if (pedidoIds.length === 0) {
@@ -165,13 +182,20 @@ export function getRelatorioCobranca(
     data_inicio = `${ano}-${mesStr}-01`; data_fim = `${ano}-${mesStr}-${lastDay}`; periodo_str = `${mesNome} ${ano}`
   }
 
-  const todasLojas = db.select().from(lojas).where(inArray(lojas.id, loja_ids)).all()
+  const todasLojas = db.select().from(lojas).all()
   const todasRedes = db.select().from(redes).all()
 
   return loja_ids.map(loja_id => {
     const loja = todasLojas.find(l => l.id === loja_id)
+    // Include pedidos from any loja with the same name in the same rede — covers edge cases
+    // where a duplicate loja record (ghost loja from cross-rede contamination) caused some
+    // pedidos to be saved under a different loja_id that shares the same display name.
+    const siblingsIds = todasLojas
+      .filter(l => l.rede_id === loja?.rede_id && l.nome?.toUpperCase() === loja?.nome?.toUpperCase())
+      .map(l => l.id)
+    const effectiveIds = siblingsIds.length > 1 ? siblingsIds : [loja_id]
     const pedidosList = db.select().from(pedidos).where(
-      and(eq(pedidos.loja_id, loja_id), gte(pedidos.data_pedido, data_inicio), lte(pedidos.data_pedido, data_fim))
+      and(inArray(pedidos.loja_id, effectiveIds), gte(pedidos.data_pedido, data_inicio), lte(pedidos.data_pedido, data_fim))
     ).all()
 
     const pedidoIds = pedidosList.map(p => p.id)

@@ -1,0 +1,8 @@
+version: 1.0.91
+files:
+  - url: henrique-distribuidora-1.0.91-arm64.dmg
+    sha512: acE2JC78HHCmI47dGQLcn/e3t5kcD2g5SyOkgpVos3R53dpIIFSRtBTiMpyeEggtFDmyBxRE7knNU91SAygsrw==
+    size: 139489735
+path: henrique-distribuidora-1.0.91-arm64.dmg
+sha512: acE2JC78HHCmI47dGQLcn/e3t5kcD2g5SyOkgpVos3R53dpIIFSRtBTiMpyeEggtFDmyBxRE7knNU91SAygsrw==
+releaseDate: '2026-03-30T13:42:07.123Z'

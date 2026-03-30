@@ -66,9 +66,13 @@ export const IPC = {
   LAYOUT_SET: 'layout:set',
   REDE_COL_ORDER_GET: 'redeColOrder:get',
   REDE_COL_ORDER_SET: 'redeColOrder:set',
+  PRINT_ORDER_GET: 'printOrder:get',
+  PRINT_ORDER_SAVE: 'printOrder:save',
   RELATORIO_POR_PRODUTO: 'relatorio:porProduto',
   PRODUTOS_COM_PEDIDOS_NA_REDE: 'produtos:comPedidosNaRede',
   RELATORIO_PRECO_CUSTO: 'relatorio:precoCusto',
   RENDER_HTML_IMAGE: 'render:htmlImage',
   OPEN_EXTERNAL: 'shell:openExternal',
+  SYNC_ERROR: 'sync:error',
+  SYNC_FORCE_PULL: 'sync:forcePull',
 } as const

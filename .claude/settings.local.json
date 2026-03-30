@@ -6,7 +6,32 @@
       "Bash(./node_modules/.bin/tailwindcss init:*)",
       "Bash(node -e \"const pkg = require\\(''/Users/gustavocavalcante/Library/CloudStorage/GoogleDrive-gustacavalcantee@gmail.com/Meu Drive/Programa/node_modules/tailwindcss/package.json''\\); console.log\\(pkg.version\\)\")",
       "Bash(node_modules/.bin/tailwindcss init:*)",
-      "Bash(npm run:*)"
+      "Bash(npm run:*)",
+      "Bash(node -e \"const p = require\\(''./package.json''\\); const deps = {...p.dependencies, ...p.devDependencies}; const required = [''drizzle-orm'',''better-sqlite3'',''zod'',''ag-grid-react'',''ag-grid-community'',''react-router-dom'',''exceljs'',''date-fns'',''lucide-react'',''drizzle-kit'',''@types/better-sqlite3'',''tailwindcss'',''postcss'',''autoprefixer'',''vitest'',''@vitest/ui'',''@types/node'']; const missing = required.filter\\(d => !deps[d]\\); console.log\\(''Missing deps:'', missing.length ? missing : ''NONE''\\); console.log\\(''Tailwind version:'', deps.tailwindcss\\);\")",
+      "Bash(npx drizzle-kit:*)",
+      "Bash(npx vitest:*)",
+      "Bash(npx tsc:*)",
+      "Bash(git -C \"/Users/gustavocavalcante/.config/superpowers/worktrees/henrique-distribuidora/supabase-migration\" status --short)",
+      "Bash(git -C \"/Users/gustavocavalcante/.config/superpowers/worktrees/henrique-distribuidora/supabase-migration\" add src/main/index.ts src/main/services/print.service.ts src/main/handlers/print.ts)",
+      "Bash(git -C:*)",
+      "Bash(source .env.production)",
+      "Bash(node -e \"const p=require\\(''./package.json''\\); console.log\\(p.version\\)\")",
+      "Bash(npm rebuild:*)",
+      "Bash(npx tsx:*)",
+      "Bash(DATABASE_URL=\"postgresql://postgres:GxqusMLxXiQDrd6F@db.kdjkdhuzobascohxvoin.supabase.co:5432/postgres\" npx tsx scripts/migrate-sqlite-to-supabase.ts data/henrique.db)",
+      "Bash(DATABASE_URL=\"postgresql://postgres:GxqusMLxXiQDrd6F@db.kdjkdhuzobascohxvoin.supabase.co:5432/postgres\" npx drizzle-kit push --config drizzle-pg.config.ts)",
+      "Bash(DATABASE_URL=\"postgresql://postgres:GxqusMLxXiQDrd6F@db.kdjkdhuzobascohxvoin.supabase.co:5432/postgres\" npx tsx scripts/clear-supabase.ts)",
+      "Bash(DATABASE_URL=\"postgresql://postgres:GxqusMLxXiQDrd6F@db.kdjkdhuzobascohxvoin.supabase.co:5432/postgres?connect_timeout=30\" npx tsx scripts/migrate-sqlite-to-supabase.ts data/henrique.db)",
+      "Bash(curl -s \"https://kdjkdhuzobascohxvoin.supabase.co/rest/v1/redes?select=id&limit=1\" -H \"apikey: sb_publishable_Ln5OBAVtohhGYD-RCDIe0w_jaHJOrlw\" -H \"Authorization: Bearer sb_publishable_Ln5OBAVtohhGYD-RCDIe0w_jaHJOrlw\" -w \"\\\\nHTTP Status: %{http_code}\")",
+      "Bash(nc -z -w 10 db.kdjkdhuzobascohxvoin.supabase.co 5432)",
+      "Bash(gh release:*)",
+      "Bash(cat /Users/gustavocavalcante/Library/CloudStorage/GoogleDrive-gustacavalcantee@gmail.com/Meu Drive/Programa/.github/workflows/*.yml)",
+      "Bash(gh secret:*)",
+      "Bash(gh run:*)",
+      "mcp__filesystem__directory_tree",
+      "Bash(ls *.test.*)",
+      "Bash(ls src/**/*.test.*)",
+      "Bash(grep -rl \"client-pg\\\\|from ''../db/client-pg''\\\\|getDb\" \"/Users/gustavocavalcante/Library/CloudStorage/GoogleDrive-gustacavalcantee@gmail.com/Meu Drive/Programa/src/main/\")"
     ]
   }
 }

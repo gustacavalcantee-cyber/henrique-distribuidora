@@ -126,13 +126,28 @@ async function pushPendingPedidos(supabase: any): Promise<void> {
 async function pushPendingOthers(supabase: any): Promise<void> {
   const sqlite = getRawSqlite()
 
-  const tables = ['redes', 'franqueados', 'lojas', 'produtos', 'precos', 'custos', 'despesas']
+  const tables = ['redes', 'franqueados', 'produtos', 'precos', 'custos', 'despesas']
 
   for (const table of tables) {
     const pending = sqlite.prepare(`SELECT * FROM ${table} WHERE synced = 0`).all() as AnyRow[]
     if (pending.length === 0) continue
     await pushTable(supabase, table, pending)
     sqlite.prepare(`UPDATE ${table} SET synced = 1 WHERE synced = 0`).run()
+  }
+
+  // Lojas: upsert to Supabase with their current ativo state.
+  // Deleted lojas (ativo=0) are SOFT-DELETED in Supabase via upsert — avoids FK constraint
+  // errors that occur when pedidos reference the loja. The pull then propagates the soft-delete
+  // to local SQLite (hard-delete) on every device including this one.
+  const pendingLojas = sqlite.prepare('SELECT * FROM lojas WHERE synced = 0').all() as AnyRow[]
+  for (const loja of pendingLojas) {
+    await pushTable(supabase, 'lojas', [loja]) // upsert with ativo=0 or ativo=1
+    if (loja['ativo'] === 0) {
+      // Soft-delete reached Supabase — hard-delete locally now; pull will confirm on next cycle
+      sqlite.prepare('DELETE FROM lojas WHERE id = ?').run(loja['id'])
+    } else {
+      sqlite.prepare('UPDATE lojas SET synced = 1 WHERE id = ?').run(loja['id'])
+    }
   }
 
   // Push configuracoes where synced=0 (same pattern as other tables)
@@ -164,15 +179,6 @@ async function pushPendingOthers(supabase: any): Promise<void> {
     sqlite.prepare('UPDATE estoque_entradas SET synced = 1 WHERE synced = 0').run()
   }
 
-  // Push rede_col_order where synced=0 (single source of truth for column order)
-  const pendingColOrders = sqlite.prepare('SELECT * FROM rede_col_order WHERE synced = 0').all() as AnyRow[]
-  if (pendingColOrders.length > 0) {
-    await pushTable(supabase, 'rede_col_order', pendingColOrders, {
-      upsertOn: 'rede_id',
-      skipCols: ['synced', 'updated_at'],
-    })
-    sqlite.prepare('UPDATE rede_col_order SET synced = 1 WHERE synced = 0').run()
-  }
 }
 
 // --------------------------------------------------------------------------
@@ -238,7 +244,7 @@ async function pullFromSupabase(supabase: any): Promise<void> {
 
   console.log('[sync] Pulling from Supabase...')
 
-  const [redes, franqueados, lojas, produtos, custos, precos, pedidosRemote, itensPedido, despesas, configuracoes, layoutConfigs, estoqueEntradas, redeColOrders] =
+  const [redes, franqueados, lojas, produtos, custos, precos, pedidosRemote, itensPedido, despesas, configuracoes, layoutConfigs, estoqueEntradas] =
     await Promise.all([
       fetchAllSupabase(supabase, 'redes'),
       fetchAllSupabase(supabase, 'franqueados'),
@@ -252,13 +258,31 @@ async function pullFromSupabase(supabase: any): Promise<void> {
       fetchAllSupabase(supabase, 'configuracoes'),
       fetchAllSupabase(supabase, 'layout_config'),
       fetchAllSupabase(supabase, 'estoque_entradas'),
-      fetchAllSupabase(supabase, 'rede_col_order'),
     ])
 
   sqlite.transaction(() => {
     upsertLocal(sqlite, 'redes', redes, 'id')
     upsertLocal(sqlite, 'franqueados', franqueados, 'id')
-    upsertLocal(sqlite, 'lojas', lojas, 'id')
+    // Lojas: active → upsert; ativo=0 (soft-deleted in Supabase) → hard-delete locally.
+    // This propagates soft-deletes to all devices without FK constraint issues.
+    const activeLojas = lojas.filter((l: AnyRow) => l['ativo'] !== 0)
+    const inactiveLojas = lojas.filter((l: AnyRow) => l['ativo'] === 0)
+    upsertLocal(sqlite, 'lojas', activeLojas, 'id')
+    for (const loja of inactiveLojas) {
+      sqlite.prepare('DELETE FROM lojas WHERE id = ?').run(loja['id'])
+    }
+    // Propagate: delete local synced=1 lojas completely absent from Supabase
+    // Guard: only run if Supabase returned data — prevents wiping lojas on network error
+    if (lojas.length > 0) {
+      const remoteAllLojaIds = new Set(lojas.map((l: AnyRow) => l['id']))
+      const localSyncedLojas = sqlite.prepare('SELECT id FROM lojas WHERE synced = 1').all() as { id: number }[]
+      for (const { id } of localSyncedLojas) {
+        if (!remoteAllLojaIds.has(id)) {
+          sqlite.prepare('DELETE FROM lojas WHERE id = ?').run(id)
+        }
+      }
+    }
+
     upsertLocal(sqlite, 'produtos', produtos, 'id')
     upsertLocal(sqlite, 'custos', custos, 'id')
     upsertLocal(sqlite, 'precos', precos, 'id')
@@ -308,22 +332,6 @@ async function pullFromSupabase(supabase: any): Promise<void> {
            synced = 1,
            updated_at = excluded.updated_at`
       ).run(row['id'] ?? null, row['rede_id'], row['loja_id'], row['produto_ids'] ?? '[]', row['updated_at'] ?? null)
-    }
-
-    // rede_col_order: upsert by rede_id, skip if local synced=0 (local changes win)
-    for (const row of redeColOrders) {
-      const existing = sqlite
-        .prepare('SELECT synced FROM rede_col_order WHERE rede_id = ?')
-        .get(row['rede_id']) as { synced: number } | undefined
-      if (existing?.synced === 0) continue
-      sqlite.prepare(
-        `INSERT INTO rede_col_order (rede_id, produto_ids, synced, updated_at)
-         VALUES (?, ?, 1, ?)
-         ON CONFLICT(rede_id) DO UPDATE SET
-           produto_ids = excluded.produto_ids,
-           synced = 1,
-           updated_at = excluded.updated_at`
-      ).run(row['rede_id'], row['produto_ids'] ?? '[]', row['updated_at'] ?? null)
     }
 
     // estoque_entradas: upsert por (produto_id, data), skip se local synced=0
@@ -396,7 +404,9 @@ async function runSync(supabase: any, win: BrowserWindow, alwaysNotify: boolean)
       win.webContents.send(IPC.DB_SYNCED)
     }
   } catch (err: unknown) {
-    console.warn('[sync] Sync failed:', (err as Error).message)
+    const msg = (err as Error).message
+    console.warn('[sync] Sync failed:', msg)
+    if (!win.isDestroyed()) win.webContents.send(IPC.SYNC_ERROR, msg)
   } finally {
     _isSyncing = false
   }
@@ -419,7 +429,9 @@ export async function startSync(win: BrowserWindow): Promise<void> {
     // Notify renderer that fresh data (including configs) is in SQLite
     if (!win.isDestroyed()) win.webContents.send(IPC.DB_READY)
   } catch (err: unknown) {
-    console.warn('[sync] Startup sync failed:', (err as Error).message)
+    const startMsg = (err as Error).message
+    console.warn('[sync] Startup sync failed:', startMsg)
+    if (!win.isDestroyed()) win.webContents.send(IPC.SYNC_ERROR, startMsg)
   } finally {
     _isSyncing = false
   }
@@ -502,3 +514,16 @@ export function triggerSync(_win?: BrowserWindow): void {
 let _mainWindow: BrowserWindow | null = null
 export function setSyncWindow(win: BrowserWindow) { _mainWindow = win }
 export function getMainWindow() { return _mainWindow }
+
+/** Send a sync error message to the renderer window */
+export function notifySyncError(win: BrowserWindow, message: string): void {
+  if (!win.isDestroyed()) win.webContents.send(IPC.SYNC_ERROR, message)
+}
+
+/** Force a full pull from Supabase and notify renderer — used by admin resync button */
+export async function forcePullAndNotify(win: BrowserWindow): Promise<void> {
+  const supabase = getSupabase()
+  if (!supabase) throw new Error('Supabase não configurado')
+  await pullFromSupabase(supabase)
+  if (!win.isDestroyed()) win.webContents.send(IPC.DB_READY)
+}

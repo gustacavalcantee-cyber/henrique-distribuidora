@@ -86,6 +86,22 @@ exports.default = async function(buildResult) {
     }
   }
 
+  // Copia latest.yml e latest-mac.yml do dist/ (não estão em buildResult.artifactPaths)
+  const distDir = path.join(__dirname, '..', 'dist')
+  for (const ymlName of ['latest.yml', 'latest-mac.yml']) {
+    const src = path.join(distDir, ymlName)
+    if (fs.existsSync(src)) {
+      const dest = path.join(releasesPath, ymlName)
+      try {
+        fs.copyFileSync(src, dest)
+        console.log(`[afterBuild] ✅ ${ymlName}`)
+        copied++
+      } catch (e) {
+        console.warn(`[afterBuild] Erro ao copiar ${ymlName}: ${e.message}`)
+      }
+    }
+  }
+
   // Preserva win_file de versão anterior se não temos um novo (build foi só no Mac)
   const infoPath = path.join(releasesPath, 'update-info.json')
   if (!winFile && fs.existsSync(infoPath)) {

@@ -3,6 +3,7 @@ import { and, eq, ne } from 'drizzle-orm'
 import { getDb } from '../db/client-local'
 import { lojas } from '../db/schema-local'
 import { IPC } from '../../shared/ipc-channels'
+import { triggerSync, getMainWindow } from '../sync/sync.service'
 
 export function registerLojasHandlers() {
   ipcMain.handle(IPC.LOJAS_LIST, (_event, rede_id?: number) => {
@@ -23,9 +24,11 @@ export function registerLojasHandlers() {
   })
 
   ipcMain.handle(IPC.LOJAS_DELETE, (_event, id: number) => {
-    // Always soft-delete (ativo=0) so the record is synced to Supabase and not
-    // resurrected on the next pull. Hard-delete would lose the row locally but
-    // keep it in Supabase, causing it to return on every sync cycle.
+    // Soft-delete locally (hidden from UI immediately) then push deletion to Supabase.
+    // The sync push will hard-delete from Supabase; the pull propagation then removes
+    // the row from all other devices. Without triggerSync, deletion only syncs on the
+    // next 8-second polling cycle.
     getDb().update(lojas).set({ ativo: 0, synced: 0 }).where(eq(lojas.id, id)).run()
+    triggerSync(getMainWindow() ?? undefined)
   })
 }

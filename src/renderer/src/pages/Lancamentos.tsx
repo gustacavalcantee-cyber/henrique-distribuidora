@@ -257,18 +257,24 @@ export function Lancamentos() {
 
   const handlePrint = useCallback(async (row: LancamentoRow) => {
     if (!activeRedeId || !row.numero_oc) return
+    // Snapshot the exact per-loja product order into print_order before printing
+    const lojaOrder = rowProdIds[row.loja_id] ? [...rowProdIds[row.loja_id]] : colOrderRef.current
+    await window.electron.invoke(IPC.PRINT_ORDER_SAVE, activeRedeId, row.loja_id, lojaOrder)
     await saveRow(enrichRow(row), activeRedeId, dataPedido)
     const updated = await window.electron.invoke<import('../../../shared/types').LancamentoRow[]>(IPC.PEDIDOS_BY_DATE_REDE, activeRedeId, dataPedido)
     const freshRow = updated.find(r => r.loja_id === row.loja_id)
     if (!freshRow?.pedido_id) return
     await window.electron.invoke(IPC.PRINT_PEDIDO, freshRow.pedido_id, colOrderRef.current)
-  }, [activeRedeId, dataPedido, saveRow, enrichRow])
+  }, [activeRedeId, dataPedido, saveRow, enrichRow, rowProdIds])
 
   const handleShare = useCallback(async (row: LancamentoRow) => {
     if (!activeRedeId || !row.numero_oc) return
     setShareLoading(true)
     setSharePreview(null)
     try {
+      // Snapshot the exact per-loja product order into print_order before sharing
+      const lojaOrder = rowProdIds[row.loja_id] ? [...rowProdIds[row.loja_id]] : colOrderRef.current
+      await window.electron.invoke(IPC.PRINT_ORDER_SAVE, activeRedeId, row.loja_id, lojaOrder)
       await saveRow(enrichRow(row), activeRedeId, dataPedido)
       const updated = await window.electron.invoke<import('../../../shared/types').LancamentoRow[]>(IPC.PEDIDOS_BY_DATE_REDE, activeRedeId, dataPedido)
       const freshRow = updated.find(r => r.loja_id === row.loja_id)
@@ -279,15 +285,20 @@ export function Lancamentos() {
     } finally {
       setShareLoading(false)
     }
-  }, [activeRedeId, dataPedido, saveRow, enrichRow])
+  }, [activeRedeId, dataPedido, saveRow, enrichRow, rowProdIds])
 
-  // Columns = union of all products selected, in the order the user added them
-  // colOrderRef is updated every render so print/share always get the latest order
+  // Columns = union of all products selected, in the order they appear across lojas.
+  // IMPORTANT: iterates `rows` in UI display order (not Object.values which uses numeric
+  // loja_id order). This guarantees the first row visible in the grid provides the
+  // canonical product sequence — matching exactly what the user sees on screen.
+  // colOrderRef is updated every render so print/share always get the same order.
   const visibleProdutos = (() => {
-    // Collect IDs in insertion order (Set preserves insertion order)
     const seenIds = new Set<number>()
     const orderedIds: number[] = []
-    for (const s of Object.values(rowProdIds)) {
+    // Use rows in UI display order — the first row's product order is canonical
+    for (const row of rows) {
+      const s = rowProdIds[row.loja_id]
+      if (!s) continue
       for (const id of s) {
         if (!seenIds.has(id)) { seenIds.add(id); orderedIds.push(id) }
       }
