@@ -6,3 +6,7 @@ out
 *.log*
 src/main/db/.env.local
 .env.production
+releases/*.dmg
+releases/*.exe
+releases/*.blockmap
+releases/*.zip
