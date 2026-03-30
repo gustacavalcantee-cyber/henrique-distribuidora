@@ -260,6 +260,11 @@ async function pullFromSupabase(supabase: any): Promise<void> {
       fetchAllSupabase(supabase, 'estoque_entradas'),
     ])
 
+  // Disable FK constraints during pull: INSERT OR REPLACE does DELETE+INSERT which
+  // would fail with "FOREIGN KEY constraint failed" because parent rows (lojas, redes)
+  // have NO ACTION children (pedidos, precos). Supabase data is already consistent.
+  sqlite.pragma('foreign_keys = OFF')
+  try {
   sqlite.transaction(() => {
     upsertLocal(sqlite, 'redes', redes, 'id')
     upsertLocal(sqlite, 'franqueados', franqueados, 'id')
@@ -359,6 +364,9 @@ async function pullFromSupabase(supabase: any): Promise<void> {
       )
     }
   })()
+  } finally {
+    sqlite.pragma('foreign_keys = ON')
+  }
 
   console.log('[sync] Pull complete.')
 }
