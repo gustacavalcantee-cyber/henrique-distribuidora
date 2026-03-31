@@ -202,16 +202,13 @@ ${(() => {
     // Combined totals section (only when 2nd store)
     const combinedSection = summary2 ? (() => {
       const combinedVenda = summary.total_venda + summary2.total_venda
-      const combinedCusto = summary.total_custo + summary2.total_custo
-      const combinedMargem = combinedVenda > 0 ? ((combinedVenda - combinedCusto) / combinedVenda) * 100 : 0
       return `
   <div class="combined-section">
-    <div class="combined-title">TOTAL COMBINADO — ${lojaName} + ${lojaName2}</div>
-    <div class="combined-cards">
-      <div class="combined-card card-green"><div class="card-lbl">VENDAS TOTAL</div><div class="card-val">R$ ${fmtMoney(combinedVenda)}</div></div>
-      <div class="combined-card card-red"><div class="card-lbl">CUSTO TOTAL</div><div class="card-val">R$ ${fmtMoney(combinedCusto)}</div></div>
-      <div class="combined-card card-blue"><div class="card-lbl">MARGEM COMBINADA</div><div class="card-val">${combinedMargem.toFixed(1)}%</div></div>
-    </div>
+    <span class="store-label">${redeName} ${lojaName}</span> <span class="store-val">R$ ${fmtMoney(summary.total_venda)}</span>
+    <span class="plus"> + </span>
+    <span class="store-label">${redeName2} ${lojaName2}</span> <span class="store-val">R$ ${fmtMoney(summary2.total_venda)}</span>
+    <span class="plus"> = </span>
+    <span class="total-val">R$ ${fmtMoney(combinedVenda)}</span>
   </div>`
     })() : ''
 
@@ -236,15 +233,11 @@ thead tr { border-bottom: 1px solid #555; }
 .row-preco td { background:#fafafa; }
 .row-grand td { font-weight:bold; font-size:9.5pt; background:#efefef; border-top:2px solid #333; }
 .row-grand .c-data { text-align:left; }
-.combined-section { margin-top: 8mm; border-top: 3px solid #333; padding-top: 5mm; }
-.combined-title { font-weight:bold; font-size:10pt; margin-bottom:4mm; }
-.combined-cards { display:flex; gap:6mm; }
-.combined-card { flex:1; border: 1px solid #ccc; border-radius:3px; padding:3mm 4mm; }
-.card-lbl { font-size:7.5pt; color:#666; text-transform:uppercase; }
-.card-val { font-size:13pt; font-weight:bold; margin-top:1mm; }
-.card-green .card-val { color:#16a34a; }
-.card-red .card-val { color:#dc2626; }
-.card-blue .card-val { color:#2563eb; }
+.combined-section { margin-top: 6mm; border-top: 2px solid #555; padding-top: 4mm; font-size:9.5pt; }
+.store-label { color:#444; }
+.store-val { font-weight:bold; color:#16a34a; }
+.plus { color:#888; }
+.total-val { font-weight:bold; font-size:11pt; color:#166534; }
 @media print { @page { size: A4 landscape; margin: 10mm; } .toolbar { display:none; } }
 </style></head><body>
 <div class="toolbar">
