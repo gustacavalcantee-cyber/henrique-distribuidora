@@ -480,8 +480,6 @@ thead tr { border-bottom: 1px solid #555; }
         const loja1Name = [redeName, lojaId !== '' ? filteredLojas.find(l => l.id === Number(lojaId))?.nome : 'Todas as Lojas'].filter(Boolean).join(' ')
         const loja2Name = [redeName2, lojaId2 !== '' ? filteredLojas2.find(l => l.id === Number(lojaId2))?.nome : ''].filter(Boolean).join(' ')
         const combinedVenda = summary.total_venda + (summary2?.total_venda ?? 0)
-        const combinedCusto = summary.total_custo + (summary2?.total_custo ?? 0)
-        const combinedMargem = combinedVenda > 0 ? ((combinedVenda - combinedCusto) / combinedVenda) * 100 : 0
 
         return (
           <>
