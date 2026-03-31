@@ -66,12 +66,13 @@ function QuinzenaTab() {
 
   const filteredLojas = lojas?.filter(l => !redeId || l.rede_id === Number(redeId)) ?? []
   const filteredLojas2 = lojas?.filter(l => !redeId2 || l.rede_id === Number(redeId2)) ?? []
+  const redeName = redes?.find(r => r.id === Number(redeId))?.nome?.replace(/_/g, ' ')?.toUpperCase() ?? ''
+  const redeName2 = redes?.find(r => r.id === Number(redeId2))?.nome?.replace(/_/g, ' ')?.toUpperCase() ?? ''
 
   const handleCompartilharQuinzena = async () => {
     if (!summary) return
     setShareLoading(true)
     const nomeFornecedor: string = await window.electron.invoke(IPC.CONFIG_GET, 'nome_fornecedor') ?? ''
-    const redeName = redes?.find(r => r.id === Number(redeId))?.nome?.replace(/_/g,' ')?.toUpperCase() ?? ''
     const lojaObj = lojaId !== '' ? filteredLojas.find(l => l.id === Number(lojaId)) : null
     const lojaName = lojaObj ? lojaObj.nome.replace(/_/g,' ').toUpperCase() : 'TODAS AS LOJAS'
     const qLabel = quinzena === 1 ? '1ª Quinzena (1–15)' : '2ª Quinzena (16–fim)'
@@ -126,7 +127,6 @@ ${(() => {
   const handlePrintRelatorio = async () => {
     if (!summary) return
     const nomeFornecedor: string = await window.electron.invoke(IPC.CONFIG_GET, 'nome_fornecedor') ?? ''
-    const redeName = redes?.find(r => r.id === Number(redeId))?.nome?.replace(/_/g, ' ')?.toUpperCase() ?? ''
     const lojaObj = lojaId !== '' ? filteredLojas.find(l => l.id === Number(lojaId)) : null
     const lojaName = lojaObj ? lojaObj.nome.replace(/_/g, ' ').toUpperCase() : 'TODAS AS LOJAS'
     const lojaCnpj = lojaObj?.cnpj ?? ''
@@ -196,7 +196,6 @@ ${(() => {
     }
 
     const lojaObj2 = lojaId2 !== '' ? filteredLojas2.find(l => l.id === Number(lojaId2)) : null
-    const redeName2 = redes?.find(r => r.id === Number(redeId2))?.nome?.replace(/_/g,' ')?.toUpperCase() ?? ''
     const lojaName2 = lojaObj2 ? lojaObj2.nome.replace(/_/g, ' ').toUpperCase() : ''
     const lojaCnpj2 = lojaObj2?.cnpj ?? ''
 
