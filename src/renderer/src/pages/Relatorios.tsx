@@ -34,6 +34,7 @@ function QuinzenaTab() {
   const [shareImage, setShareImage] = useState<string | null>(null)
   const [shareLoading, setShareLoading] = useState(false)
   const [showSecondStore, setShowSecondStore] = useState(false)
+  const [redeId2, setRedeId2] = useState<number | ''>('')
   const [lojaId2, setLojaId2] = useState<number | ''>('')
   const [summary2, setSummary2] = useState<QuinzenaSummary | null>(null)
 
@@ -44,8 +45,8 @@ function QuinzenaTab() {
       window.electron.invoke<QuinzenaSummary>(
         IPC.RELATORIO_QUINZENA, Number(redeId), lojaId !== '' ? Number(lojaId) : 0, mes, ano, quinzena
       ),
-      showSecondStore && lojaId2 !== ''
-        ? window.electron.invoke<QuinzenaSummary>(IPC.RELATORIO_QUINZENA, Number(redeId), Number(lojaId2), mes, ano, quinzena)
+      showSecondStore && lojaId2 !== '' && redeId2 !== ''
+        ? window.electron.invoke<QuinzenaSummary>(IPC.RELATORIO_QUINZENA, Number(redeId2), Number(lojaId2), mes, ano, quinzena)
         : Promise.resolve(null),
     ])
     setSummary(data)
@@ -64,6 +65,7 @@ function QuinzenaTab() {
   }
 
   const filteredLojas = lojas?.filter(l => !redeId || l.rede_id === Number(redeId)) ?? []
+  const filteredLojas2 = lojas?.filter(l => !redeId2 || l.rede_id === Number(redeId2)) ?? []
 
   const handleCompartilharQuinzena = async () => {
     if (!summary) return
@@ -140,7 +142,7 @@ ${(() => {
     }
     const fmtMoney = (n: number) => n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
-    const buildMatrizSection = (s: QuinzenaSummary, sLojaName: string, sLojaCnpj: string) => {
+    const buildMatrizSection = (s: QuinzenaSummary, sRedeName: string, sLojaName: string, sLojaCnpj: string) => {
       const prods = s.produtos as Array<{ id: number; nome: string; unidade: string }>
       const matrizSorted = [...s.matriz].sort((a, b) => a.data_pedido.localeCompare(b.data_pedido))
       const precosPorId: Record<number, number> = {}
@@ -158,7 +160,7 @@ ${(() => {
       const MIN_ROWS = 15
       const extraRows = Math.max(0, MIN_ROWS - matrizSorted.length)
       return `
-  <div class="hdr2">${redeName}${sLojaName && sLojaName !== 'TODAS AS LOJAS' ? ' ' + sLojaName : ''}${sLojaCnpj ? `<br><span style="font-weight:normal;font-size:8.5pt;">CNPJ: ${sLojaCnpj}</span>` : ''}</div>
+  <div class="hdr2">${sRedeName}${sLojaName && sLojaName !== 'TODAS AS LOJAS' ? ' ' + sLojaName : ''}${sLojaCnpj ? `<br><span style="font-weight:normal;font-size:8.5pt;">CNPJ: ${sLojaCnpj}</span>` : ''}</div>
   <table>
     <thead>
       <tr>
@@ -193,7 +195,8 @@ ${(() => {
   </table>`
     }
 
-    const lojaObj2 = lojaId2 !== '' ? filteredLojas.find(l => l.id === Number(lojaId2)) : null
+    const lojaObj2 = lojaId2 !== '' ? filteredLojas2.find(l => l.id === Number(lojaId2)) : null
+    const redeName2 = redes?.find(r => r.id === Number(redeId2))?.nome?.replace(/_/g,' ')?.toUpperCase() ?? ''
     const lojaName2 = lojaObj2 ? lojaObj2.nome.replace(/_/g, ' ').toUpperCase() : ''
     const lojaCnpj2 = lojaObj2?.cnpj ?? ''
 
@@ -251,8 +254,8 @@ thead tr { border-bottom: 1px solid #555; }
 </div>
 <div class="content">
   <div class="hdr1">${nomeFornecedor.toUpperCase()}</div>
-  ${buildMatrizSection(summary, lojaName, lojaCnpj)}
-  ${summary2 ? `<div class="store-sep"></div>${buildMatrizSection(summary2, lojaName2, lojaCnpj2)}` : ''}
+  ${buildMatrizSection(summary, redeName, lojaName, lojaCnpj)}
+  ${summary2 ? `<div class="store-sep"></div>${buildMatrizSection(summary2, redeName2, lojaName2, lojaCnpj2)}` : ''}
   ${combinedSection}
 </div>
 </body></html>`
@@ -285,15 +288,25 @@ thead tr { border-bottom: 1px solid #555; }
             title="Adicionar segunda loja"
           >+ Loja 2</button>
         ) : (
-          <div className="flex flex-col gap-1">
-            <label className="text-xs text-gray-500">Loja 2
-              <button onClick={() => { setShowSecondStore(false); setLojaId2(''); setSummary2(null) }} className="ml-1 text-gray-400 hover:text-red-500 font-bold">×</button>
-            </label>
-            <select className="border rounded px-2 py-1 text-sm" value={lojaId2} onChange={e => setLojaId2(e.target.value === '' ? '' : Number(e.target.value))}>
-              <option value="">Selecione</option>
-              {filteredLojas.filter(l => l.id !== Number(lojaId)).map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}
-            </select>
-          </div>
+          <>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-gray-500">
+                Rede 2
+                <button onClick={() => { setShowSecondStore(false); setRedeId2(''); setLojaId2(''); setSummary2(null) }} className="ml-1 text-gray-400 hover:text-red-500 font-bold">×</button>
+              </label>
+              <select className="border rounded px-2 py-1 text-sm" value={redeId2} onChange={e => { setRedeId2(e.target.value === '' ? '' : Number(e.target.value)); setLojaId2('') }}>
+                <option value="">Selecione</option>
+                {redes?.map(r => <option key={r.id} value={r.id}>{r.nome}</option>)}
+              </select>
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-gray-500">Loja 2</label>
+              <select className="border rounded px-2 py-1 text-sm" value={lojaId2} onChange={e => setLojaId2(e.target.value === '' ? '' : Number(e.target.value))} disabled={!redeId2}>
+                <option value="">Selecione</option>
+                {filteredLojas2.map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}
+              </select>
+            </div>
+          </>
         )}
         <div className="flex flex-col gap-1">
           <label className="text-xs text-gray-500">Mês</label>
@@ -465,8 +478,8 @@ thead tr { border-bottom: 1px solid #555; }
           )
         }
 
-        const loja1Name = lojaId !== '' ? filteredLojas.find(l => l.id === Number(lojaId))?.nome ?? 'Loja 1' : 'Todas as Lojas'
-        const loja2Name = lojaId2 !== '' ? filteredLojas.find(l => l.id === Number(lojaId2))?.nome ?? 'Loja 2' : ''
+        const loja1Name = [redeName, lojaId !== '' ? filteredLojas.find(l => l.id === Number(lojaId))?.nome : 'Todas as Lojas'].filter(Boolean).join(' ')
+        const loja2Name = [redeName2, lojaId2 !== '' ? filteredLojas2.find(l => l.id === Number(lojaId2))?.nome : ''].filter(Boolean).join(' ')
         const combinedVenda = summary.total_venda + (summary2?.total_venda ?? 0)
         const combinedCusto = summary.total_custo + (summary2?.total_custo ?? 0)
         const combinedMargem = combinedVenda > 0 ? ((combinedVenda - combinedCusto) / combinedVenda) * 100 : 0
