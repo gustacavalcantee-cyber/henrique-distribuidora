@@ -542,22 +542,14 @@ thead tr { border-bottom: 1px solid #555; }
                 {renderStoreBlock(summary2, 's2')}
 
                 {/* Combined total */}
-                <div className="border-t-2 border-gray-400 pt-4 mt-2">
-                  <div className="text-sm font-bold text-gray-800 mb-3">TOTAL COMBINADO — {loja1Name} + {loja2Name}</div>
-                  <div className="flex gap-4">
-                    <div className="bg-green-100 border border-green-300 rounded p-3 flex-1">
-                      <div className="text-xs text-gray-500">VENDAS TOTAL</div>
-                      <div className="text-xl font-bold text-green-700">R$ {formatMoney(combinedVenda)}</div>
-                    </div>
-                    <div className="bg-red-100 border border-red-300 rounded p-3 flex-1">
-                      <div className="text-xs text-gray-500">CUSTO TOTAL</div>
-                      <div className="text-xl font-bold text-red-700">R$ {formatMoney(combinedCusto)}</div>
-                    </div>
-                    <div className="bg-blue-100 border border-blue-300 rounded p-3 flex-1">
-                      <div className="text-xs text-gray-500">MARGEM COMBINADA</div>
-                      <div className="text-xl font-bold text-blue-700">{combinedMargem.toFixed(1)}%</div>
-                    </div>
-                  </div>
+                <div className="border-t-2 border-gray-400 pt-3 mt-2 flex items-baseline gap-2 text-sm">
+                  <span className="text-gray-500">{loja1Name}</span>
+                  <span className="font-bold text-green-700">R$ {formatMoney(summary.total_venda)}</span>
+                  <span className="text-gray-400">+</span>
+                  <span className="text-gray-500">{loja2Name}</span>
+                  <span className="font-bold text-green-700">R$ {formatMoney(summary2.total_venda)}</span>
+                  <span className="text-gray-400">=</span>
+                  <span className="font-bold text-green-800 text-base">R$ {formatMoney(combinedVenda)}</span>
                 </div>
               </>
             )}
