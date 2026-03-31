@@ -33,14 +33,23 @@ function QuinzenaTab() {
   const [editingItemValue, setEditingItemValue] = useState('')
   const [shareImage, setShareImage] = useState<string | null>(null)
   const [shareLoading, setShareLoading] = useState(false)
+  const [showSecondStore, setShowSecondStore] = useState(false)
+  const [lojaId2, setLojaId2] = useState<number | ''>('')
+  const [summary2, setSummary2] = useState<QuinzenaSummary | null>(null)
 
   const handleBuscar = async () => {
     if (!redeId) { alert('Selecione uma rede'); return }
     setLoading(true)
-    const data = await window.electron.invoke<QuinzenaSummary>(
-      IPC.RELATORIO_QUINZENA, Number(redeId), lojaId !== '' ? Number(lojaId) : 0, mes, ano, quinzena
-    )
+    const [data, data2] = await Promise.all([
+      window.electron.invoke<QuinzenaSummary>(
+        IPC.RELATORIO_QUINZENA, Number(redeId), lojaId !== '' ? Number(lojaId) : 0, mes, ano, quinzena
+      ),
+      showSecondStore && lojaId2 !== ''
+        ? window.electron.invoke<QuinzenaSummary>(IPC.RELATORIO_QUINZENA, Number(redeId), Number(lojaId2), mes, ano, quinzena)
+        : Promise.resolve(null),
+    ])
     setSummary(data)
+    setSummary2(data2)
     setEditingItemId(null)
     setLoading(false)
   }
@@ -119,30 +128,6 @@ ${(() => {
     const lojaObj = lojaId !== '' ? filteredLojas.find(l => l.id === Number(lojaId)) : null
     const lojaName = lojaObj ? lojaObj.nome.replace(/_/g, ' ').toUpperCase() : 'TODAS AS LOJAS'
     const lojaCnpj = lojaObj?.cnpj ?? ''
-    const prods = summary.produtos as Array<{ id: number; nome: string; unidade: string }>
-    const matrizSorted = [...summary.matriz].sort((a, b) => a.data_pedido.localeCompare(b.data_pedido))
-
-    // Price per product id (from detalhe, most recent non-zero price)
-    const precosPorId: Record<number, number> = {}
-    for (const d of summary.detalhe) {
-      const prod = prods.find(p => p.nome === d.produto_nome)
-      if (prod && d.preco_unit > 0 && !precosPorId[prod.id]) {
-        precosPorId[prod.id] = d.preco_unit
-      }
-    }
-
-    // Total qty per product id
-    const totalQty: Record<number, number> = {}
-    for (const row of matrizSorted) {
-      for (const [prodId, qty] of Object.entries(row.quantidades)) {
-        totalQty[Number(prodId)] = (totalQty[Number(prodId)] ?? 0) + (qty as number)
-      }
-    }
-
-    const grandTotal = prods.reduce((s, p) => s + (totalQty[p.id] ?? 0) * (precosPorId[p.id] ?? 0), 0)
-
-    const MIN_ROWS = 15
-    const extraRows = Math.max(0, MIN_ROWS - matrizSorted.length)
 
     const fmtDate = (iso: string) => {
       const months = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez']
@@ -155,35 +140,25 @@ ${(() => {
     }
     const fmtMoney = (n: number) => n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
-    const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
-<style>
-* { margin:0; padding:0; box-sizing:border-box; }
-body { font-family: Arial, sans-serif; font-size: 9pt; background: #fff; }
-.toolbar { display:flex; gap:8px; padding:8px 14px; background:#1e293b; }
-.btn-print { padding:6px 18px; background:#16a34a; color:#fff; border:none; border-radius:4px; font-size:13px; font-weight:bold; cursor:pointer; }
-.btn-close { padding:6px 14px; background:#475569; color:#fff; border:none; border-radius:4px; font-size:13px; cursor:pointer; }
-.content { padding: 10mm 12mm; }
-.hdr1 { font-weight:bold; font-size:12pt; margin-bottom:1mm; }
-.hdr2 { font-size:10pt; font-weight:bold; margin-bottom:5mm; }
-table { border-collapse:collapse; width:100%; border: 1px solid #555; }
-th, td { border: none; padding:1mm 2.5mm; text-align:center; font-size:8.5pt; white-space:nowrap; }
-th { background:#e8e8e8; font-weight:bold; }
-thead tr { border-bottom: 1px solid #555; }
-.c-data { text-align:left; min-width:20mm; }
-.c-dot { color:#bbb; }
-.row-total td { font-weight:bold; background:#f5f5f5; border-top: 2px solid #555; }
-.row-preco td { background:#fafafa; }
-.row-grand td { font-weight:bold; font-size:9.5pt; background:#efefef; border-top:2px solid #333; }
-.row-grand .c-data { text-align:left; }
-@media print { @page { size: A4 landscape; margin: 10mm; } .toolbar { display:none; } }
-</style></head><body>
-<div class="toolbar">
-  <button class="btn-print" onclick="window.print()">Imprimir</button>
-  <button class="btn-close" onclick="window.close()">Fechar</button>
-</div>
-<div class="content">
-  <div class="hdr1">${nomeFornecedor.toUpperCase()}</div>
-  <div class="hdr2">${redeName}${lojaName && lojaName !== 'TODAS AS LOJAS' ? ' ' + lojaName : ''}${lojaCnpj ? `<br><span style="font-weight:normal;font-size:8.5pt;">CNPJ: ${lojaCnpj}</span>` : ''}</div>
+    const buildMatrizSection = (s: QuinzenaSummary, sLojaName: string, sLojaCnpj: string) => {
+      const prods = s.produtos as Array<{ id: number; nome: string; unidade: string }>
+      const matrizSorted = [...s.matriz].sort((a, b) => a.data_pedido.localeCompare(b.data_pedido))
+      const precosPorId: Record<number, number> = {}
+      for (const d of s.detalhe) {
+        const prod = prods.find(p => p.nome === d.produto_nome)
+        if (prod && d.preco_unit > 0 && !precosPorId[prod.id]) precosPorId[prod.id] = d.preco_unit
+      }
+      const totalQtyMap: Record<number, number> = {}
+      for (const row of matrizSorted) {
+        for (const [prodId, qty] of Object.entries(row.quantidades)) {
+          totalQtyMap[Number(prodId)] = (totalQtyMap[Number(prodId)] ?? 0) + (qty as number)
+        }
+      }
+      const grandTotal = prods.reduce((acc, p) => acc + (totalQtyMap[p.id] ?? 0) * (precosPorId[p.id] ?? 0), 0)
+      const MIN_ROWS = 15
+      const extraRows = Math.max(0, MIN_ROWS - matrizSorted.length)
+      return `
+  <div class="hdr2">${redeName}${sLojaName && sLojaName !== 'TODAS AS LOJAS' ? ' ' + sLojaName : ''}${sLojaCnpj ? `<br><span style="font-weight:normal;font-size:8.5pt;">CNPJ: ${sLojaCnpj}</span>` : ''}</div>
   <table>
     <thead>
       <tr>
@@ -204,7 +179,7 @@ thead tr { border-bottom: 1px solid #555; }
     <tfoot>
       <tr class="row-total">
         <td class="c-data">Total kg/mç</td>
-        ${prods.map(p => `<td>${fmtQty(totalQty[p.id])}</td>`).join('')}
+        ${prods.map(p => `<td>${fmtQty(totalQtyMap[p.id])}</td>`).join('')}
       </tr>
       <tr class="row-preco">
         <td class="c-data">Preço kg/unt</td>
@@ -212,14 +187,77 @@ thead tr { border-bottom: 1px solid #555; }
       </tr>
       <tr class="row-grand">
         <td class="c-data">${fmtMoney(grandTotal)}</td>
-        ${prods.map(p => `<td>${fmtMoney((totalQty[p.id] ?? 0) * (precosPorId[p.id] ?? 0))}</td>`).join('')}
+        ${prods.map(p => `<td>${fmtMoney((totalQtyMap[p.id] ?? 0) * (precosPorId[p.id] ?? 0))}</td>`).join('')}
       </tr>
     </tfoot>
-  </table>
+  </table>`
+    }
+
+    const lojaObj2 = lojaId2 !== '' ? filteredLojas.find(l => l.id === Number(lojaId2)) : null
+    const lojaName2 = lojaObj2 ? lojaObj2.nome.replace(/_/g, ' ').toUpperCase() : ''
+    const lojaCnpj2 = lojaObj2?.cnpj ?? ''
+
+    // Combined totals section (only when 2nd store)
+    const combinedSection = summary2 ? (() => {
+      const combinedVenda = summary.total_venda + summary2.total_venda
+      const combinedCusto = summary.total_custo + summary2.total_custo
+      const combinedMargem = combinedVenda > 0 ? ((combinedVenda - combinedCusto) / combinedVenda) * 100 : 0
+      return `
+  <div class="combined-section">
+    <div class="combined-title">TOTAL COMBINADO — ${lojaName} + ${lojaName2}</div>
+    <div class="combined-cards">
+      <div class="combined-card card-green"><div class="card-lbl">VENDAS TOTAL</div><div class="card-val">R$ ${fmtMoney(combinedVenda)}</div></div>
+      <div class="combined-card card-red"><div class="card-lbl">CUSTO TOTAL</div><div class="card-val">R$ ${fmtMoney(combinedCusto)}</div></div>
+      <div class="combined-card card-blue"><div class="card-lbl">MARGEM COMBINADA</div><div class="card-val">${combinedMargem.toFixed(1)}%</div></div>
+    </div>
+  </div>`
+    })() : ''
+
+    const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: Arial, sans-serif; font-size: 9pt; background: #fff; }
+.toolbar { display:flex; gap:8px; padding:8px 14px; background:#1e293b; }
+.btn-print { padding:6px 18px; background:#16a34a; color:#fff; border:none; border-radius:4px; font-size:13px; font-weight:bold; cursor:pointer; }
+.btn-close { padding:6px 14px; background:#475569; color:#fff; border:none; border-radius:4px; font-size:13px; cursor:pointer; }
+.content { padding: 10mm 12mm; }
+.hdr1 { font-weight:bold; font-size:12pt; margin-bottom:1mm; }
+.hdr2 { font-size:10pt; font-weight:bold; margin-bottom:5mm; }
+.store-sep { border-top: 2px solid #555; margin: 8mm 0 5mm; }
+table { border-collapse:collapse; width:100%; border: 1px solid #555; }
+th, td { border: none; padding:1mm 2.5mm; text-align:center; font-size:8.5pt; white-space:nowrap; }
+th { background:#e8e8e8; font-weight:bold; }
+thead tr { border-bottom: 1px solid #555; }
+.c-data { text-align:left; min-width:20mm; }
+.c-dot { color:#bbb; }
+.row-total td { font-weight:bold; background:#f5f5f5; border-top: 2px solid #555; }
+.row-preco td { background:#fafafa; }
+.row-grand td { font-weight:bold; font-size:9.5pt; background:#efefef; border-top:2px solid #333; }
+.row-grand .c-data { text-align:left; }
+.combined-section { margin-top: 8mm; border-top: 3px solid #333; padding-top: 5mm; }
+.combined-title { font-weight:bold; font-size:10pt; margin-bottom:4mm; }
+.combined-cards { display:flex; gap:6mm; }
+.combined-card { flex:1; border: 1px solid #ccc; border-radius:3px; padding:3mm 4mm; }
+.card-lbl { font-size:7.5pt; color:#666; text-transform:uppercase; }
+.card-val { font-size:13pt; font-weight:bold; margin-top:1mm; }
+.card-green .card-val { color:#16a34a; }
+.card-red .card-val { color:#dc2626; }
+.card-blue .card-val { color:#2563eb; }
+@media print { @page { size: A4 landscape; margin: 10mm; } .toolbar { display:none; } }
+</style></head><body>
+<div class="toolbar">
+  <button class="btn-print" onclick="window.print()">Imprimir</button>
+  <button class="btn-close" onclick="window.close()">Fechar</button>
+</div>
+<div class="content">
+  <div class="hdr1">${nomeFornecedor.toUpperCase()}</div>
+  ${buildMatrizSection(summary, lojaName, lojaCnpj)}
+  ${summary2 ? `<div class="store-sep"></div>${buildMatrizSection(summary2, lojaName2, lojaCnpj2)}` : ''}
+  ${combinedSection}
 </div>
 </body></html>`
 
-    await window.electron.invoke(IPC.PRINT_HTML, html, `Relatório — ${redeName} ${lojaName}`)
+    await window.electron.invoke(IPC.PRINT_HTML, html, `Relatório — ${redeName} ${lojaName}${summary2 ? ' + ' + lojaName2 : ''}`)
   }
 
   return (
@@ -240,6 +278,23 @@ thead tr { border-bottom: 1px solid #555; }
             {filteredLojas.map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}
           </select>
         </div>
+        {!showSecondStore ? (
+          <button
+            onClick={() => setShowSecondStore(true)}
+            className="self-end px-2 py-1.5 border border-dashed border-gray-400 rounded text-xs text-gray-500 hover:border-blue-400 hover:text-blue-600"
+            title="Adicionar segunda loja"
+          >+ Loja 2</button>
+        ) : (
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-gray-500">Loja 2
+              <button onClick={() => { setShowSecondStore(false); setLojaId2(''); setSummary2(null) }} className="ml-1 text-gray-400 hover:text-red-500 font-bold">×</button>
+            </label>
+            <select className="border rounded px-2 py-1 text-sm" value={lojaId2} onChange={e => setLojaId2(e.target.value === '' ? '' : Number(e.target.value))}>
+              <option value="">Selecione</option>
+              {filteredLojas.filter(l => l.id !== Number(lojaId)).map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}
+            </select>
+          </div>
+        )}
         <div className="flex flex-col gap-1">
           <label className="text-xs text-gray-500">Mês</label>
           <select className="border rounded px-2 py-1 text-sm" value={mes} onChange={e => setMes(Number(e.target.value))}>
@@ -272,188 +327,231 @@ thead tr { border-bottom: 1px solid #555; }
         />
       )}
 
-      {summary && (
-        <>
-          {/* Summary cards */}
-          <div className="flex gap-4">
-            <div className="bg-green-50 border border-green-200 rounded p-3 flex-1">
-              <div className="text-xs text-gray-500">VENDAS</div>
-              <div className="text-lg font-bold text-green-700">R$ {formatMoney(summary.total_venda)}</div>
-            </div>
-            <div className="bg-red-50 border border-red-200 rounded p-3 flex-1">
-              <div className="text-xs text-gray-500">CUSTO</div>
-              <div className="text-lg font-bold text-red-700">R$ {formatMoney(summary.total_custo)}</div>
-            </div>
-            <div className="bg-blue-50 border border-blue-200 rounded p-3 flex-1">
-              <div className="text-xs text-gray-500">MARGEM</div>
-              <div className="text-lg font-bold text-blue-700">{summary.margem.toFixed(1)}%</div>
-            </div>
-          </div>
-
-          {/* Print button */}
-          <div className="flex justify-end gap-2">
-            <button
-              onClick={handleCompartilharQuinzena}
-              disabled={shareLoading}
-              className="flex items-center gap-1.5 px-4 py-1.5 rounded text-sm bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 font-medium"
-            >
-              <Share2 size={13} />
-              {shareLoading ? 'Gerando...' : 'Compartilhar'}
-            </button>
-            <button onClick={handlePrintRelatorio} className="bg-green-600 text-white px-4 py-1.5 rounded text-sm hover:bg-green-700 font-medium">
-              Imprimir Relatório
-            </button>
-          </div>
-
-          {/* Two-panel layout */}
-          <div className="flex gap-4 overflow-auto">
-            {/* Left: Detail — grouped by date → OC */}
-            <div className="flex-1 overflow-auto">
-              <h3 className="font-semibold text-gray-700 mb-2 text-sm">Detalhe por Pedido</h3>
-              {(() => {
-                // Group: date → ocKey → items
-                const grupos = new Map<string, Map<string, typeof summary.detalhe>>()
-                for (const d of summary.detalhe) {
-                  if (!grupos.has(d.data_pedido)) grupos.set(d.data_pedido, new Map())
-                  const ocKey = `${d.numero_oc}||${d.loja_nome}`
-                  const dateMap = grupos.get(d.data_pedido)!
-                  if (!dateMap.has(ocKey)) dateMap.set(ocKey, [])
-                  dateMap.get(ocKey)!.push(d)
-                }
-                return (
-                  <table className="text-xs border-collapse w-full">
-                    <thead>
-                      <tr className="bg-gray-50">
-                        <th className="border px-2 py-1 text-left">Produto</th>
-                        <th className="border px-2 py-1">Qtd</th>
-                        <th className="border px-2 py-1">Preço</th>
-                        <th className="border px-2 py-1">Total</th>
-                        <th className="border px-2 py-1">Custo</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {Array.from(grupos.entries()).map(([date, ocs]) => (
-                        <>
-                          {/* Date header row */}
-                          <tr key={`d-${date}`} className="bg-blue-50">
-                            <td colSpan={5} className="px-2 py-1 font-bold text-blue-800">{formatDate(date)}</td>
-                          </tr>
-                          {Array.from(ocs.entries()).map(([ocKey, items]) => {
-                            const [oc, loja] = ocKey.split('||')
-                            return (
-                              <>
-                                {/* OC + loja row */}
-                                <tr key={`oc-${ocKey}`} className="bg-gray-100">
-                                  <td colSpan={5} className="px-3 py-0.5 font-mono text-gray-600">
-                                    {oc} <span className="text-gray-400 font-sans">—</span> {loja}
-                                  </td>
-                                </tr>
-                                {/* Product rows */}
-                                {[...items].sort((a, b) => a.produto_nome.localeCompare(b.produto_nome, 'pt-BR')).map((item, i) => (
-                                  <tr key={i} className="hover:bg-gray-50">
-                                    <td className="border-b px-4 py-0.5">{item.produto_nome}</td>
-                                    <td className="border-b px-2 py-0.5 text-center">{formatQty(item.quantidade)}</td>
-                                    <td className="border-b px-1 py-0.5 text-right">
-                                      {editingItemId === item.item_id ? (
-                                        <input
-                                          type="text"
-                                          autoFocus
-                                          className="w-16 text-xs border border-blue-400 rounded px-1 py-0.5 text-right"
-                                          value={editingItemValue}
-                                          onChange={e => setEditingItemValue(e.target.value)}
-                                          onBlur={e => handleItemPrecoSave(item.item_id, e.target.value)}
-                                          onKeyDown={e => {
-                                            if (e.key === 'Enter') handleItemPrecoSave(item.item_id, editingItemValue)
-                                            if (e.key === 'Escape') setEditingItemId(null)
-                                          }}
-                                        />
-                                      ) : (
-                                        <span
-                                          className="cursor-pointer hover:bg-yellow-100 px-1 rounded"
-                                          title="Clique para editar o preço"
-                                          onClick={() => { setEditingItemId(item.item_id); setEditingItemValue(String(item.preco_unit).replace('.', ',')) }}
-                                        >
-                                          {formatMoney(item.preco_unit)}
-                                        </span>
-                                      )}
-                                    </td>
-                                    <td className="border-b px-2 py-0.5 text-right">{formatMoney(item.total_venda)}</td>
-                                    <td className="border-b px-2 py-0.5 text-right">{formatMoney(item.total_custo)}</td>
-                                  </tr>
-                                ))}
-                              </>
-                            )
-                          })}
-                        </>
-                      ))}
-                    </tbody>
-                  </table>
-                )
-              })()}
-            </div>
-
-            {/* Right: Matrix */}
-            <div className="flex-1 overflow-auto">
-              <h3 className="font-semibold text-gray-700 mb-2 text-sm">Matriz para Nota Fiscal</h3>
-              <table className="text-xs border-collapse">
-                <thead>
-                  <tr className="bg-gray-50">
-                    <th className="border px-2 py-1">Data</th>
-                    {summary.produtos.map(p => <th key={p.id} className="border px-2 py-1">{p.nome}</th>)}
-                  </tr>
-                </thead>
-                <tbody>
-                  {summary.matriz.map((row, i) => (
-                    <tr key={i}>
-                      <td className="border px-2 py-0.5">{formatDate(row.data_pedido)}</td>
-                      {summary.produtos.map(p => (
-                        <td key={p.id} className="border px-2 py-0.5 text-center">
-                          {formatQty(row.quantidades[p.id])}
-                        </td>
-                      ))}
+      {summary && (() => {
+        const renderStoreBlock = (s: QuinzenaSummary, keyPrefix: string) => {
+          const grupos = new Map<string, Map<string, typeof s.detalhe>>()
+          for (const d of s.detalhe) {
+            if (!grupos.has(d.data_pedido)) grupos.set(d.data_pedido, new Map())
+            const ocKey = `${d.numero_oc}||${d.loja_nome}`
+            const dateMap = grupos.get(d.data_pedido)!
+            if (!dateMap.has(ocKey)) dateMap.set(ocKey, [])
+            dateMap.get(ocKey)!.push(d)
+          }
+          return (
+            <div className="flex gap-4 overflow-auto">
+              {/* Left: Detail */}
+              <div className="flex-1 overflow-auto">
+                <h3 className="font-semibold text-gray-700 mb-2 text-sm">Detalhe por Pedido</h3>
+                <table className="text-xs border-collapse w-full">
+                  <thead>
+                    <tr className="bg-gray-50">
+                      <th className="border px-2 py-1 text-left">Produto</th>
+                      <th className="border px-2 py-1">Qtd</th>
+                      <th className="border px-2 py-1">Preço</th>
+                      <th className="border px-2 py-1">Total</th>
+                      <th className="border px-2 py-1">Custo</th>
                     </tr>
-                  ))}
-                  {/* Total kg/mç row */}
-                  <tr className="bg-gray-100 font-bold border-t-2 border-gray-400">
-                    <td className="border px-2 py-1">Total kg/mç</td>
-                    {summary.produtos.map(p => {
-                      const total = summary.matriz.reduce((s, r) => s + (r.quantidades[p.id] ?? 0), 0)
-                      return <td key={p.id} className="border px-2 py-1 text-center">{total > 0 ? total.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</td>
-                    })}
-                  </tr>
-                  {/* Preço kg/unt row */}
-                  <tr className="bg-gray-50">
-                    <td className="border px-2 py-1">Preço kg/unt</td>
-                    {summary.produtos.map(p => {
-                      const detItem = summary.detalhe.find(d => d.produto_nome === p.nome && d.preco_unit > 0)
-                      return <td key={p.id} className="border px-2 py-1 text-center">{detItem ? detItem.preco_unit.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</td>
-                    })}
-                  </tr>
-                  {/* Per-product totals + grand total */}
-                  {(() => {
-                    const grandTotal = summary.produtos.reduce((s, p) => {
-                      const qty = summary.matriz.reduce((q, r) => q + (r.quantidades[p.id] ?? 0), 0)
-                      const det = summary.detalhe.find(d => d.produto_nome === p.nome && d.preco_unit > 0)
-                      return s + qty * (det?.preco_unit ?? 0)
-                    }, 0)
-                    return (
-                      <tr className="bg-gray-200 font-bold border-t-2 border-gray-500">
-                        <td className="border px-2 py-1">{grandTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                        {summary.produtos.map(p => {
-                          const qty = summary.matriz.reduce((q, r) => q + (r.quantidades[p.id] ?? 0), 0)
-                          const det = summary.detalhe.find(d => d.produto_nome === p.nome && d.preco_unit > 0)
-                          const val = qty * (det?.preco_unit ?? 0)
-                          return <td key={p.id} className="border px-2 py-1 text-center">{val > 0 ? val.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</td>
+                  </thead>
+                  <tbody>
+                    {Array.from(grupos.entries()).map(([date, ocs]) => (
+                      <>
+                        <tr key={`${keyPrefix}-d-${date}`} className="bg-blue-50">
+                          <td colSpan={5} className="px-2 py-1 font-bold text-blue-800">{formatDate(date)}</td>
+                        </tr>
+                        {Array.from(ocs.entries()).map(([ocKey, items]) => {
+                          const [oc, loja] = ocKey.split('||')
+                          return (
+                            <>
+                              <tr key={`${keyPrefix}-oc-${ocKey}`} className="bg-gray-100">
+                                <td colSpan={5} className="px-3 py-0.5 font-mono text-gray-600">
+                                  {oc} <span className="text-gray-400 font-sans">—</span> {loja}
+                                </td>
+                              </tr>
+                              {[...items].sort((a, b) => a.produto_nome.localeCompare(b.produto_nome, 'pt-BR')).map((item, i) => (
+                                <tr key={`${keyPrefix}-item-${i}`} className="hover:bg-gray-50">
+                                  <td className="border-b px-4 py-0.5">{item.produto_nome}</td>
+                                  <td className="border-b px-2 py-0.5 text-center">{formatQty(item.quantidade)}</td>
+                                  <td className="border-b px-1 py-0.5 text-right">
+                                    {editingItemId === item.item_id ? (
+                                      <input
+                                        type="text"
+                                        autoFocus
+                                        className="w-16 text-xs border border-blue-400 rounded px-1 py-0.5 text-right"
+                                        value={editingItemValue}
+                                        onChange={e => setEditingItemValue(e.target.value)}
+                                        onBlur={e => handleItemPrecoSave(item.item_id, e.target.value)}
+                                        onKeyDown={e => {
+                                          if (e.key === 'Enter') handleItemPrecoSave(item.item_id, editingItemValue)
+                                          if (e.key === 'Escape') setEditingItemId(null)
+                                        }}
+                                      />
+                                    ) : (
+                                      <span
+                                        className="cursor-pointer hover:bg-yellow-100 px-1 rounded"
+                                        title="Clique para editar o preço"
+                                        onClick={() => { setEditingItemId(item.item_id); setEditingItemValue(String(item.preco_unit).replace('.', ',')) }}
+                                      >
+                                        {formatMoney(item.preco_unit)}
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="border-b px-2 py-0.5 text-right">{formatMoney(item.total_venda)}</td>
+                                  <td className="border-b px-2 py-0.5 text-right">{formatMoney(item.total_custo)}</td>
+                                </tr>
+                              ))}
+                            </>
+                          )
                         })}
+                      </>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {/* Right: Matrix */}
+              <div className="flex-1 overflow-auto">
+                <h3 className="font-semibold text-gray-700 mb-2 text-sm">Matriz para Nota Fiscal</h3>
+                <table className="text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-gray-50">
+                      <th className="border px-2 py-1">Data</th>
+                      {s.produtos.map(p => <th key={p.id} className="border px-2 py-1">{p.nome}</th>)}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {s.matriz.map((row, i) => (
+                      <tr key={i}>
+                        <td className="border px-2 py-0.5">{formatDate(row.data_pedido)}</td>
+                        {s.produtos.map(p => (
+                          <td key={p.id} className="border px-2 py-0.5 text-center">{formatQty(row.quantidades[p.id])}</td>
+                        ))}
                       </tr>
-                    )
-                  })()}
-                </tbody>
-              </table>
+                    ))}
+                    <tr className="bg-gray-100 font-bold border-t-2 border-gray-400">
+                      <td className="border px-2 py-1">Total kg/mç</td>
+                      {s.produtos.map(p => {
+                        const total = s.matriz.reduce((acc, r) => acc + (r.quantidades[p.id] ?? 0), 0)
+                        return <td key={p.id} className="border px-2 py-1 text-center">{total > 0 ? total.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</td>
+                      })}
+                    </tr>
+                    <tr className="bg-gray-50">
+                      <td className="border px-2 py-1">Preço kg/unt</td>
+                      {s.produtos.map(p => {
+                        const detItem = s.detalhe.find(d => d.produto_nome === p.nome && d.preco_unit > 0)
+                        return <td key={p.id} className="border px-2 py-1 text-center">{detItem ? detItem.preco_unit.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</td>
+                      })}
+                    </tr>
+                    {(() => {
+                      const grandTotal = s.produtos.reduce((acc, p) => {
+                        const qty = s.matriz.reduce((q, r) => q + (r.quantidades[p.id] ?? 0), 0)
+                        const det = s.detalhe.find(d => d.produto_nome === p.nome && d.preco_unit > 0)
+                        return acc + qty * (det?.preco_unit ?? 0)
+                      }, 0)
+                      return (
+                        <tr className="bg-gray-200 font-bold border-t-2 border-gray-500">
+                          <td className="border px-2 py-1">{grandTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                          {s.produtos.map(p => {
+                            const qty = s.matriz.reduce((q, r) => q + (r.quantidades[p.id] ?? 0), 0)
+                            const det = s.detalhe.find(d => d.produto_nome === p.nome && d.preco_unit > 0)
+                            const val = qty * (det?.preco_unit ?? 0)
+                            return <td key={p.id} className="border px-2 py-1 text-center">{val > 0 ? val.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</td>
+                          })}
+                        </tr>
+                      )
+                    })()}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          </div>
-        </>
-      )}
+          )
+        }
+
+        const loja1Name = lojaId !== '' ? filteredLojas.find(l => l.id === Number(lojaId))?.nome ?? 'Loja 1' : 'Todas as Lojas'
+        const loja2Name = lojaId2 !== '' ? filteredLojas.find(l => l.id === Number(lojaId2))?.nome ?? 'Loja 2' : ''
+        const combinedVenda = summary.total_venda + (summary2?.total_venda ?? 0)
+        const combinedCusto = summary.total_custo + (summary2?.total_custo ?? 0)
+        const combinedMargem = combinedVenda > 0 ? ((combinedVenda - combinedCusto) / combinedVenda) * 100 : 0
+
+        return (
+          <>
+            {/* Action buttons */}
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={handleCompartilharQuinzena}
+                disabled={shareLoading}
+                className="flex items-center gap-1.5 px-4 py-1.5 rounded text-sm bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 font-medium"
+              >
+                <Share2 size={13} />
+                {shareLoading ? 'Gerando...' : 'Compartilhar'}
+              </button>
+              <button onClick={handlePrintRelatorio} className="bg-green-600 text-white px-4 py-1.5 rounded text-sm hover:bg-green-700 font-medium">
+                <Printer size={13} className="inline mr-1" />
+                Imprimir Relatório
+              </button>
+            </div>
+
+            {/* Store 1 */}
+            {summary2 && (
+              <div className="text-sm font-semibold text-gray-700 border-b pb-1">{loja1Name}</div>
+            )}
+            <div className="flex gap-4">
+              <div className="bg-green-50 border border-green-200 rounded p-3 flex-1">
+                <div className="text-xs text-gray-500">VENDAS</div>
+                <div className="text-lg font-bold text-green-700">R$ {formatMoney(summary.total_venda)}</div>
+              </div>
+              <div className="bg-red-50 border border-red-200 rounded p-3 flex-1">
+                <div className="text-xs text-gray-500">CUSTO</div>
+                <div className="text-lg font-bold text-red-700">R$ {formatMoney(summary.total_custo)}</div>
+              </div>
+              <div className="bg-blue-50 border border-blue-200 rounded p-3 flex-1">
+                <div className="text-xs text-gray-500">MARGEM</div>
+                <div className="text-lg font-bold text-blue-700">{summary.margem.toFixed(1)}%</div>
+              </div>
+            </div>
+            {renderStoreBlock(summary, 's1')}
+
+            {/* Store 2 */}
+            {summary2 && (
+              <>
+                <div className="text-sm font-semibold text-gray-700 border-b pb-1 mt-2">{loja2Name}</div>
+                <div className="flex gap-4">
+                  <div className="bg-green-50 border border-green-200 rounded p-3 flex-1">
+                    <div className="text-xs text-gray-500">VENDAS</div>
+                    <div className="text-lg font-bold text-green-700">R$ {formatMoney(summary2.total_venda)}</div>
+                  </div>
+                  <div className="bg-red-50 border border-red-200 rounded p-3 flex-1">
+                    <div className="text-xs text-gray-500">CUSTO</div>
+                    <div className="text-lg font-bold text-red-700">R$ {formatMoney(summary2.total_custo)}</div>
+                  </div>
+                  <div className="bg-blue-50 border border-blue-200 rounded p-3 flex-1">
+                    <div className="text-xs text-gray-500">MARGEM</div>
+                    <div className="text-lg font-bold text-blue-700">{summary2.margem.toFixed(1)}%</div>
+                  </div>
+                </div>
+                {renderStoreBlock(summary2, 's2')}
+
+                {/* Combined total */}
+                <div className="border-t-2 border-gray-400 pt-4 mt-2">
+                  <div className="text-sm font-bold text-gray-800 mb-3">TOTAL COMBINADO — {loja1Name} + {loja2Name}</div>
+                  <div className="flex gap-4">
+                    <div className="bg-green-100 border border-green-300 rounded p-3 flex-1">
+                      <div className="text-xs text-gray-500">VENDAS TOTAL</div>
+                      <div className="text-xl font-bold text-green-700">R$ {formatMoney(combinedVenda)}</div>
+                    </div>
+                    <div className="bg-red-100 border border-red-300 rounded p-3 flex-1">
+                      <div className="text-xs text-gray-500">CUSTO TOTAL</div>
+                      <div className="text-xl font-bold text-red-700">R$ {formatMoney(combinedCusto)}</div>
+                    </div>
+                    <div className="bg-blue-100 border border-blue-300 rounded p-3 flex-1">
+                      <div className="text-xs text-gray-500">MARGEM COMBINADA</div>
+                      <div className="text-xl font-bold text-blue-700">{combinedMargem.toFixed(1)}%</div>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+          </>
+        )
+      })()}
     </div>
   )
 }
