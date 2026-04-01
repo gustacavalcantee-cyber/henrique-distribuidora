@@ -215,30 +215,30 @@ ${(() => {
     const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
-body { font-family: Arial, sans-serif; font-size: 9pt; background: #fff; }
+body { font-family: Arial, sans-serif; font-size: 8pt; background: #fff; }
 .toolbar { display:flex; gap:8px; padding:8px 14px; background:#1e293b; }
 .btn-print { padding:6px 18px; background:#16a34a; color:#fff; border:none; border-radius:4px; font-size:13px; font-weight:bold; cursor:pointer; }
 .btn-close { padding:6px 14px; background:#475569; color:#fff; border:none; border-radius:4px; font-size:13px; cursor:pointer; }
-.content { padding: 10mm 12mm; }
-.hdr1 { font-weight:bold; font-size:12pt; margin-bottom:1mm; }
-.hdr2 { font-size:10pt; font-weight:bold; margin-bottom:5mm; }
-.store-sep { border-top: 2px solid #555; margin: 8mm 0 5mm; }
+.content { padding: 8mm 10mm; }
+.hdr1 { font-weight:bold; font-size:11pt; margin-bottom:1mm; }
+.hdr2 { font-size:9pt; font-weight:bold; margin-bottom:4mm; }
+.store-sep { border-top: 2px solid #555; margin: 6mm 0 4mm; }
 table { border-collapse:collapse; width:100%; border: 1px solid #555; }
-th, td { border: none; padding:1mm 2.5mm; text-align:center; font-size:8.5pt; white-space:nowrap; }
+th, td { border: none; padding:0.8mm 2mm; text-align:center; font-size:7.5pt; white-space:nowrap; }
 th { background:#e8e8e8; font-weight:bold; }
 thead tr { border-bottom: 1px solid #555; }
-.c-data { text-align:left; min-width:20mm; }
+.c-data { text-align:left; min-width:16mm; }
 .c-dot { color:#bbb; }
 .row-total td { font-weight:bold; background:#f5f5f5; border-top: 2px solid #555; }
 .row-preco td { background:#fafafa; }
-.row-grand td { font-weight:bold; font-size:9.5pt; background:#efefef; border-top:2px solid #333; }
+.row-grand td { font-weight:bold; font-size:8.5pt; background:#efefef; border-top:2px solid #333; }
 .row-grand .c-data { text-align:left; }
 .combined-section { margin-top: 6mm; border-top: 2px solid #555; padding-top: 4mm; font-size:9.5pt; }
 .store-label { color:#444; }
 .store-val { font-weight:bold; color:#16a34a; }
 .plus { color:#888; }
 .total-val { font-weight:bold; font-size:11pt; color:#166534; }
-@media print { @page { size: A4 landscape; margin: 10mm; } .toolbar { display:none; } }
+@media print { @page { size: A4 portrait; margin: 10mm; } .toolbar { display:none; } }
 </style></head><body>
 <div class="toolbar">
   <button class="btn-print" onclick="window.print()">Imprimir</button>
