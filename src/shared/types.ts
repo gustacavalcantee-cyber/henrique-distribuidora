@@ -1,7 +1,7 @@
 export interface Rede { id: number; nome: string; cor_tema: string; ativo: number }
 export interface Franqueado { id: number; nome: string }
 export interface Loja { id: number; rede_id: number; nome: string; codigo: string | null; cnpj: string | null; ativo: number; franqueado_id: number | null }
-export interface Produto { id: number; rede_id: number | null; nome: string; unidade: string; ordem_exibicao: number; ativo: number }
+export interface Produto { id: number; rede_id: number | null; nome: string; unidade: string; ordem_exibicao: number; ativo: number; ncm: string | null }
 export interface Preco { id: number; produto_id: number; loja_id: number; preco_venda: number; vigencia_inicio: string; vigencia_fim: string | null }
 export interface Custo { id: number; produto_id: number; custo_compra: number; vigencia_inicio: string; vigencia_fim: string | null }
 export interface Pedido { id: number; rede_id: number; loja_id: number; data_pedido: string; numero_oc: string; observacoes: string | null; criado_em: string; status_pagamento: string }

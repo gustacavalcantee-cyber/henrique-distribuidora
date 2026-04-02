@@ -20,7 +20,7 @@ export function registerProdutosHandlers() {
     getDb().insert(produtos).values({ ...data, synced: 0 }).returning().all()[0]
   )
 
-  ipcMain.handle(IPC.PRODUTOS_UPDATE, (_event, data: { id: number; nome?: string; unidade?: string; ordem_exibicao?: number; ativo?: number }) => {
+  ipcMain.handle(IPC.PRODUTOS_UPDATE, (_event, data: { id: number; nome?: string; unidade?: string; ordem_exibicao?: number; ativo?: number; ncm?: string | null }) => {
     const { id, ...updates } = data
     return getDb().update(produtos).set({ ...updates, synced: 0 }).where(eq(produtos.id, id)).returning().all()[0]
   })
