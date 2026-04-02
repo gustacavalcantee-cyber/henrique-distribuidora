@@ -268,8 +268,6 @@ function EmitirTab({ bancos }: { bancos: Banco[] }) {
 // ─── HistoricoTab ────────────────────────────────────────────────────────────
 
 function HistoricoTab() {
-  const { data: redes } = useIpc<Rede[]>(IPC.REDES_LIST)
-  const { data: lojas } = useIpc<Loja[]>(IPC.LOJAS_LIST)
   const [statusFiltro, setStatusFiltro] = useState<string>('')
   const [boletos, setBoletos] = useState<BoletoSalvo[]>([])
   const [loading, setLoading] = useState(false)

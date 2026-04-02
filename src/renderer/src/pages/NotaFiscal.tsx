@@ -7,9 +7,6 @@ import { useIpc } from '../hooks/useIpc'
 function fmtMoney(n: number) {
   return n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
-function fmtNum(n: number) {
-  return n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-}
 function numNf(n: number, serie: string) {
   return `${String(n).padStart(9, '0').replace(/(\d{3})(\d{3})(\d{3})/, '$1.$2.$3')} — Série ${serie}`
 }
