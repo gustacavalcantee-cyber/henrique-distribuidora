@@ -270,6 +270,8 @@ export interface LoteResultItem {
   tipo: 'boleto' | 'nfe'
   status: 'ok' | 'erro'
   mensagem?: string
+  boleto_id?: number
+  nfe_id?: number
 }
 
 export interface InterConfig {
