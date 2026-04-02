@@ -1,6 +1,11 @@
 export interface Rede { id: number; nome: string; cor_tema: string; ativo: number }
 export interface Franqueado { id: number; nome: string }
-export interface Loja { id: number; rede_id: number; nome: string; codigo: string | null; cnpj: string | null; ativo: number; franqueado_id: number | null }
+export interface Loja {
+  id: number; rede_id: number; nome: string; codigo: string | null; cnpj: string | null; ativo: number; franqueado_id: number | null
+  // Fiscal / boleto fields
+  razao_social: string | null; endereco: string | null; bairro: string | null; cep: string | null
+  municipio: string | null; uf: string | null; ie: string | null; telefone: string | null
+}
 export interface Produto { id: number; rede_id: number | null; nome: string; unidade: string; ordem_exibicao: number; ativo: number; ncm: string | null }
 export interface Preco { id: number; produto_id: number; loja_id: number; preco_venda: number; vigencia_inicio: string; vigencia_fim: string | null }
 export interface Custo { id: number; produto_id: number; custo_compra: number; vigencia_inicio: string; vigencia_fim: string | null }

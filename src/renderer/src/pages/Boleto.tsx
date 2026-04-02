@@ -49,11 +49,14 @@ function EmitirTab({ bancos }: { bancos: Banco[] }) {
     if (!lojaId || !lojas) return
     const l = lojas.find(x => x.id === lojaId)
     if (!l) return
-    setSacado(prev => ({
-      ...prev,
-      nome: l.nome ?? prev.nome,
-      cpf_cnpj: l.cnpj ?? prev.cpf_cnpj,
-    }))
+    setSacado({
+      nome: l.razao_social ?? l.nome ?? '',
+      cpf_cnpj: l.cnpj ?? '',
+      endereco: l.endereco ?? '',
+      cidade: l.municipio ?? '',
+      uf: l.uf ?? '',
+      cep: l.cep ?? '',
+    })
   }, [lojaId, lojas])
 
   const handleEmitir = async () => {

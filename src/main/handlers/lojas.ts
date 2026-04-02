@@ -18,7 +18,7 @@ export function registerLojasHandlers() {
     getDb().insert(lojas).values({ ...data, synced: 0 }).returning().all()[0]
   )
 
-  ipcMain.handle(IPC.LOJAS_UPDATE, (_event, data: { id: number; nome?: string; codigo?: string; cnpj?: string; ativo?: number }) => {
+  ipcMain.handle(IPC.LOJAS_UPDATE, (_event, data: { id: number; nome?: string; codigo?: string; cnpj?: string; ativo?: number; razao_social?: string | null; endereco?: string | null; bairro?: string | null; cep?: string | null; municipio?: string | null; uf?: string | null; ie?: string | null; telefone?: string | null }) => {
     const { id, ...updates } = data
     return getDb().update(lojas).set({ ...updates, synced: 0 }).where(eq(lojas.id, id)).returning().all()[0]
   })

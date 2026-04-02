@@ -118,14 +118,16 @@ function RedesTab() {
 }
 
 // ---- Lojas Tab ----
+const EMPTY_LOJA_FORM = { nome: '', cnpj: '', razao_social: '', endereco: '', bairro: '', cep: '', municipio: '', uf: '', ie: '', telefone: '' }
+type LojaForm = typeof EMPTY_LOJA_FORM
+
 function LojasTab() {
   const { data: lojas, loading, reload } = useIpc<Loja[]>(IPC.LOJAS_LIST)
   const { data: redes } = useIpc<Rede[]>(IPC.REDES_LIST)
   const [newNome, setNewNome] = useState('')
   const [newRedeId, setNewRedeId] = useState<number | ''>('')
-  const [editId, setEditId] = useState<number | null>(null)
-  const [editNome, setEditNome] = useState('')
-  const [editCnpj, setEditCnpj] = useState('')
+  const [editLoja, setEditLoja] = useState<Loja | null>(null)
+  const [form, setForm] = useState<LojaForm>(EMPTY_LOJA_FORM)
 
   const handleAdd = async () => {
     if (!newNome.trim() || newRedeId === '') return
@@ -135,14 +137,39 @@ function LojasTab() {
   }
 
   const startEdit = (l: Loja) => {
-    setEditId(l.id)
-    setEditNome(l.nome)
-    setEditCnpj(l.cnpj ?? '')
+    setEditLoja(l)
+    setForm({
+      nome: l.nome ?? '',
+      cnpj: l.cnpj ?? '',
+      razao_social: l.razao_social ?? '',
+      endereco: l.endereco ?? '',
+      bairro: l.bairro ?? '',
+      cep: l.cep ?? '',
+      municipio: l.municipio ?? '',
+      uf: l.uf ?? '',
+      ie: l.ie ?? '',
+      telefone: l.telefone ?? '',
+    })
   }
 
-  const handleSaveEdit = async (id: number) => {
-    await window.electron.invoke(IPC.LOJAS_UPDATE, { id, nome: editNome.trim(), cnpj: editCnpj.trim() || null })
-    setEditId(null)
+  const setF = (k: keyof LojaForm, v: string) => setForm(prev => ({ ...prev, [k]: v }))
+
+  const handleSaveEdit = async () => {
+    if (!editLoja) return
+    await window.electron.invoke(IPC.LOJAS_UPDATE, {
+      id: editLoja.id,
+      nome: form.nome.trim(),
+      cnpj: form.cnpj.trim() || null,
+      razao_social: form.razao_social.trim() || null,
+      endereco: form.endereco.trim() || null,
+      bairro: form.bairro.trim() || null,
+      cep: form.cep.trim() || null,
+      municipio: form.municipio.trim() || null,
+      uf: form.uf.trim() || null,
+      ie: form.ie.trim() || null,
+      telefone: form.telefone.trim() || null,
+    })
+    setEditLoja(null)
     reload()
   }
 
@@ -156,6 +183,7 @@ function LojasTab() {
 
   return (
     <div className="flex flex-col gap-4 h-full">
+      {/* Add row */}
       <div className="flex gap-2">
         <select className="border rounded px-2 py-1 text-sm" value={newRedeId} onChange={e => setNewRedeId(Number(e.target.value))}>
           <option value="">Selecione a rede</option>
@@ -172,6 +200,7 @@ function LojasTab() {
           Adicionar
         </button>
       </div>
+
       {loading ? <div className="text-gray-500">Carregando...</div> : (
         <div className="overflow-auto flex-1">
           <table className="text-sm border-collapse w-full">
@@ -180,41 +209,86 @@ function LojasTab() {
                 <th className="border px-3 py-2 text-left text-xs text-gray-600">REDE</th>
                 <th className="border px-3 py-2 text-left text-xs text-gray-600">NOME</th>
                 <th className="border px-3 py-2 text-left text-xs text-gray-600">CNPJ</th>
-                <th className="border px-3 py-2 text-xs text-gray-600 text-right">AÇÕES</th>
+                <th className="border px-3 py-2 text-left text-xs text-gray-600">ENDEREÇO</th>
+                <th className="border px-3 py-2 text-left text-xs text-gray-600">CIDADE/UF</th>
+                <th className="border px-3 py-2 text-xs text-gray-600 text-right w-24">AÇÕES</th>
               </tr>
             </thead>
             <tbody>
               {(lojas ?? []).map(l => (
                 <tr key={l.id} className={`hover:bg-gray-50 ${l.ativo === 0 ? 'opacity-40' : ''}`}>
-                  {editId === l.id ? (
-                    <>
-                      <td className="border px-3 py-1 text-gray-500">{getRedeName(l.rede_id)}</td>
-                      <td className="border px-2 py-1">
-                        <input className="border rounded px-2 py-0.5 text-sm w-full" value={editNome} onChange={e => setEditNome(e.target.value)} />
-                      </td>
-                      <td className="border px-2 py-1">
-                        <input className="border rounded px-2 py-0.5 text-sm w-full" placeholder="00.000.000/0000-00" value={editCnpj} onChange={e => setEditCnpj(e.target.value)} />
-                      </td>
-                      <td className="border px-2 py-1 text-right">
-                        <button onClick={() => handleSaveEdit(l.id)} className="text-green-600 hover:text-green-800 px-2 py-0.5 text-xs font-medium">Salvar</button>
-                        <button onClick={() => setEditId(null)} className="text-gray-500 hover:text-gray-700 px-2 py-0.5 text-xs">Cancelar</button>
-                      </td>
-                    </>
-                  ) : (
-                    <>
-                      <td className="border px-3 py-1.5 text-gray-500">{getRedeName(l.rede_id)}</td>
-                      <td className="border px-3 py-1.5">{l.nome}</td>
-                      <td className="border px-3 py-1.5 text-gray-500">{l.cnpj ?? '—'}</td>
-                      <td className="border px-3 py-1.5 text-right flex gap-1 justify-end">
-                        <button onClick={() => startEdit(l)} className="text-blue-600 hover:text-blue-800 p-1 rounded hover:bg-blue-50 text-xs">Editar</button>
-                        <button onClick={() => handleDelete(l.id, l.nome)} className="text-red-600 hover:text-red-800 p-1 rounded hover:bg-red-50 text-xs">Excluir</button>
-                      </td>
-                    </>
-                  )}
+                  <td className="border px-3 py-1.5 text-gray-500 text-xs">{getRedeName(l.rede_id)}</td>
+                  <td className="border px-3 py-1.5 font-medium">{l.nome}</td>
+                  <td className="border px-3 py-1.5 text-gray-500 font-mono text-xs">{l.cnpj ?? '—'}</td>
+                  <td className="border px-3 py-1.5 text-gray-500 text-xs">{l.endereco ? `${l.endereco}${l.bairro ? ', ' + l.bairro : ''}` : '—'}</td>
+                  <td className="border px-3 py-1.5 text-gray-500 text-xs">{l.municipio ? `${l.municipio}/${l.uf ?? ''}` : '—'}</td>
+                  <td className="border px-3 py-1.5 text-right">
+                    <div className="flex gap-1 justify-end">
+                      <button onClick={() => startEdit(l)} className="text-blue-600 hover:text-blue-800 p-1 rounded hover:bg-blue-50 text-xs">Editar</button>
+                      <button onClick={() => handleDelete(l.id, l.nome)} className="text-red-600 hover:text-red-800 p-1 rounded hover:bg-red-50 text-xs">Excluir</button>
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Edit modal */}
+      {editLoja && (
+        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-lg space-y-4">
+            <h3 className="text-base font-semibold text-gray-800">Editar Loja — {editLoja.nome}</h3>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="col-span-2">
+                <label className="block text-xs text-gray-500 mb-0.5">Nome da loja</label>
+                <input className="w-full border rounded px-2 py-1 text-sm" value={form.nome} onChange={e => setF('nome', e.target.value)} />
+              </div>
+              <div className="col-span-2">
+                <label className="block text-xs text-gray-500 mb-0.5">Razão Social</label>
+                <input className="w-full border rounded px-2 py-1 text-sm" value={form.razao_social} onChange={e => setF('razao_social', e.target.value)} placeholder="Razão social completa" />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-0.5">CNPJ</label>
+                <input className="w-full border rounded px-2 py-1 text-sm font-mono" value={form.cnpj} onChange={e => setF('cnpj', e.target.value)} placeholder="00.000.000/0000-00" />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-0.5">IE (Inscrição Estadual)</label>
+                <input className="w-full border rounded px-2 py-1 text-sm" value={form.ie} onChange={e => setF('ie', e.target.value)} placeholder="000000000" />
+              </div>
+              <div className="col-span-2">
+                <label className="block text-xs text-gray-500 mb-0.5">Endereço (Rua, nº)</label>
+                <input className="w-full border rounded px-2 py-1 text-sm" value={form.endereco} onChange={e => setF('endereco', e.target.value)} placeholder="Rua Exemplo, 123" />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-0.5">Bairro</label>
+                <input className="w-full border rounded px-2 py-1 text-sm" value={form.bairro} onChange={e => setF('bairro', e.target.value)} placeholder="Centro" />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-0.5">CEP</label>
+                <input className="w-full border rounded px-2 py-1 text-sm font-mono" value={form.cep} onChange={e => setF('cep', e.target.value)} placeholder="00000-000" />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-0.5">Cidade</label>
+                <input className="w-full border rounded px-2 py-1 text-sm" value={form.municipio} onChange={e => setF('municipio', e.target.value)} placeholder="Manaus" />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-0.5">UF</label>
+                <input className="w-full border rounded px-2 py-1 text-sm uppercase" maxLength={2} value={form.uf} onChange={e => setF('uf', e.target.value.toUpperCase())} placeholder="AM" />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-0.5">Telefone</label>
+                <input className="w-full border rounded px-2 py-1 text-sm" value={form.telefone} onChange={e => setF('telefone', e.target.value)} placeholder="(92) 99999-9999" />
+              </div>
+            </div>
+
+            <div className="flex gap-2 pt-1">
+              <button onClick={handleSaveEdit} className="px-4 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700">Salvar</button>
+              <button onClick={() => setEditLoja(null)} className="px-4 py-2 bg-gray-200 text-gray-700 rounded text-sm hover:bg-gray-300">Cancelar</button>
+            </div>
+          </div>
         </div>
       )}
     </div>
