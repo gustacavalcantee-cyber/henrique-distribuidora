@@ -195,7 +195,7 @@ async function getInterToken(banco_id: number, config: InterConfig): Promise<str
     client_id: config.client_id,
     client_secret: config.client_secret,
     grant_type: 'client_credentials',
-    scope: 'cobranca.read cobranca.write',
+    scope: 'boleto-cobranca.read boleto-cobranca.write',
   })
 
   const { statusCode, body: resBody } = await request(`${baseUrl}/oauth/v2/token`, {
@@ -264,17 +264,26 @@ async function emitirBoletoInter(draft: BoletoDraft, banco: Banco): Promise<Bole
   if (draft.descricao) {
     payload.mensagem = { linha1: draft.descricao.substring(0, 77) }
   }
+
   if (draft.dias_multa && draft.dias_multa > 0) {
     payload.multa = { codigoMulta: 'PERCENTUAL', data: draft.vencimento, taxa: draft.dias_multa }
+  } else {
+    payload.multa = { codigoMulta: 'NAOTEMMULTA' }
   }
+
   if (draft.juros_mensal && draft.juros_mensal > 0) {
-    payload.juros = { codigoJuros: 'TAXAMENSAL', data: draft.vencimento, taxa: draft.juros_mensal }
+    payload.mora = { codigoMora: 'TAXAMENSAL', data: draft.vencimento, taxa: draft.juros_mensal }
+  } else {
+    payload.mora = { codigoMora: 'ISENTO' }
   }
+
   if (draft.desconto_valor && draft.desconto_data) {
     payload.desconto = {
       codigoDesconto: 'VALORFIXODATAINFORMADA',
       descontos: [{ data: draft.desconto_data, taxa: 0, valor: draft.desconto_valor }],
     }
+  } else {
+    payload.desconto = { codigoDesconto: 'NAOTEMDESCONTO' }
   }
 
   const { statusCode, body: resBody } = await request(
@@ -284,7 +293,7 @@ async function emitirBoletoInter(draft: BoletoDraft, banco: Banco): Promise<Bole
       headers: {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
-        'x-conta-corrente': config.conta,
+        'x-inter-conta-corrente': config.conta,
       },
       body: JSON.stringify(payload),
       dispatcher: agent,
@@ -297,18 +306,27 @@ async function emitirBoletoInter(draft: BoletoDraft, banco: Banco): Promise<Bole
   }
 
   const nosso_numero: string = json.nossoNumero ?? ''
-  let linha_digitavel = json.linhaDigitavel ?? ''
-  let codigo_barras = json.codigoBarras ?? ''
+  // codigoSolicitacao (UUID) is used for PDF/cancel/consulta operations
+  const codigo_solicitacao: string = json.codigoSolicitacao ?? nosso_numero
+  const linha_digitavel = json.linhaDigitavel ?? ''
+  const codigo_barras = json.codigoBarras ?? ''
 
-  // Fetch PDF
+  // Fetch PDF (use codigoSolicitacao as identifier)
   let pdf_path: string | undefined
   try {
-    pdf_path = await downloadBoletoPdf(banco.id, config, nosso_numero)
+    pdf_path = await downloadBoletoPdf(banco.id, config, codigo_solicitacao)
   } catch {
     // non-fatal, PDF can be re-fetched later
   }
 
-  return saveBoletoLocal(draft, { nosso_numero, linha_digitavel, codigo_barras, inter_id: nosso_numero, pdf_path, status: 'emitido' })
+  return saveBoletoLocal(draft, {
+    nosso_numero,
+    linha_digitavel,
+    codigo_barras,
+    inter_id: codigo_solicitacao,   // UUID used for all subsequent API calls
+    pdf_path,
+    status: 'emitido',
+  })
 }
 
 // -----------------------------------------------------------------------
@@ -334,7 +352,7 @@ async function downloadBoletoPdf(banco_id: number, config: InterConfig, nosso_nu
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${token}`,
-        'x-conta-corrente': config.conta,
+        'x-inter-conta-corrente': config.conta,
       },
       dispatcher: agent,
     }
@@ -342,15 +360,14 @@ async function downloadBoletoPdf(banco_id: number, config: InterConfig, nosso_nu
 
   if (statusCode !== 200) throw new Error(`PDF error ${statusCode}`)
 
-  const json = await resBody.json() as any
-  // Inter returns base64-encoded PDF
-  const base64 = json.pdf as string
-  const pdfBuffer = Buffer.from(base64, 'base64')
+  // Inter returns binary PDF content
+  const pdfBuffer = Buffer.from(await resBody.arrayBuffer())
 
   const pdfDir = join(app.getPath('userData'), 'boletos')
   const { mkdirSync } = await import('fs')
   mkdirSync(pdfDir, { recursive: true })
-  const pdfPath = join(pdfDir, `boleto_${nosso_numero}.pdf`)
+  const safeName = nosso_numero.replace(/[^a-zA-Z0-9_-]/g, '_')
+  const pdfPath = join(pdfDir, `boleto_${safeName}.pdf`)
   writeFileSync(pdfPath, pdfBuffer)
   return pdfPath
 }
@@ -363,10 +380,12 @@ export async function getBoletosPdf(boleto_id: number): Promise<string> {
 
   if (row.pdf_path && existsSync(row.pdf_path)) return row.pdf_path
 
-  if (row.provedor === 'inter' && row.nosso_numero) {
+  // Use inter_id (codigoSolicitacao) for PDF fetch — fall back to nosso_numero
+  const identifier = row.inter_id || row.nosso_numero
+  if (row.provedor === 'inter' && identifier) {
     const config = getInterConfig(row.banco_id)
     if (!config) throw new Error('Config Inter não encontrada')
-    const path = await downloadBoletoPdf(row.banco_id, config, row.nosso_numero)
+    const path = await downloadBoletoPdf(row.banco_id, config, identifier)
     sqlite().prepare('UPDATE boletos SET pdf_path=? WHERE id=?').run(path, boleto_id)
     return path
   }
@@ -384,7 +403,8 @@ export async function cancelarBoleto(boleto_id: number, motivo: string = 'ACERTO
     .get(boleto_id) as any
   if (!row) throw new Error('Boleto não encontrado')
 
-  if (row.provedor === 'inter' && row.nosso_numero) {
+  const cancelId = row.inter_id || row.nosso_numero
+  if (row.provedor === 'inter' && cancelId) {
     const config = getInterConfig(row.banco_id)
     if (!config) throw new Error('Config Inter não encontrada')
 
@@ -401,13 +421,13 @@ export async function cancelarBoleto(boleto_id: number, motivo: string = 'ACERTO
     })
 
     const { statusCode } = await request(
-      `${baseUrl}/cobranca/v3/cobrancas/${row.nosso_numero}/cancelar`,
+      `${baseUrl}/cobranca/v3/cobrancas/${cancelId}/cancelar`,
       {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
-          'x-conta-corrente': config.conta,
+          'x-inter-conta-corrente': config.conta,
         },
         body: JSON.stringify({ motivoCancelamento: motivo }),
         dispatcher: agent,
@@ -430,7 +450,8 @@ export async function consultarBoleto(boleto_id: number): Promise<{ status: stri
     .get(boleto_id) as any
   if (!row) throw new Error('Boleto não encontrado')
 
-  if (row.provedor === 'inter' && row.nosso_numero) {
+  const consultaId = row.inter_id || row.nosso_numero
+  if (row.provedor === 'inter' && consultaId) {
     const config = getInterConfig(row.banco_id)
     if (!config) throw new Error('Config Inter não encontrada')
 
@@ -447,12 +468,12 @@ export async function consultarBoleto(boleto_id: number): Promise<{ status: stri
     })
 
     const { statusCode, body: resBody } = await request(
-      `${baseUrl}/cobranca/v3/cobrancas/${row.nosso_numero}`,
+      `${baseUrl}/cobranca/v3/cobrancas/${consultaId}`,
       {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
-          'x-conta-corrente': config.conta,
+          'x-inter-conta-corrente': config.conta,
         },
         dispatcher: agent,
       }
