@@ -131,19 +131,20 @@ export function deleteBanco(id: number): void {
 // -----------------------------------------------------------------------
 
 export function getInterConfig(banco_id: number): InterConfig | null {
-  const row = sqlite().prepare('SELECT value FROM configuracoes WHERE key=?').get(`inter_config_${banco_id}`)
+  const chave = `inter_config_${banco_id}`
+  const row = sqlite().prepare('SELECT valor FROM configuracoes WHERE chave=?').get(chave)
   if (!row) return null
-  try { return JSON.parse((row as any).value) as InterConfig } catch { return null }
+  try { return JSON.parse((row as any).valor) as InterConfig } catch { return null }
 }
 
 export function setInterConfig(banco_id: number, config: InterConfig): void {
-  const key = `inter_config_${banco_id}`
-  const value = JSON.stringify(config)
-  const existing = sqlite().prepare('SELECT key FROM configuracoes WHERE key=?').get(key)
+  const chave = `inter_config_${banco_id}`
+  const valor = JSON.stringify(config)
+  const existing = sqlite().prepare('SELECT chave FROM configuracoes WHERE chave=?').get(chave)
   if (existing) {
-    sqlite().prepare('UPDATE configuracoes SET value=? WHERE key=?').run(value, key)
+    sqlite().prepare('UPDATE configuracoes SET valor=? WHERE chave=?').run(valor, chave)
   } else {
-    sqlite().prepare('INSERT INTO configuracoes (key, value) VALUES (?, ?)').run(key, value)
+    sqlite().prepare('INSERT INTO configuracoes (chave, valor) VALUES (?, ?)').run(chave, valor)
   }
   sqlite().prepare(`
     UPDATE bancos SET client_id=@client_id, client_secret=@client_secret,

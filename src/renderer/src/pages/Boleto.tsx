@@ -399,24 +399,31 @@ function BancosTab({ onBancosChange }: { onBancosChange: () => void }) {
   const [msg, setMsg] = useState('')
 
   const load = async () => {
-    const res = await window.electron.invoke(IPC.BANCOS_LIST) as Banco[]
-    setBancos(res ?? [])
+    try {
+      const res = await window.electron.invoke(IPC.BANCOS_LIST) as Banco[]
+      setBancos(res ?? [])
+    } catch (e: any) {
+      setMsg(`Erro ao carregar bancos: ${e?.message ?? e}`)
+    }
   }
 
   useEffect(() => { load() }, [])
 
   const startNew = () => {
+    setMsg('')
     setEditId('new')
     setForm({ nome: '', codigo: '', provedor: 'manual', ativo: 1 })
   }
 
   const startEdit = (b: Banco) => {
+    setMsg('')
     setEditId(b.id)
     setForm({ ...b })
   }
 
   const handleSave = async () => {
     if (!form.nome?.trim()) return
+    setMsg('')
     setSaving(true)
     try {
       if (editId === 'new') {
@@ -427,6 +434,8 @@ function BancosTab({ onBancosChange }: { onBancosChange: () => void }) {
       setEditId(null)
       await load()
       onBancosChange()
+    } catch (e: any) {
+      setMsg(`Erro ao salvar: ${e?.message ?? e}`)
     } finally {
       setSaving(false)
     }
@@ -434,9 +443,13 @@ function BancosTab({ onBancosChange }: { onBancosChange: () => void }) {
 
   const handleDelete = async (id: number) => {
     if (!confirm('Remover este banco?')) return
-    await window.electron.invoke(IPC.BANCOS_DELETE, id)
-    await load()
-    onBancosChange()
+    try {
+      await window.electron.invoke(IPC.BANCOS_DELETE, id)
+      await load()
+      onBancosChange()
+    } catch (e: any) {
+      setMsg(`Erro ao excluir: ${e?.message ?? e}`)
+    }
   }
 
   const openInterConfig = async (b: Banco) => {
@@ -475,11 +488,14 @@ function BancosTab({ onBancosChange }: { onBancosChange: () => void }) {
 
   return (
     <div className="flex flex-col gap-4 h-full">
-      <div className="flex gap-2">
+      <div className="flex gap-2 items-center">
         <button onClick={startNew} className="px-3 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-700">
           + Adicionar Banco
         </button>
       </div>
+      {msg && !configBancoId && (
+        <div className={`px-3 py-2 rounded text-sm ${msg.startsWith('Erro') ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-green-50 text-green-700'}`}>{msg}</div>
+      )}
 
       {/* New / Edit form */}
       {editId !== null && (

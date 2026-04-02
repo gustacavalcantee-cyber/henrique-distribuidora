@@ -171,9 +171,82 @@ function initSchema(sqlite: Database.Database): void {
     );
   `)
 
+  // NF-e: notas_fiscais table
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS notas_fiscais (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      numero INTEGER NOT NULL,
+      serie TEXT NOT NULL DEFAULT '001',
+      loja_id INTEGER REFERENCES lojas(id),
+      mes INTEGER NOT NULL,
+      ano INTEGER NOT NULL,
+      quinzena INTEGER NOT NULL,
+      data_emissao TEXT NOT NULL,
+      valor_total REAL NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'rascunho',
+      items_json TEXT NOT NULL DEFAULT '[]',
+      danfe_html TEXT,
+      chave_acesso TEXT,
+      protocolo TEXT,
+      criado_em TEXT DEFAULT (datetime('now'))
+    );
+  `)
+
+  // Boleto: bancos e boletos tables
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS bancos (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      nome TEXT NOT NULL,
+      codigo TEXT NOT NULL DEFAULT '',
+      provedor TEXT NOT NULL DEFAULT 'manual',
+      ativo INTEGER NOT NULL DEFAULT 1,
+      client_id TEXT,
+      client_secret TEXT,
+      cert_path TEXT,
+      key_path TEXT,
+      conta TEXT,
+      agencia TEXT
+    );
+    CREATE TABLE IF NOT EXISTS boletos (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      banco_id INTEGER REFERENCES bancos(id),
+      loja_id INTEGER REFERENCES lojas(id),
+      pedido_id INTEGER REFERENCES pedidos(id),
+      sacado_nome TEXT NOT NULL,
+      sacado_cpf_cnpj TEXT NOT NULL,
+      sacado_endereco TEXT,
+      sacado_cidade TEXT,
+      sacado_uf TEXT,
+      sacado_cep TEXT,
+      valor REAL NOT NULL,
+      vencimento TEXT NOT NULL,
+      descricao TEXT,
+      numero_documento TEXT,
+      nosso_numero TEXT,
+      linha_digitavel TEXT,
+      codigo_barras TEXT,
+      status TEXT NOT NULL DEFAULT 'emitido',
+      pdf_path TEXT,
+      inter_id TEXT,
+      criado_em TEXT DEFAULT (datetime('now'))
+    );
+  `)
+
   // Idempotent migrations for existing databases
   try { sqlite.exec(`ALTER TABLE configuracoes ADD COLUMN synced INTEGER DEFAULT 1`) } catch { /* already exists */ }
   try { sqlite.exec(`ALTER TABLE configuracoes ADD COLUMN updated_at TEXT`) } catch { /* already exists */ }
+
+  // Fiscal columns for lojas
+  const lojaFiscalCols = ['razao_social', 'endereco', 'bairro', 'cep', 'municipio', 'uf', 'ie', 'telefone']
+  for (const col of lojaFiscalCols) {
+    try { sqlite.exec(`ALTER TABLE lojas ADD COLUMN ${col} TEXT`) } catch { /* already exists */ }
+  }
+
+  // Fiscal + NCM columns for produtos
+  const prodFiscalCols = ['ncm', 'cst_icms', 'cfop', 'unidade_nfe']
+  for (const col of prodFiscalCols) {
+    try { sqlite.exec(`ALTER TABLE produtos ADD COLUMN ${col} TEXT`) } catch { /* already exists */ }
+  }
 
   // Forced cleanup v2: delete ALL layout_config on every device so contaminated data
   // (re-pushed from other devices after v1 ran) is fully wiped. Each franchise starts
