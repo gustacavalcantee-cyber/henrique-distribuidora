@@ -308,15 +308,15 @@ async function emitirBoletoInter(draft: BoletoDraft, banco: Banco): Promise<Bole
       uf: draft.sacado.uf,
       cep: draft.sacado.cep.replace(/\D/g, ''),
     },
-    multa: draft.dias_multa && draft.dias_multa > 0
-      ? { codigoMulta: 'PERCENTUAL', data: draft.vencimento, taxa: draft.dias_multa }
-      : { codigoMulta: 'NAOTEMMULTA' },
-    mora: draft.juros_mensal && draft.juros_mensal > 0
-      ? { codigoMora: 'TAXAMENSAL', data: draft.vencimento, taxa: draft.juros_mensal }
-      : { codigoMora: 'ISENTO' },
-    desconto: draft.desconto_valor && draft.desconto_data
-      ? { codigoDesconto: 'VALORFIXODATAINFORMADA', descontos: [{ data: draft.desconto_data, taxa: 0, valor: draft.desconto_valor }] }
-      : { codigoDesconto: 'NAOTEMDESCONTO' },
+    ...(draft.dias_multa && draft.dias_multa > 0
+      ? { multa: { codigoMulta: 'PERCENTUAL', data: draft.vencimento, taxa: draft.dias_multa } }
+      : {}),
+    ...(draft.juros_mensal && draft.juros_mensal > 0
+      ? { mora: { codigoMora: 'TAXAMENSAL', data: draft.vencimento, taxa: draft.juros_mensal } }
+      : {}),
+    ...(draft.desconto_valor && draft.desconto_data
+      ? { desconto: { codigoDesconto: 'VALORFIXODATAINFORMADA', descontos: [{ data: draft.desconto_data, taxa: 0, valor: draft.desconto_valor }] } }
+      : {}),
   }
   if (draft.descricao) payload.mensagem = { linha1: draft.descricao.substring(0, 77) }
 
