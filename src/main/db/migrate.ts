@@ -70,4 +70,44 @@ export function runMigrations() {
     protocolo TEXT,
     criado_em TEXT DEFAULT (datetime('now'))
   )`).run()
+
+  // Boleto: Create bancos table
+  sqlite.prepare(`CREATE TABLE IF NOT EXISTS bancos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nome TEXT NOT NULL,
+    codigo TEXT NOT NULL DEFAULT '',
+    provedor TEXT NOT NULL DEFAULT 'manual',
+    ativo INTEGER NOT NULL DEFAULT 1,
+    client_id TEXT,
+    client_secret TEXT,
+    cert_path TEXT,
+    key_path TEXT,
+    conta TEXT,
+    agencia TEXT
+  )`).run()
+
+  // Boleto: Create boletos table
+  sqlite.prepare(`CREATE TABLE IF NOT EXISTS boletos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    banco_id INTEGER REFERENCES bancos(id),
+    loja_id INTEGER REFERENCES lojas(id),
+    pedido_id INTEGER REFERENCES pedidos(id),
+    sacado_nome TEXT NOT NULL,
+    sacado_cpf_cnpj TEXT NOT NULL,
+    sacado_endereco TEXT,
+    sacado_cidade TEXT,
+    sacado_uf TEXT,
+    sacado_cep TEXT,
+    valor REAL NOT NULL,
+    vencimento TEXT NOT NULL,
+    descricao TEXT,
+    numero_documento TEXT,
+    nosso_numero TEXT,
+    linha_digitavel TEXT,
+    codigo_barras TEXT,
+    status TEXT NOT NULL DEFAULT 'emitido',
+    pdf_path TEXT,
+    inter_id TEXT,
+    criado_em TEXT DEFAULT (datetime('now'))
+  )`).run()
 }

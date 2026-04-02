@@ -182,3 +182,74 @@ export interface ProdutoFiscalRow {
   cfop: string | null
   unidade_nfe: string | null
 }
+
+// ---- Boleto / Banco Inter ----
+export interface Banco {
+  id: number
+  nome: string
+  codigo: string          // e.g. "077" for Inter
+  provedor: string        // 'inter' | 'manual'
+  ativo: number
+  // Inter-specific credentials (stored encrypted or as plain text for now)
+  client_id: string | null
+  client_secret: string | null
+  cert_path: string | null       // path to .crt file
+  key_path: string | null        // path to .key file
+  conta: string | null           // checking account number
+  agencia: string | null
+}
+
+export interface BoletoSacado {
+  nome: string
+  cpf_cnpj: string
+  endereco: string
+  cidade: string
+  uf: string
+  cep: string
+}
+
+export interface BoletoDraft {
+  banco_id: number
+  sacado: BoletoSacado
+  valor: number                  // R$
+  vencimento: string             // 'YYYY-MM-DD'
+  descricao: string
+  numero_documento: string
+  loja_id?: number
+  pedido_id?: number
+  dias_multa?: number            // default 0
+  juros_mensal?: number          // % default 0
+  desconto_valor?: number        // R$
+  desconto_data?: string         // until this date
+}
+
+export interface BoletoSalvo {
+  id: number
+  banco_id: number
+  banco_nome: string
+  loja_id: number | null
+  pedido_id: number | null
+  sacado_nome: string
+  sacado_cpf_cnpj: string
+  valor: number
+  vencimento: string
+  descricao: string
+  numero_documento: string
+  nosso_numero: string | null
+  linha_digitavel: string | null
+  codigo_barras: string | null
+  status: string                 // 'emitido' | 'pago' | 'cancelado' | 'vencido'
+  pdf_path: string | null
+  criado_em: string
+  inter_id: string | null        // response id from Inter API
+}
+
+export interface InterConfig {
+  client_id: string
+  client_secret: string
+  cert_path: string
+  key_path: string
+  conta: string
+  agencia: string
+  ambiente: 'producao' | 'sandbox'
+}

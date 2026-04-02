@@ -17,6 +17,7 @@ import { registerRedeColOrderHandlers } from './rede-col-order'
 import { registerPrintOrderHandlers } from './print-order'
 import { registerSyncAdminHandlers } from './sync-admin'
 import { registerNfeHandlers } from './nfe'
+import { registerBoletoHandlers } from './boleto'
 
 export function registerAllHandlers() {
   ipcMain.handle('ping', () => 'pong')
@@ -39,4 +40,5 @@ export function registerAllHandlers() {
   registerPrintOrderHandlers()
   registerSyncAdminHandlers()
   registerNfeHandlers()
+  registerBoletoHandlers()
 }
