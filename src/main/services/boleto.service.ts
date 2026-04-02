@@ -473,22 +473,51 @@ export async function consultarBoleto(boleto_id: number): Promise<{ status: stri
     const baseUrl = config.ambiente === 'sandbox' ? BASE_URL_SANDBOX : BASE_URL_PROD
     const token = await getInterToken(row.banco_id as number, config)
     const { cert, key } = loadCertAndKey(config)
+    const rejectUnauthorized = config.ambiente !== 'sandbox'
+    const authHeaders = {
+      'Authorization': `Bearer ${token}`,
+      'x-inter-conta-corrente': config.conta,
+    }
 
+    // Primary: query directly by codigoSolicitacao (UUID stored as inter_id)
     const res = await mtlsRequest({
       method: 'GET',
       url: `${baseUrl}/cobranca/v3/cobrancas/${consultaId}`,
-      cert, key,
-      rejectUnauthorized: config.ambiente !== 'sandbox',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'x-inter-conta-corrente': config.conta,
-      },
+      cert, key, rejectUnauthorized,
+      headers: authHeaders,
     })
 
     const json = res.json<any>()
-    if (res.statusCode !== 200) throw new Error(`Consulta error ${res.statusCode}`)
+    if (res.statusCode !== 200) throw new Error(`Consulta error ${res.statusCode}: ${JSON.stringify(json)}`)
 
-    const situacao: string = json.situacao ?? json.status ?? 'EMABERTO'
+    let situacao: string = json.situacao ?? json.status ?? 'EMABERTO'
+
+    // Fallback: if primary returned EMABERTO but the boleto may have been cancelled
+    // via the Inter website (which sometimes doesn't update the direct endpoint immediately),
+    // also query the cobrancas LIST filtered by nossoNumero for a definitive answer.
+    if (situacao === 'EMABERTO' && row.nosso_numero) {
+      try {
+        const today = new Date().toISOString().slice(0, 10)
+        const past = new Date(); past.setFullYear(past.getFullYear() - 1)
+        const startDate = past.toISOString().slice(0, 10)
+        const listRes = await mtlsRequest({
+          method: 'GET',
+          url: `${baseUrl}/cobranca/v3/cobrancas?nossoNumero=${encodeURIComponent(String(row.nosso_numero))}&dataInicio=${startDate}&dataFim=${today}&itensPorPagina=5&paginaAtual=0`,
+          cert, key, rejectUnauthorized,
+          headers: authHeaders,
+        })
+        if (listRes.statusCode === 200) {
+          const listJson = listRes.json<any>()
+          // The list returns { cobrancas: [...] } — pick the most recent match
+          const cobrancas: Array<Record<string, unknown>> = listJson.cobrancas ?? []
+          const found = cobrancas.find(c => c['nossoNumero'] === String(row.nosso_numero)) ?? cobrancas[0]
+          if (found && found['situacao'] && found['situacao'] !== 'EMABERTO') {
+            situacao = String(found['situacao'])
+          }
+        }
+      } catch { /* ignore list fallback errors — primary result stands */ }
+    }
+
     const statusMap: Record<string, string> = {
       PAGO: 'pago', CANCELADO: 'cancelado', VENCIDO: 'vencido', EMABERTO: 'emitido', EXPIRADO: 'vencido',
     }

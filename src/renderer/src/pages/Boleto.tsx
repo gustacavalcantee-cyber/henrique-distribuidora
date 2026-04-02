@@ -309,10 +309,8 @@ function HistoricoTab() {
   const handleConsultar = async (id: number) => {
     try {
       const res = await window.electron.invoke(IPC.BOLETOS_CONSULTAR, id) as { status: string; situacao?: string }
-      // Reload silently — status badge updates in the table
       load()
-      // Only show alert if status is interesting (not the default emitido)
-      if (res.status !== 'emitido') alert(`Status do boleto: ${res.situacao ?? res.status}`)
+      alert(`Status Inter: ${res.situacao ?? res.status}`)
     } catch (e: any) {
       alert(`Erro: ${e?.message ?? e}`)
     }
