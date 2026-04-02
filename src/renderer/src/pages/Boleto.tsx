@@ -274,6 +274,8 @@ function HistoricoTab() {
   const [statusFiltro, setStatusFiltro] = useState<string>('')
   const [boletos, setBoletos] = useState<BoletoSalvo[]>([])
   const [loading, setLoading] = useState(false)
+  const [syncing, setSyncing] = useState(false)
+  const [syncProgress, setSyncProgress] = useState<{ done: number; total: number } | null>(null)
 
   const load = async () => {
     setLoading(true)
@@ -307,16 +309,40 @@ function HistoricoTab() {
   const handleConsultar = async (id: number) => {
     try {
       const res = await window.electron.invoke(IPC.BOLETOS_CONSULTAR, id) as { status: string; situacao?: string }
-      alert(`Status atualizado: ${res.situacao ?? res.status}`)
+      // Reload silently — status badge updates in the table
       load()
+      // Only show alert if status is interesting (not the default emitido)
+      if (res.status !== 'emitido') alert(`Status do boleto: ${res.situacao ?? res.status}`)
     } catch (e: any) {
       alert(`Erro: ${e?.message ?? e}`)
     }
   }
 
+  // Consulta o Inter para todos os boletos "emitido" e atualiza o status local
+  const handleSincronizarTodos = async () => {
+    // Load all emitido boletos (ignores current filter)
+    const todos = await window.electron.invoke(IPC.BOLETOS_LIST, { status: 'emitido' }) as BoletoSalvo[]
+    if (!todos || todos.length === 0) { alert('Nenhum boleto emitido para sincronizar.'); return }
+    setSyncing(true)
+    setSyncProgress({ done: 0, total: todos.length })
+    let atualizados = 0
+    for (let i = 0; i < todos.length; i++) {
+      try {
+        await window.electron.invoke(IPC.BOLETOS_CONSULTAR, todos[i].id)
+        atualizados++
+      } catch { /* ignora erros individuais */ }
+      setSyncProgress({ done: i + 1, total: todos.length })
+      await new Promise(r => setTimeout(r, 200))
+    }
+    setSyncing(false)
+    setSyncProgress(null)
+    load()
+    alert(`Sincronização concluída! ${atualizados} de ${todos.length} boletos consultados.`)
+  }
+
   return (
     <div className="flex flex-col gap-3 h-full">
-      <div className="flex gap-2 items-center">
+      <div className="flex gap-2 items-center flex-wrap">
         <select className="border rounded px-2 py-1 text-sm" value={statusFiltro} onChange={e => setStatusFiltro(e.target.value)}>
           <option value="">Todos os status</option>
           <option value="emitido">Emitido</option>
@@ -324,7 +350,18 @@ function HistoricoTab() {
           <option value="vencido">Vencido</option>
           <option value="cancelado">Cancelado</option>
         </select>
-        <button onClick={load} className="px-3 py-1 text-xs border rounded hover:bg-gray-50 text-gray-600">↻ Atualizar</button>
+        <button onClick={load} disabled={syncing} className="px-3 py-1 text-xs border rounded hover:bg-gray-50 text-gray-600 disabled:opacity-40">↻ Atualizar lista</button>
+        <button
+          onClick={handleSincronizarTodos}
+          disabled={syncing || loading}
+          className="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-40 flex items-center gap-1.5"
+          title="Consulta o status de todos os boletos emitidos no banco Inter"
+        >
+          {syncing
+            ? <>⏳ Sincronizando {syncProgress?.done}/{syncProgress?.total}...</>
+            : <>🔄 Sincronizar status com Inter</>
+          }
+        </button>
       </div>
       {loading ? <div className="text-gray-500 text-sm">Carregando...</div> : (
         <div className="overflow-auto flex-1">
