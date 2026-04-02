@@ -306,6 +306,24 @@ function HistoricoTab() {
     }
   }
 
+  // Marks as cancelled locally without calling Inter API
+  // Use when the boleto was cancelled via Inter's website but API still shows EMABERTO
+  const handleMarcarCancelado = async (id: number) => {
+    if (!confirm('Marcar este boleto como cancelado no programa?\n\nUse isto quando já cancelou no site do Inter mas o programa ainda mostra "emitido".')) return
+    await window.electron.invoke(IPC.BOLETOS_SET_STATUS, id, 'cancelado')
+    load()
+  }
+
+  const handleMarcarTodosCancelado = async () => {
+    const emitidos = boletos.filter(b => b.status === 'emitido')
+    if (emitidos.length === 0) { alert('Nenhum boleto emitido na lista atual.'); return }
+    if (!confirm(`Marcar ${emitidos.length} boleto(s) como cancelado no programa?\n\nUse isto quando já cancelou no site do Inter mas o programa ainda mostra "emitido".`)) return
+    for (const b of emitidos) {
+      await window.electron.invoke(IPC.BOLETOS_SET_STATUS, b.id, 'cancelado')
+    }
+    load()
+  }
+
   const handleConsultar = async (id: number) => {
     try {
       const res = await window.electron.invoke(IPC.BOLETOS_CONSULTAR, id) as { status: string; situacao?: string }
@@ -357,8 +375,16 @@ function HistoricoTab() {
         >
           {syncing
             ? <>⏳ Sincronizando {syncProgress?.done}/{syncProgress?.total}...</>
-            : <>🔄 Sincronizar status com Inter</>
+            : <>🔄 Sincronizar com Inter</>
           }
+        </button>
+        <button
+          onClick={handleMarcarTodosCancelado}
+          disabled={syncing || loading}
+          className="px-3 py-1 text-xs bg-orange-600 text-white rounded hover:bg-orange-700 disabled:opacity-40"
+          title="Marca todos os boletos 'emitido' da lista atual como cancelado — use quando cancelou no site do Inter mas a API não atualizou"
+        >
+          ✕ Marcar todos como cancelado
         </button>
       </div>
       {loading ? <div className="text-gray-500 text-sm">Carregando...</div> : (
@@ -405,10 +431,18 @@ function HistoricoTab() {
                         title="Consultar status no banco"
                       >↻</button>
                       {b.status === 'emitido' && (
-                        <button
-                          onClick={() => handleCancelar(b.id)}
-                          className="px-2 py-0.5 text-xs bg-red-50 text-red-600 rounded hover:bg-red-100"
-                        >Cancelar</button>
+                        <>
+                          <button
+                            onClick={() => handleCancelar(b.id)}
+                            className="px-2 py-0.5 text-xs bg-red-50 text-red-600 rounded hover:bg-red-100"
+                            title="Cancela o boleto via API do Inter"
+                          >Cancelar</button>
+                          <button
+                            onClick={() => handleMarcarCancelado(b.id)}
+                            className="px-2 py-0.5 text-xs bg-orange-50 text-orange-600 rounded hover:bg-orange-100"
+                            title="Marca como cancelado só no programa (use quando cancelou no site do Inter mas a API não atualizou)"
+                          >✕</button>
+                        </>
                       )}
                     </div>
                   </td>
