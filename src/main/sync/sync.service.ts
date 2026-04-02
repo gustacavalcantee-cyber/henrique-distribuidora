@@ -139,9 +139,12 @@ async function pushPendingOthers(supabase: any): Promise<void> {
   // Deleted lojas (ativo=0) are SOFT-DELETED in Supabase via upsert — avoids FK constraint
   // errors that occur when pedidos reference the loja. The pull then propagates the soft-delete
   // to local SQLite (hard-delete) on every device including this one.
+  // Fiscal columns (razao_social, endereco, etc.) are local-only for now — skip them so
+  // Supabase doesn't reject the upsert with "column not found".
+  const lojaFiscalSkipCols = ['synced', 'device_id', 'updated_at', 'razao_social', 'endereco', 'bairro', 'cep', 'municipio', 'uf', 'ie', 'telefone']
   const pendingLojas = sqlite.prepare('SELECT * FROM lojas WHERE synced = 0').all() as AnyRow[]
   for (const loja of pendingLojas) {
-    await pushTable(supabase, 'lojas', [loja]) // upsert with ativo=0 or ativo=1
+    await pushTable(supabase, 'lojas', [loja], { skipCols: lojaFiscalSkipCols }) // upsert with ativo=0 or ativo=1
     if (loja['ativo'] === 0) {
       // Soft-delete reached Supabase — hard-delete locally now; pull will confirm on next cycle
       sqlite.prepare('DELETE FROM lojas WHERE id = ?').run(loja['id'])
@@ -218,7 +221,6 @@ function upsertLocal(
       if (existing?.synced === 0) continue
     }
 
-    // Use REPLACE which deletes+inserts — safe for all tables except pedidos (CASCADE)
     if (table === 'pedidos') {
       // For pedidos, use UPDATE or INSERT without REPLACE to avoid cascading
       const exists = sqlite.prepare('SELECT id FROM pedidos WHERE id = ?').get(row[idCol])
@@ -232,9 +234,22 @@ function upsertLocal(
         sqlite.prepare(`INSERT OR IGNORE INTO pedidos (${cols.join(', ')}) VALUES (${placeholders})`).run(cols.map(c => row[c] ?? null))
       }
     } else {
+      // Use INSERT ... ON CONFLICT DO UPDATE SET instead of INSERT OR REPLACE.
+      // INSERT OR REPLACE does DELETE+INSERT which sets any unspecified column to NULL,
+      // destroying locally-saved data for columns not present in the remote schema
+      // (e.g. fiscal columns on lojas that Supabase doesn't yet have).
       const placeholders = cols.map(() => '?').join(', ')
       const vals = cols.map(c => row[c] ?? null)
-      sqlite.prepare(`INSERT OR REPLACE INTO ${table} (${cols.join(', ')}) VALUES (${placeholders})`).run(...vals)
+      const updateCols = cols.filter(c => c !== idCol)
+      if (updateCols.length > 0) {
+        const setClause = updateCols.map(c => `${c} = excluded.${c}`).join(', ')
+        sqlite.prepare(
+          `INSERT INTO ${table} (${cols.join(', ')}) VALUES (${placeholders})
+           ON CONFLICT(${idCol}) DO UPDATE SET ${setClause}`
+        ).run(...vals)
+      } else {
+        sqlite.prepare(`INSERT OR IGNORE INTO ${table} (${cols.join(', ')}) VALUES (${placeholders})`).run(...vals)
+      }
     }
   }
 }
