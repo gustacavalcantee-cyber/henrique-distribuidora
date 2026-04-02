@@ -604,12 +604,32 @@ function BancosTab({ onBancosChange }: { onBancosChange: () => void }) {
                 <input className="w-full border rounded px-2 py-1 text-sm" value={interForm.agencia ?? ''} onChange={e => setIF('agencia', e.target.value)} placeholder="0001" />
               </div>
               <div className="col-span-2">
-                <label className="block text-xs text-gray-500 mb-0.5">Caminho do Certificado (.crt)</label>
-                <input className="w-full border rounded px-2 py-1 text-sm font-mono text-xs" value={interForm.cert_path ?? ''} onChange={e => setIF('cert_path', e.target.value)} placeholder="/Users/voce/inter/certificate.crt" />
+                <label className="block text-xs text-gray-500 mb-0.5">Certificado (.crt)</label>
+                <div className="flex gap-2">
+                  <input className="flex-1 border rounded px-2 py-1 text-sm font-mono text-xs" value={interForm.cert_path ?? ''} onChange={e => setIF('cert_path', e.target.value)} placeholder="/Users/voce/inter/certificate.crt" />
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const path = await window.electron.invoke(IPC.PICK_FILE, [{ name: 'Certificado', extensions: ['crt', 'pem'] }]) as string | null
+                      if (path) setIF('cert_path', path)
+                    }}
+                    className="px-3 py-1 text-xs bg-gray-100 text-gray-700 rounded hover:bg-gray-200 whitespace-nowrap"
+                  >Escolher</button>
+                </div>
               </div>
               <div className="col-span-2">
-                <label className="block text-xs text-gray-500 mb-0.5">Caminho da Chave Privada (.key)</label>
-                <input className="w-full border rounded px-2 py-1 text-sm font-mono text-xs" value={interForm.key_path ?? ''} onChange={e => setIF('key_path', e.target.value)} placeholder="/Users/voce/inter/certificate.key" />
+                <label className="block text-xs text-gray-500 mb-0.5">Chave Privada (.key)</label>
+                <div className="flex gap-2">
+                  <input className="flex-1 border rounded px-2 py-1 text-sm font-mono text-xs" value={interForm.key_path ?? ''} onChange={e => setIF('key_path', e.target.value)} placeholder="/Users/voce/inter/certificate.key" />
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const path = await window.electron.invoke(IPC.PICK_FILE, [{ name: 'Chave Privada', extensions: ['key', 'pem'] }]) as string | null
+                      if (path) setIF('key_path', path)
+                    }}
+                    className="px-3 py-1 text-xs bg-gray-100 text-gray-700 whitespace-nowrap rounded hover:bg-gray-200"
+                  >Escolher</button>
+                </div>
               </div>
               <div>
                 <label className="block text-xs text-gray-500 mb-0.5">Ambiente</label>

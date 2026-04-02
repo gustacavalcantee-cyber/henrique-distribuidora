@@ -1,4 +1,4 @@
-import { ipcMain, shell } from 'electron'
+import { ipcMain, shell, dialog } from 'electron'
 import { IPC } from '../../shared/ipc-channels'
 import type { Banco, BoletoDraft, InterConfig } from '../../shared/types'
 import {
@@ -33,4 +33,13 @@ export function registerBoletoHandlers() {
   })
 
   ipcMain.handle(IPC.BOLETOS_CONSULTAR, (_e, boleto_id: number) => consultarBoleto(boleto_id))
+
+  ipcMain.handle(IPC.PICK_FILE, async (_e, filters?: Electron.FileFilter[]) => {
+    const result = await dialog.showOpenDialog({
+      properties: ['openFile'],
+      filters: filters ?? [{ name: 'Todos os arquivos', extensions: ['*'] }],
+    })
+    if (result.canceled || result.filePaths.length === 0) return null
+    return result.filePaths[0]
+  })
 }

@@ -97,4 +97,5 @@ export const IPC = {
   BOLETOS_CONSULTAR: 'boletos:consultar',
   INTER_CONFIG_GET: 'inter:configGet',
   INTER_CONFIG_SET: 'inter:configSet',
+  PICK_FILE: 'dialog:pickFile',
 } as const
