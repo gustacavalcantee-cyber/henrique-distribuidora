@@ -295,7 +295,7 @@ async function emitirBoletoInter(draft: BoletoDraft, banco: Banco): Promise<Bole
 
   const cpfCnpj = draft.sacado.cpf_cnpj.replace(/\D/g, '')
   const payload: Record<string, unknown> = {
-    seuNumero: draft.numero_documento,
+    seuNumero: (draft.numero_documento ?? '').substring(0, 15),
     valorNominal: draft.valor,
     dataVencimento: draft.vencimento,
     numDiasAgenda: 30,

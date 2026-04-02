@@ -74,7 +74,7 @@ function EmitirTab({ bancos }: { bancos: Banco[] }) {
         valor: parseFloat(valor.replace(',', '.')),
         vencimento,
         descricao,
-        numero_documento: numDoc || `BOL-${Date.now()}`,
+        numero_documento: (numDoc || Date.now().toString().slice(-15)).substring(0, 15),
         loja_id: lojaId || undefined,
         juros_mensal: juros ? parseFloat(juros.replace(',', '.')) : undefined,
         dias_multa: multa ? parseFloat(multa.replace(',', '.')) : undefined,
