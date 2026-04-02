@@ -245,7 +245,7 @@ export function Lote() {
   const [nfeNumero, setNfeNumero] = useState<string>('')
 
   useEffect(() => {
-    window.electron.invoke(IPC.NFE_CONFIG_GET).then((cfg: NfeConfig) => {
+    window.electron.invoke(IPC.NFE_CONFIG_GET).then((raw: unknown) => { const cfg = raw as NfeConfig;
       if (cfg) {
         setNfeConfigState(cfg)
         setNfeNumero(String(cfg.numero_atual))
@@ -395,7 +395,7 @@ export function Lote() {
     }
     setProcessing(false)
     // Refresh displayed NF-e number (it was auto-incremented for each note saved)
-    window.electron.invoke(IPC.NFE_CONFIG_GET).then((cfg: NfeConfig) => {
+    window.electron.invoke(IPC.NFE_CONFIG_GET).then((raw: unknown) => { const cfg = raw as NfeConfig;
       if (cfg) { setNfeConfigState(cfg); setNfeNumero(String(cfg.numero_atual)) }
     }).catch(() => {})
   }
@@ -453,7 +453,7 @@ export function Lote() {
     }
     setProcessing(false)
     // Refresh displayed NF-e number
-    window.electron.invoke(IPC.NFE_CONFIG_GET).then((cfg: NfeConfig) => {
+    window.electron.invoke(IPC.NFE_CONFIG_GET).then((raw: unknown) => { const cfg = raw as NfeConfig;
       if (cfg) { setNfeConfigState(cfg); setNfeNumero(String(cfg.numero_atual)) }
     }).catch(() => {})
   }
