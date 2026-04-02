@@ -128,6 +128,8 @@ function LojasTab() {
   const [newRedeId, setNewRedeId] = useState<number | ''>('')
   const [editLoja, setEditLoja] = useState<Loja | null>(null)
   const [form, setForm] = useState<LojaForm>(EMPTY_LOJA_FORM)
+  const [saveErr, setSaveErr] = useState('')
+  const [saving, setSaving] = useState(false)
 
   const handleAdd = async () => {
     if (!newNome.trim() || newRedeId === '') return
@@ -156,21 +158,29 @@ function LojasTab() {
 
   const handleSaveEdit = async () => {
     if (!editLoja) return
-    await window.electron.invoke(IPC.LOJAS_UPDATE, {
-      id: editLoja.id,
-      nome: form.nome.trim(),
-      cnpj: form.cnpj.trim() || null,
-      razao_social: form.razao_social.trim() || null,
-      endereco: form.endereco.trim() || null,
-      bairro: form.bairro.trim() || null,
-      cep: form.cep.trim() || null,
-      municipio: form.municipio.trim() || null,
-      uf: form.uf.trim() || null,
-      ie: form.ie.trim() || null,
-      telefone: form.telefone.trim() || null,
-    })
-    setEditLoja(null)
-    reload()
+    setSaving(true)
+    setSaveErr('')
+    try {
+      await window.electron.invoke(IPC.LOJAS_UPDATE, {
+        id: editLoja.id,
+        nome: form.nome.trim(),
+        cnpj: form.cnpj.trim() || null,
+        razao_social: form.razao_social.trim() || null,
+        endereco: form.endereco.trim() || null,
+        bairro: form.bairro.trim() || null,
+        cep: form.cep.trim() || null,
+        municipio: form.municipio.trim() || null,
+        uf: form.uf.trim() || null,
+        ie: form.ie.trim() || null,
+        telefone: form.telefone.trim() || null,
+      })
+      setEditLoja(null)
+      reload()
+    } catch (e: any) {
+      setSaveErr(e?.message ?? 'Erro ao salvar')
+    } finally {
+      setSaving(false)
+    }
   }
 
   const handleDelete = async (id: number, nome: string) => {
@@ -240,6 +250,7 @@ function LojasTab() {
         <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-lg space-y-4">
             <h3 className="text-base font-semibold text-gray-800">Editar Loja — {editLoja.nome}</h3>
+            {saveErr && <div className="px-3 py-2 rounded text-sm bg-red-50 text-red-700">{saveErr}</div>}
 
             <div className="grid grid-cols-2 gap-3">
               <div className="col-span-2">
@@ -285,8 +296,10 @@ function LojasTab() {
             </div>
 
             <div className="flex gap-2 pt-1">
-              <button onClick={handleSaveEdit} className="px-4 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700">Salvar</button>
-              <button onClick={() => setEditLoja(null)} className="px-4 py-2 bg-gray-200 text-gray-700 rounded text-sm hover:bg-gray-300">Cancelar</button>
+              <button onClick={handleSaveEdit} disabled={saving} className="px-4 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50">
+                {saving ? 'Salvando...' : 'Salvar'}
+              </button>
+              <button onClick={() => { setEditLoja(null); setSaveErr('') }} className="px-4 py-2 bg-gray-200 text-gray-700 rounded text-sm hover:bg-gray-300">Cancelar</button>
             </div>
           </div>
         </div>

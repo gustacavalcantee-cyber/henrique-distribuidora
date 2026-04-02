@@ -1,6 +1,6 @@
 import { ipcMain } from 'electron'
-import { and, eq, ne } from 'drizzle-orm'
-import { getDb } from '../db/client-local'
+import { eq, ne, and } from 'drizzle-orm'
+import { getDb, getRawSqlite } from '../db/client-local'
 import { lojas } from '../db/schema-local'
 import { IPC } from '../../shared/ipc-channels'
 import { triggerSync, getMainWindow } from '../sync/sync.service'
@@ -18,9 +18,29 @@ export function registerLojasHandlers() {
     getDb().insert(lojas).values({ ...data, synced: 0 }).returning().all()[0]
   )
 
-  ipcMain.handle(IPC.LOJAS_UPDATE, (_event, data: { id: number; nome?: string; codigo?: string; cnpj?: string; ativo?: number; razao_social?: string | null; endereco?: string | null; bairro?: string | null; cep?: string | null; municipio?: string | null; uf?: string | null; ie?: string | null; telefone?: string | null }) => {
-    const { id, ...updates } = data
-    return getDb().update(lojas).set({ ...updates, synced: 0 }).where(eq(lojas.id, id)).returning().all()[0]
+  ipcMain.handle(IPC.LOJAS_UPDATE, (_event, data: {
+    id: number
+    nome?: string
+    codigo?: string
+    cnpj?: string | null
+    ativo?: number
+    razao_social?: string | null
+    endereco?: string | null
+    bairro?: string | null
+    cep?: string | null
+    municipio?: string | null
+    uf?: string | null
+    ie?: string | null
+    telefone?: string | null
+  }) => {
+    const { id, ...fields } = data
+    const allowed = ['nome', 'codigo', 'cnpj', 'ativo', 'razao_social', 'endereco', 'bairro', 'cep', 'municipio', 'uf', 'ie', 'telefone']
+    const toUpdate = Object.entries(fields).filter(([k]) => allowed.includes(k))
+    if (toUpdate.length === 0) return getRawSqlite().prepare('SELECT * FROM lojas WHERE id=?').get(id)
+    const sets = toUpdate.map(([k]) => `${k} = ?`).join(', ')
+    const vals = toUpdate.map(([, v]) => v ?? null)
+    getRawSqlite().prepare(`UPDATE lojas SET ${sets}, synced = 0 WHERE id = ?`).run(...vals, id)
+    return getRawSqlite().prepare('SELECT * FROM lojas WHERE id=?').get(id)
   })
 
   ipcMain.handle(IPC.LOJAS_DELETE, (_event, id: number) => {
