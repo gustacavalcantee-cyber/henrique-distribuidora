@@ -369,11 +369,26 @@ async function downloadBoletoPdf(banco_id: number, config: InterConfig, identifi
 
   if (res.statusCode !== 200) throw new Error(`PDF error ${res.statusCode}`)
 
+  const buf = res.asBuffer()
+
+  // Inter API v3 returns PDF as base64 inside JSON: { "pdf": "JVBERi0x..." }
+  // Detect by checking if response starts with '{' (JSON) vs '%PDF' (binary)
+  let pdfBuffer: Buffer
+  if (buf[0] === 0x7B) { // '{'
+    let parsed: Record<string, string>
+    try { parsed = JSON.parse(buf.toString('utf8')) } catch { throw new Error('Resposta inesperada da API Inter ao baixar PDF') }
+    const b64 = parsed['pdf'] ?? parsed['data'] ?? parsed['content'] ?? ''
+    if (!b64) throw new Error('Campo PDF não encontrado na resposta da API Inter')
+    pdfBuffer = Buffer.from(b64, 'base64')
+  } else {
+    pdfBuffer = buf
+  }
+
   const pdfDir = join(app.getPath('userData'), 'boletos')
   mkdirSync(pdfDir, { recursive: true })
   const safeName = identifier.replace(/[^a-zA-Z0-9_-]/g, '_')
   const pdfPath = join(pdfDir, `boleto_${safeName}.pdf`)
-  writeFileSync(pdfPath, res.asBuffer())
+  writeFileSync(pdfPath, pdfBuffer)
   return pdfPath
 }
 
@@ -382,7 +397,13 @@ export async function getBoletosPdf(boleto_id: number): Promise<string> {
     .prepare('SELECT b.*, bk.* FROM boletos b LEFT JOIN bancos bk ON b.banco_id=bk.id WHERE b.id=?')
     .get(boleto_id) as any
   if (!row) throw new Error('Boleto não encontrado')
-  if (row.pdf_path && existsSync(row.pdf_path)) return row.pdf_path as string
+  if (row.pdf_path && existsSync(row.pdf_path)) {
+    // Validate it's actually a PDF (starts with %PDF) — discard corrupt files
+    const header = readFileSync(row.pdf_path as string).subarray(0, 4).toString('ascii')
+    if (header === '%PDF') return row.pdf_path as string
+    // File is corrupt — clear and re-download
+    sqlite().prepare('UPDATE boletos SET pdf_path=NULL WHERE id=?').run(boleto_id)
+  }
 
   const identifier: string = row.inter_id || row.nosso_numero
   if (row.provedor === 'inter' && identifier) {
