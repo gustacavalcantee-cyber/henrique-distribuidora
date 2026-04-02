@@ -1,6 +1,6 @@
 {
   "name": "henrique-distribuidora",
-  "version": "1.0.100",
+  "version": "1.0.101",
   "description": "An Electron application with React and TypeScript",
   "main": "./out/main/index.js",
   "author": "example.com",
