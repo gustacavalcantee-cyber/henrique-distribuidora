@@ -3,8 +3,10 @@
 // Inter API v3: https://cdpj.partners.bancointer.com.br
 // Auth: OAuth2 mTLS (client_credentials) with .crt/.key certificate files
 
-import { existsSync, readFileSync, writeFileSync } from 'fs'
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs'
 import { join } from 'path'
+import https from 'node:https'
+import { URL } from 'node:url'
 import { app } from 'electron'
 import type { Banco, BoletoDraft, BoletoSalvo, InterConfig } from '../../shared/types'
 
@@ -12,18 +14,78 @@ const BASE_URL_PROD = 'https://cdpj.partners.bancointer.com.br'
 const BASE_URL_SANDBOX = 'https://cdpj-sandbox.partners.uatinter.co'
 
 // -----------------------------------------------------------------------
-// Local DB helpers (raw sqlite via getDb)
+// Lightweight mTLS HTTPS helper (no external dependencies)
+// -----------------------------------------------------------------------
+
+interface MtlsReqOptions {
+  method: string
+  url: string
+  cert: Buffer
+  key: Buffer
+  rejectUnauthorized: boolean
+  headers?: Record<string, string>
+  body?: string
+}
+
+interface MtlsResponse {
+  statusCode: number
+  json<T = unknown>(): T
+  asBuffer(): Buffer
+}
+
+function mtlsRequest(opts: MtlsReqOptions): Promise<MtlsResponse> {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(opts.url)
+    const agent = new https.Agent({
+      cert: opts.cert,
+      key: opts.key,
+      rejectUnauthorized: opts.rejectUnauthorized,
+    })
+
+    const headers: Record<string, string> = { ...(opts.headers ?? {}) }
+    if (opts.body) {
+      headers['Content-Length'] = String(Buffer.byteLength(opts.body))
+    }
+
+    const reqOpts: https.RequestOptions = {
+      hostname: parsed.hostname,
+      port: Number(parsed.port) || 443,
+      path: parsed.pathname + parsed.search,
+      method: opts.method,
+      headers,
+      agent,
+    }
+
+    const req = https.request(reqOpts, (res) => {
+      const chunks: Buffer[] = []
+      res.on('data', (chunk: Buffer) => chunks.push(chunk))
+      res.on('end', () => {
+        const buf = Buffer.concat(chunks)
+        resolve({
+          statusCode: res.statusCode ?? 0,
+          json<T>() { return JSON.parse(buf.toString('utf8')) as T },
+          asBuffer() { return buf },
+        })
+      })
+    })
+
+    req.on('error', reject)
+    if (opts.body) req.write(opts.body)
+    req.end()
+  })
+}
+
+// -----------------------------------------------------------------------
+// Local DB helpers
 // -----------------------------------------------------------------------
 
 function getDb() {
-  // lazy import to avoid circular deps
-  const { getDb: _getDb } = require('../db/client-local')
+  const { getDb: _getDb } = require('../db/client-local') as { getDb: () => unknown }
   return _getDb()
 }
 
 function sqlite() {
-  const db = getDb()
-  return (db as any).$client
+  return (getDb() as any).$client
 }
 
 // -----------------------------------------------------------------------
@@ -35,11 +97,10 @@ export function listBancos(): Banco[] {
 }
 
 export function createBanco(data: Omit<Banco, 'id'>): Banco {
-  const stmt = sqlite().prepare(`
+  const result = sqlite().prepare(`
     INSERT INTO bancos (nome, codigo, provedor, ativo, client_id, client_secret, cert_path, key_path, conta, agencia)
     VALUES (@nome, @codigo, @provedor, @ativo, @client_id, @client_secret, @cert_path, @key_path, @conta, @agencia)
-  `)
-  const result = stmt.run({
+  `).run({
     nome: data.nome,
     codigo: data.codigo ?? '',
     provedor: data.provedor ?? 'manual',
@@ -66,70 +127,58 @@ export function deleteBanco(id: number): void {
 }
 
 // -----------------------------------------------------------------------
-// Inter config (stored in configuracoes key-value table)
+// Inter config (key-value in configuracoes table)
 // -----------------------------------------------------------------------
 
 export function getInterConfig(banco_id: number): InterConfig | null {
-  const row = sqlite()
-    .prepare("SELECT value FROM configuracoes WHERE key=?")
-    .get(`inter_config_${banco_id}`)
+  const row = sqlite().prepare('SELECT value FROM configuracoes WHERE key=?').get(`inter_config_${banco_id}`)
   if (!row) return null
-  try { return JSON.parse((row as any).value) } catch { return null }
+  try { return JSON.parse((row as any).value) as InterConfig } catch { return null }
 }
 
 export function setInterConfig(banco_id: number, config: InterConfig): void {
   const key = `inter_config_${banco_id}`
   const value = JSON.stringify(config)
-  const existing = sqlite().prepare("SELECT key FROM configuracoes WHERE key=?").get(key)
+  const existing = sqlite().prepare('SELECT key FROM configuracoes WHERE key=?').get(key)
   if (existing) {
-    sqlite().prepare("UPDATE configuracoes SET value=? WHERE key=?").run(value, key)
+    sqlite().prepare('UPDATE configuracoes SET value=? WHERE key=?').run(value, key)
   } else {
-    sqlite().prepare("INSERT INTO configuracoes (key, value) VALUES (?, ?)").run(key, value)
+    sqlite().prepare('INSERT INTO configuracoes (key, value) VALUES (?, ?)').run(key, value)
   }
-  // Also update banco table fields
   sqlite().prepare(`
     UPDATE bancos SET client_id=@client_id, client_secret=@client_secret,
     cert_path=@cert_path, key_path=@key_path, conta=@conta, agencia=@agencia
     WHERE id=@id
   `).run({
-    client_id: config.client_id,
-    client_secret: config.client_secret,
-    cert_path: config.cert_path,
-    key_path: config.key_path,
-    conta: config.conta,
-    agencia: config.agencia,
-    id: banco_id,
+    client_id: config.client_id, client_secret: config.client_secret,
+    cert_path: config.cert_path, key_path: config.key_path,
+    conta: config.conta, agencia: config.agencia, id: banco_id,
   })
 }
 
 // -----------------------------------------------------------------------
-// Boleto CRUD
+// Boleto list / save
 // -----------------------------------------------------------------------
 
 export function listBoletos(filters?: { loja_id?: number; status?: string; banco_id?: number }): BoletoSalvo[] {
   let query = `
     SELECT b.*, bk.nome as banco_nome
-    FROM boletos b
-    LEFT JOIN bancos bk ON b.banco_id = bk.id
+    FROM boletos b LEFT JOIN bancos bk ON b.banco_id = bk.id
     WHERE 1=1
   `
   const params: Record<string, unknown> = {}
-  if (filters?.loja_id) { query += ' AND b.loja_id=@loja_id'; params.loja_id = filters.loja_id }
-  if (filters?.status) { query += ' AND b.status=@status'; params.status = filters.status }
-  if (filters?.banco_id) { query += ' AND b.banco_id=@banco_id'; params.banco_id = filters.banco_id }
+  if (filters?.loja_id)  { query += ' AND b.loja_id=@loja_id';   params.loja_id  = filters.loja_id }
+  if (filters?.status)   { query += ' AND b.status=@status';      params.status   = filters.status }
+  if (filters?.banco_id) { query += ' AND b.banco_id=@banco_id';  params.banco_id = filters.banco_id }
   query += ' ORDER BY b.criado_em DESC LIMIT 200'
   return sqlite().prepare(query).all(params) as BoletoSalvo[]
 }
 
-function saveBoletoLocal(draft: BoletoDraft, result: {
-  nosso_numero?: string
-  linha_digitavel?: string
-  codigo_barras?: string
-  inter_id?: string
-  pdf_path?: string
-  status?: string
+function saveBoletoLocal(draft: BoletoDraft, res: {
+  nosso_numero?: string; linha_digitavel?: string; codigo_barras?: string
+  inter_id?: string; pdf_path?: string; status?: string
 }): BoletoSalvo {
-  const stmt = sqlite().prepare(`
+  const run = sqlite().prepare(`
     INSERT INTO boletos (
       banco_id, loja_id, pedido_id,
       sacado_nome, sacado_cpf_cnpj, sacado_endereco, sacado_cidade, sacado_uf, sacado_cep,
@@ -141,27 +190,16 @@ function saveBoletoLocal(draft: BoletoDraft, result: {
       @valor, @vencimento, @descricao, @numero_documento,
       @nosso_numero, @linha_digitavel, @codigo_barras, @status, @pdf_path, @inter_id
     )
-  `)
-  const run = stmt.run({
-    banco_id: draft.banco_id,
-    loja_id: draft.loja_id ?? null,
-    pedido_id: draft.pedido_id ?? null,
-    sacado_nome: draft.sacado.nome,
-    sacado_cpf_cnpj: draft.sacado.cpf_cnpj,
-    sacado_endereco: draft.sacado.endereco,
-    sacado_cidade: draft.sacado.cidade,
-    sacado_uf: draft.sacado.uf,
-    sacado_cep: draft.sacado.cep,
-    valor: draft.valor,
-    vencimento: draft.vencimento,
-    descricao: draft.descricao,
-    numero_documento: draft.numero_documento,
-    nosso_numero: result.nosso_numero ?? null,
-    linha_digitavel: result.linha_digitavel ?? null,
-    codigo_barras: result.codigo_barras ?? null,
-    status: result.status ?? 'emitido',
-    pdf_path: result.pdf_path ?? null,
-    inter_id: result.inter_id ?? null,
+  `).run({
+    banco_id: draft.banco_id, loja_id: draft.loja_id ?? null, pedido_id: draft.pedido_id ?? null,
+    sacado_nome: draft.sacado.nome, sacado_cpf_cnpj: draft.sacado.cpf_cnpj,
+    sacado_endereco: draft.sacado.endereco, sacado_cidade: draft.sacado.cidade,
+    sacado_uf: draft.sacado.uf, sacado_cep: draft.sacado.cep,
+    valor: draft.valor, vencimento: draft.vencimento,
+    descricao: draft.descricao, numero_documento: draft.numero_documento,
+    nosso_numero: res.nosso_numero ?? null, linha_digitavel: res.linha_digitavel ?? null,
+    codigo_barras: res.codigo_barras ?? null, status: res.status ?? 'emitido',
+    pdf_path: res.pdf_path ?? null, inter_id: res.inter_id ?? null,
   })
   return sqlite()
     .prepare('SELECT b.*, bk.nome as banco_nome FROM boletos b LEFT JOIN bancos bk ON b.banco_id=bk.id WHERE b.id=?')
@@ -169,7 +207,7 @@ function saveBoletoLocal(draft: BoletoDraft, result: {
 }
 
 // -----------------------------------------------------------------------
-// Inter API OAuth2 token (mTLS)
+// Inter OAuth2 token (mTLS)
 // -----------------------------------------------------------------------
 
 interface TokenCache { token: string; expires_at: number }
@@ -180,52 +218,44 @@ async function getInterToken(banco_id: number, config: InterConfig): Promise<str
   if (cached && Date.now() < cached.expires_at - 30_000) return cached.token
 
   const baseUrl = config.ambiente === 'sandbox' ? BASE_URL_SANDBOX : BASE_URL_PROD
-
   if (!existsSync(config.cert_path)) throw new Error(`Certificado não encontrado: ${config.cert_path}`)
-  if (!existsSync(config.key_path)) throw new Error(`Chave privada não encontrada: ${config.key_path}`)
+  if (!existsSync(config.key_path))  throw new Error(`Chave privada não encontrada: ${config.key_path}`)
 
   const cert = readFileSync(config.cert_path)
-  const key = readFileSync(config.key_path)
-
-  // Use undici (Node 18+) with certificate for mTLS
-  const { Agent, request } = await import('undici')
-  const agent = new Agent({ connect: { cert, key, rejectUnauthorized: config.ambiente !== 'sandbox' } })
+  const key  = readFileSync(config.key_path)
 
   const body = new URLSearchParams({
     client_id: config.client_id,
     client_secret: config.client_secret,
     grant_type: 'client_credentials',
     scope: 'boleto-cobranca.read boleto-cobranca.write',
-  })
+  }).toString()
 
-  const { statusCode, body: resBody } = await request(`${baseUrl}/oauth/v2/token`, {
+  const res = await mtlsRequest({
     method: 'POST',
+    url: `${baseUrl}/oauth/v2/token`,
+    cert, key,
+    rejectUnauthorized: config.ambiente !== 'sandbox',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: body.toString(),
-    dispatcher: agent,
+    body,
   })
 
-  const json = await resBody.json() as any
-  if (statusCode !== 200) throw new Error(`Token error ${statusCode}: ${JSON.stringify(json)}`)
+  const json = res.json<any>()
+  if (res.statusCode !== 200) throw new Error(`Token error ${res.statusCode}: ${JSON.stringify(json)}`)
 
-  const token: TokenCache = { token: json.access_token, expires_at: Date.now() + json.expires_in * 1000 }
-  tokenCache.set(banco_id, token)
-  return token.token
+  const entry: TokenCache = { token: json.access_token, expires_at: Date.now() + json.expires_in * 1000 }
+  tokenCache.set(banco_id, entry)
+  return entry.token
 }
 
 // -----------------------------------------------------------------------
-// Emitir boleto via Inter API
+// Emitir boleto
 // -----------------------------------------------------------------------
 
 export async function emitirBoleto(draft: BoletoDraft): Promise<BoletoSalvo> {
   const banco = sqlite().prepare('SELECT * FROM bancos WHERE id=?').get(draft.banco_id) as Banco | null
   if (!banco) throw new Error('Banco não encontrado')
-
-  if (banco.provedor === 'inter') {
-    return emitirBoletoInter(draft, banco)
-  }
-
-  // Manual / outros bancos — só salva localmente sem API
+  if (banco.provedor === 'inter') return emitirBoletoInter(draft, banco)
   return saveBoletoLocal(draft, { status: 'emitido' })
 }
 
@@ -235,140 +265,92 @@ async function emitirBoletoInter(draft: BoletoDraft, banco: Banco): Promise<Bole
 
   const baseUrl = config.ambiente === 'sandbox' ? BASE_URL_SANDBOX : BASE_URL_PROD
   const token = await getInterToken(banco.id, config)
+  const cert = readFileSync(config.cert_path)
+  const key  = readFileSync(config.key_path)
+  const rejectUnauthorized = config.ambiente !== 'sandbox'
 
-  const { Agent, request } = await import('undici')
-  const agent = new Agent({
-    connect: {
-      cert: readFileSync(config.cert_path),
-      key: readFileSync(config.key_path),
-      rejectUnauthorized: config.ambiente !== 'sandbox',
-    }
-  })
-
+  const cpfCnpj = draft.sacado.cpf_cnpj.replace(/\D/g, '')
   const payload: Record<string, unknown> = {
     seuNumero: draft.numero_documento,
     valorNominal: draft.valor,
     dataVencimento: draft.vencimento,
     numDiasAgenda: 30,
     pagador: {
-      cpfCnpj: draft.sacado.cpf_cnpj.replace(/\D/g, ''),
-      tipoPessoa: draft.sacado.cpf_cnpj.replace(/\D/g, '').length <= 11 ? 'FISICA' : 'JURIDICA',
+      cpfCnpj,
+      tipoPessoa: cpfCnpj.length <= 11 ? 'FISICA' : 'JURIDICA',
       nome: draft.sacado.nome,
       endereco: draft.sacado.endereco,
       cidade: draft.sacado.cidade,
       uf: draft.sacado.uf,
       cep: draft.sacado.cep.replace(/\D/g, ''),
     },
+    multa: draft.dias_multa && draft.dias_multa > 0
+      ? { codigoMulta: 'PERCENTUAL', data: draft.vencimento, taxa: draft.dias_multa }
+      : { codigoMulta: 'NAOTEMMULTA' },
+    mora: draft.juros_mensal && draft.juros_mensal > 0
+      ? { codigoMora: 'TAXAMENSAL', data: draft.vencimento, taxa: draft.juros_mensal }
+      : { codigoMora: 'ISENTO' },
+    desconto: draft.desconto_valor && draft.desconto_data
+      ? { codigoDesconto: 'VALORFIXODATAINFORMADA', descontos: [{ data: draft.desconto_data, taxa: 0, valor: draft.desconto_valor }] }
+      : { codigoDesconto: 'NAOTEMDESCONTO' },
   }
+  if (draft.descricao) payload.mensagem = { linha1: draft.descricao.substring(0, 77) }
 
-  if (draft.descricao) {
-    payload.mensagem = { linha1: draft.descricao.substring(0, 77) }
-  }
+  const res = await mtlsRequest({
+    method: 'POST',
+    url: `${baseUrl}/cobranca/v3/cobrancas`,
+    cert, key, rejectUnauthorized,
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      'x-inter-conta-corrente': config.conta,
+    },
+    body: JSON.stringify(payload),
+  })
 
-  if (draft.dias_multa && draft.dias_multa > 0) {
-    payload.multa = { codigoMulta: 'PERCENTUAL', data: draft.vencimento, taxa: draft.dias_multa }
-  } else {
-    payload.multa = { codigoMulta: 'NAOTEMMULTA' }
-  }
-
-  if (draft.juros_mensal && draft.juros_mensal > 0) {
-    payload.mora = { codigoMora: 'TAXAMENSAL', data: draft.vencimento, taxa: draft.juros_mensal }
-  } else {
-    payload.mora = { codigoMora: 'ISENTO' }
-  }
-
-  if (draft.desconto_valor && draft.desconto_data) {
-    payload.desconto = {
-      codigoDesconto: 'VALORFIXODATAINFORMADA',
-      descontos: [{ data: draft.desconto_data, taxa: 0, valor: draft.desconto_valor }],
-    }
-  } else {
-    payload.desconto = { codigoDesconto: 'NAOTEMDESCONTO' }
-  }
-
-  const { statusCode, body: resBody } = await request(
-    `${baseUrl}/cobranca/v3/cobrancas`,
-    {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-        'x-inter-conta-corrente': config.conta,
-      },
-      body: JSON.stringify(payload),
-      dispatcher: agent,
-    }
-  )
-
-  const json = await resBody.json() as any
-  if (statusCode !== 200 && statusCode !== 201) {
-    throw new Error(`Inter API error ${statusCode}: ${JSON.stringify(json)}`)
-  }
+  const json = res.json<any>()
+  if (res.statusCode !== 200 && res.statusCode !== 201)
+    throw new Error(`Inter API error ${res.statusCode}: ${JSON.stringify(json)}`)
 
   const nosso_numero: string = json.nossoNumero ?? ''
-  // codigoSolicitacao (UUID) is used for PDF/cancel/consulta operations
   const codigo_solicitacao: string = json.codigoSolicitacao ?? nosso_numero
-  const linha_digitavel = json.linhaDigitavel ?? ''
-  const codigo_barras = json.codigoBarras ?? ''
+  const linha_digitavel: string = json.linhaDigitavel ?? ''
+  const codigo_barras: string = json.codigoBarras ?? ''
 
-  // Fetch PDF (use codigoSolicitacao as identifier)
   let pdf_path: string | undefined
-  try {
-    pdf_path = await downloadBoletoPdf(banco.id, config, codigo_solicitacao)
-  } catch {
-    // non-fatal, PDF can be re-fetched later
-  }
+  try { pdf_path = await downloadBoletoPdf(banco.id, config, codigo_solicitacao) } catch { /* non-fatal */ }
 
-  return saveBoletoLocal(draft, {
-    nosso_numero,
-    linha_digitavel,
-    codigo_barras,
-    inter_id: codigo_solicitacao,   // UUID used for all subsequent API calls
-    pdf_path,
-    status: 'emitido',
-  })
+  return saveBoletoLocal(draft, { nosso_numero, linha_digitavel, codigo_barras, inter_id: codigo_solicitacao, pdf_path, status: 'emitido' })
 }
 
 // -----------------------------------------------------------------------
-// PDF
+// PDF download
 // -----------------------------------------------------------------------
 
-async function downloadBoletoPdf(banco_id: number, config: InterConfig, nosso_numero: string): Promise<string> {
+async function downloadBoletoPdf(banco_id: number, config: InterConfig, identifier: string): Promise<string> {
   const baseUrl = config.ambiente === 'sandbox' ? BASE_URL_SANDBOX : BASE_URL_PROD
   const token = await getInterToken(banco_id, config)
+  const cert = readFileSync(config.cert_path)
+  const key  = readFileSync(config.key_path)
 
-  const { Agent, request } = await import('undici')
-  const agent = new Agent({
-    connect: {
-      cert: readFileSync(config.cert_path),
-      key: readFileSync(config.key_path),
-      rejectUnauthorized: config.ambiente !== 'sandbox',
-    }
+  const res = await mtlsRequest({
+    method: 'GET',
+    url: `${baseUrl}/cobranca/v3/cobrancas/${identifier}/pdf`,
+    cert, key,
+    rejectUnauthorized: config.ambiente !== 'sandbox',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'x-inter-conta-corrente': config.conta,
+    },
   })
 
-  const { statusCode, body: resBody } = await request(
-    `${baseUrl}/cobranca/v3/cobrancas/${nosso_numero}/pdf`,
-    {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'x-inter-conta-corrente': config.conta,
-      },
-      dispatcher: agent,
-    }
-  )
-
-  if (statusCode !== 200) throw new Error(`PDF error ${statusCode}`)
-
-  // Inter returns binary PDF content
-  const pdfBuffer = Buffer.from(await resBody.arrayBuffer())
+  if (res.statusCode !== 200) throw new Error(`PDF error ${res.statusCode}`)
 
   const pdfDir = join(app.getPath('userData'), 'boletos')
-  const { mkdirSync } = await import('fs')
   mkdirSync(pdfDir, { recursive: true })
-  const safeName = nosso_numero.replace(/[^a-zA-Z0-9_-]/g, '_')
+  const safeName = identifier.replace(/[^a-zA-Z0-9_-]/g, '_')
   const pdfPath = join(pdfDir, `boleto_${safeName}.pdf`)
-  writeFileSync(pdfPath, pdfBuffer)
+  writeFileSync(pdfPath, res.asBuffer())
   return pdfPath
 }
 
@@ -377,121 +359,101 @@ export async function getBoletosPdf(boleto_id: number): Promise<string> {
     .prepare('SELECT b.*, bk.* FROM boletos b LEFT JOIN bancos bk ON b.banco_id=bk.id WHERE b.id=?')
     .get(boleto_id) as any
   if (!row) throw new Error('Boleto não encontrado')
+  if (row.pdf_path && existsSync(row.pdf_path)) return row.pdf_path as string
 
-  if (row.pdf_path && existsSync(row.pdf_path)) return row.pdf_path
-
-  // Use inter_id (codigoSolicitacao) for PDF fetch — fall back to nosso_numero
-  const identifier = row.inter_id || row.nosso_numero
+  const identifier: string = row.inter_id || row.nosso_numero
   if (row.provedor === 'inter' && identifier) {
-    const config = getInterConfig(row.banco_id)
+    const config = getInterConfig(row.banco_id as number)
     if (!config) throw new Error('Config Inter não encontrada')
-    const path = await downloadBoletoPdf(row.banco_id, config, identifier)
-    sqlite().prepare('UPDATE boletos SET pdf_path=? WHERE id=?').run(path, boleto_id)
-    return path
+    const pdfPath = await downloadBoletoPdf(row.banco_id as number, config, identifier)
+    sqlite().prepare('UPDATE boletos SET pdf_path=? WHERE id=?').run(pdfPath, boleto_id)
+    return pdfPath
   }
-
   throw new Error('PDF não disponível para este boleto')
 }
 
 // -----------------------------------------------------------------------
-// Cancelar boleto
+// Cancelar
 // -----------------------------------------------------------------------
 
-export async function cancelarBoleto(boleto_id: number, motivo: string = 'ACERTOS'): Promise<void> {
+export async function cancelarBoleto(boleto_id: number, motivo = 'ACERTOS'): Promise<void> {
   const row = sqlite()
-    .prepare('SELECT b.*, bk.provedor, bk.conta FROM boletos b LEFT JOIN bancos bk ON b.banco_id=bk.id WHERE b.id=?')
+    .prepare('SELECT b.*, bk.provedor FROM boletos b LEFT JOIN bancos bk ON b.banco_id=bk.id WHERE b.id=?')
     .get(boleto_id) as any
   if (!row) throw new Error('Boleto não encontrado')
 
-  const cancelId = row.inter_id || row.nosso_numero
+  const cancelId: string = row.inter_id || row.nosso_numero
   if (row.provedor === 'inter' && cancelId) {
-    const config = getInterConfig(row.banco_id)
+    const config = getInterConfig(row.banco_id as number)
     if (!config) throw new Error('Config Inter não encontrada')
 
     const baseUrl = config.ambiente === 'sandbox' ? BASE_URL_SANDBOX : BASE_URL_PROD
-    const token = await getInterToken(row.banco_id, config)
+    const token = await getInterToken(row.banco_id as number, config)
+    const cert = readFileSync(config.cert_path)
+    const key  = readFileSync(config.key_path)
 
-    const { Agent, request } = await import('undici')
-    const agent = new Agent({
-      connect: {
-        cert: readFileSync(config.cert_path),
-        key: readFileSync(config.key_path),
-        rejectUnauthorized: config.ambiente !== 'sandbox',
-      }
+    const res = await mtlsRequest({
+      method: 'POST',
+      url: `${baseUrl}/cobranca/v3/cobrancas/${cancelId}/cancelar`,
+      cert, key,
+      rejectUnauthorized: config.ambiente !== 'sandbox',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'x-inter-conta-corrente': config.conta,
+      },
+      body: JSON.stringify({ motivoCancelamento: motivo }),
     })
 
-    const { statusCode } = await request(
-      `${baseUrl}/cobranca/v3/cobrancas/${cancelId}/cancelar`,
-      {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-          'x-inter-conta-corrente': config.conta,
-        },
-        body: JSON.stringify({ motivoCancelamento: motivo }),
-        dispatcher: agent,
-      }
-    )
-
-    if (statusCode !== 200 && statusCode !== 204) throw new Error(`Cancelamento error ${statusCode}`)
+    if (res.statusCode !== 200 && res.statusCode !== 204)
+      throw new Error(`Cancelamento error ${res.statusCode}`)
   }
 
   sqlite().prepare("UPDATE boletos SET status='cancelado' WHERE id=?").run(boleto_id)
 }
 
 // -----------------------------------------------------------------------
-// Consultar status via Inter API
+// Consultar status
 // -----------------------------------------------------------------------
 
 export async function consultarBoleto(boleto_id: number): Promise<{ status: string; situacao?: string }> {
   const row = sqlite()
-    .prepare('SELECT b.*, bk.provedor, bk.conta FROM boletos b LEFT JOIN bancos bk ON b.banco_id=bk.id WHERE b.id=?')
+    .prepare('SELECT b.*, bk.provedor FROM boletos b LEFT JOIN bancos bk ON b.banco_id=bk.id WHERE b.id=?')
     .get(boleto_id) as any
   if (!row) throw new Error('Boleto não encontrado')
 
-  const consultaId = row.inter_id || row.nosso_numero
+  const consultaId: string = row.inter_id || row.nosso_numero
   if (row.provedor === 'inter' && consultaId) {
-    const config = getInterConfig(row.banco_id)
+    const config = getInterConfig(row.banco_id as number)
     if (!config) throw new Error('Config Inter não encontrada')
 
     const baseUrl = config.ambiente === 'sandbox' ? BASE_URL_SANDBOX : BASE_URL_PROD
-    const token = await getInterToken(row.banco_id, config)
+    const token = await getInterToken(row.banco_id as number, config)
+    const cert = readFileSync(config.cert_path)
+    const key  = readFileSync(config.key_path)
 
-    const { Agent, request } = await import('undici')
-    const agent = new Agent({
-      connect: {
-        cert: readFileSync(config.cert_path),
-        key: readFileSync(config.key_path),
-        rejectUnauthorized: config.ambiente !== 'sandbox',
-      }
+    const res = await mtlsRequest({
+      method: 'GET',
+      url: `${baseUrl}/cobranca/v3/cobrancas/${consultaId}`,
+      cert, key,
+      rejectUnauthorized: config.ambiente !== 'sandbox',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'x-inter-conta-corrente': config.conta,
+      },
     })
 
-    const { statusCode, body: resBody } = await request(
-      `${baseUrl}/cobranca/v3/cobrancas/${consultaId}`,
-      {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'x-inter-conta-corrente': config.conta,
-        },
-        dispatcher: agent,
-      }
-    )
-
-    const json = await resBody.json() as any
-    if (statusCode !== 200) throw new Error(`Consulta error ${statusCode}`)
+    const json = res.json<any>()
+    if (res.statusCode !== 200) throw new Error(`Consulta error ${res.statusCode}`)
 
     const situacao: string = json.situacao ?? json.status ?? 'EMABERTO'
-    // Map Inter status → local status
     const statusMap: Record<string, string> = {
-      PAGO: 'pago', CANCELADO: 'cancelado', VENCIDO: 'vencido',
-      EMABERTO: 'emitido', EXPIRADO: 'vencido',
+      PAGO: 'pago', CANCELADO: 'cancelado', VENCIDO: 'vencido', EMABERTO: 'emitido', EXPIRADO: 'vencido',
     }
     const newStatus = statusMap[situacao] ?? 'emitido'
-    sqlite().prepare("UPDATE boletos SET status=? WHERE id=?").run(newStatus, boleto_id)
+    sqlite().prepare('UPDATE boletos SET status=? WHERE id=?').run(newStatus, boleto_id)
     return { status: newStatus, situacao }
   }
 
-  return { status: row.status }
+  return { status: row.status as string }
 }
