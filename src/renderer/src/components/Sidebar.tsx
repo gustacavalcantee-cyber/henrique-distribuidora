@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { LayoutDashboard, ClipboardList, History, BarChart2, Wallet, Settings, RefreshCw, RotateCcw, FileText, Landmark } from 'lucide-react'
+import { LayoutDashboard, ClipboardList, History, BarChart2, Wallet, Settings, RefreshCw, RotateCcw, FileText, Landmark, Layers } from 'lucide-react'
 import logoImg from '../assets/logo.png'
 import { useState } from 'react'
 
@@ -11,6 +11,7 @@ const navItems = [
   { to: '/despesas', icon: Wallet, label: 'Despesas' },
   { to: '/nota-fiscal', icon: FileText, label: 'Nota Fiscal' },
   { to: '/boleto', icon: Landmark, label: 'Boleto' },
+  { to: '/lote', icon: Layers, label: 'Emissão em Lote' },
   { to: '/cadastros', icon: Settings, label: 'Cadastros' },
   { to: '/atualizacao', icon: RefreshCw, label: 'Atualização' },
 ]

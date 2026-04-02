@@ -249,6 +249,29 @@ export interface BoletoSalvo {
   inter_id: string | null        // response id from Inter API
 }
 
+// ── Emissão em Lote ──────────────────────────────────────────────────────────
+export interface LoteItem {
+  loja_id: number
+  loja_nome: string
+  franqueado_id: number | null
+  franqueado_nome: string | null
+  total_venda: number
+  cnpj: string | null
+  razao_social: string | null
+  endereco: string | null
+  municipio: string | null
+  uf: string | null
+  cep: string | null
+}
+
+export interface LoteResultItem {
+  loja_id: number
+  loja_nome: string
+  tipo: 'boleto' | 'nfe'
+  status: 'ok' | 'erro'
+  mensagem?: string
+}
+
 export interface InterConfig {
   client_id: string
   client_secret: string

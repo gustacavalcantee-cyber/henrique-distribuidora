@@ -98,4 +98,5 @@ export const IPC = {
   INTER_CONFIG_GET: 'inter:configGet',
   INTER_CONFIG_SET: 'inter:configSet',
   PICK_FILE: 'dialog:pickFile',
+  LOTE_GET_QUINZENA: 'lote:getQuinzena',
 } as const
