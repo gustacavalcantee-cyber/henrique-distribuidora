@@ -8,6 +8,7 @@ import { join } from 'path'
 import https from 'node:https'
 import { URL } from 'node:url'
 import { app } from 'electron'
+import { getDb } from '../db/client-local'
 import type { Banco, BoletoDraft, BoletoSalvo, InterConfig } from '../../shared/types'
 
 const BASE_URL_PROD = 'https://cdpj.partners.bancointer.com.br'
@@ -78,11 +79,6 @@ function mtlsRequest(opts: MtlsReqOptions): Promise<MtlsResponse> {
 // -----------------------------------------------------------------------
 // Local DB helpers
 // -----------------------------------------------------------------------
-
-function getDb() {
-  const { getDb: _getDb } = require('../db/client-local') as { getDb: () => unknown }
-  return _getDb()
-}
 
 function sqlite() {
   return (getDb() as any).$client
