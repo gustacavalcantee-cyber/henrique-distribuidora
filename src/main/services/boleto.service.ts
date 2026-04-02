@@ -3,7 +3,7 @@
 // Inter API v3: https://cdpj.partners.bancointer.com.br
 // Auth: OAuth2 mTLS (client_credentials) with .crt/.key certificate files
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs'
+import { existsSync, readFileSync, writeFileSync, mkdirSync, statSync } from 'fs'
 import { join } from 'path'
 import https from 'node:https'
 import { URL } from 'node:url'
@@ -74,6 +74,36 @@ function mtlsRequest(opts: MtlsReqOptions): Promise<MtlsResponse> {
     if (opts.body) req.write(opts.body)
     req.end()
   })
+}
+
+// -----------------------------------------------------------------------
+// Cert/key loader with proper validation
+// -----------------------------------------------------------------------
+
+function loadCertAndKey(config: InterConfig): { cert: Buffer; key: Buffer } {
+  if (!config.cert_path || config.cert_path.trim() === '') {
+    throw new Error('Caminho do certificado (.crt) não configurado. Vá em Bancos → Configurar API e informe os arquivos.')
+  }
+  if (!config.key_path || config.key_path.trim() === '') {
+    throw new Error('Caminho da chave privada (.key) não configurado. Vá em Bancos → Configurar API e informe os arquivos.')
+  }
+
+  // Check paths are actual files (not directories)
+  let certStat: ReturnType<typeof statSync> | null = null
+  let keyStat: ReturnType<typeof statSync> | null = null
+  try { certStat = statSync(config.cert_path) } catch {
+    throw new Error(`Certificado não encontrado: ${config.cert_path}`)
+  }
+  try { keyStat = statSync(config.key_path) } catch {
+    throw new Error(`Chave privada não encontrada: ${config.key_path}`)
+  }
+
+  if (!certStat.isFile()) throw new Error(`O caminho do certificado não é um arquivo válido: ${config.cert_path}`)
+  if (!keyStat.isFile()) throw new Error(`O caminho da chave privada não é um arquivo válido: ${config.key_path}`)
+
+  const cert = readFileSync(config.cert_path)
+  const key  = readFileSync(config.key_path)
+  return { cert, key }
 }
 
 // -----------------------------------------------------------------------
@@ -215,11 +245,7 @@ async function getInterToken(banco_id: number, config: InterConfig): Promise<str
   if (cached && Date.now() < cached.expires_at - 30_000) return cached.token
 
   const baseUrl = config.ambiente === 'sandbox' ? BASE_URL_SANDBOX : BASE_URL_PROD
-  if (!existsSync(config.cert_path)) throw new Error(`Certificado não encontrado: ${config.cert_path}`)
-  if (!existsSync(config.key_path))  throw new Error(`Chave privada não encontrada: ${config.key_path}`)
-
-  const cert = readFileSync(config.cert_path)
-  const key  = readFileSync(config.key_path)
+  const { cert, key } = loadCertAndKey(config)
 
   const body = new URLSearchParams({
     client_id: config.client_id,
@@ -258,12 +284,13 @@ export async function emitirBoleto(draft: BoletoDraft): Promise<BoletoSalvo> {
 
 async function emitirBoletoInter(draft: BoletoDraft, banco: Banco): Promise<BoletoSalvo> {
   const config = getInterConfig(banco.id)
-  if (!config) throw new Error('Configuração Inter não encontrada. Configure as credenciais na aba Bancos.')
+  if (!config) throw new Error('Configuração Inter não encontrada. Clique em "Configurar API" no banco para informar Client ID, Client Secret e certificados.')
+  if (!config.client_id || !config.client_secret) throw new Error('Client ID ou Client Secret não configurados. Clique em "Configurar API" no banco.')
+  if (!config.conta) throw new Error('Número da conta corrente Inter não configurado. Clique em "Configurar API" no banco.')
 
   const baseUrl = config.ambiente === 'sandbox' ? BASE_URL_SANDBOX : BASE_URL_PROD
   const token = await getInterToken(banco.id, config)
-  const cert = readFileSync(config.cert_path)
-  const key  = readFileSync(config.key_path)
+  const { cert, key } = loadCertAndKey(config)
   const rejectUnauthorized = config.ambiente !== 'sandbox'
 
   const cpfCnpj = draft.sacado.cpf_cnpj.replace(/\D/g, '')
@@ -327,8 +354,7 @@ async function emitirBoletoInter(draft: BoletoDraft, banco: Banco): Promise<Bole
 async function downloadBoletoPdf(banco_id: number, config: InterConfig, identifier: string): Promise<string> {
   const baseUrl = config.ambiente === 'sandbox' ? BASE_URL_SANDBOX : BASE_URL_PROD
   const token = await getInterToken(banco_id, config)
-  const cert = readFileSync(config.cert_path)
-  const key  = readFileSync(config.key_path)
+  const { cert, key } = loadCertAndKey(config)
 
   const res = await mtlsRequest({
     method: 'GET',
@@ -386,8 +412,7 @@ export async function cancelarBoleto(boleto_id: number, motivo = 'ACERTOS'): Pro
 
     const baseUrl = config.ambiente === 'sandbox' ? BASE_URL_SANDBOX : BASE_URL_PROD
     const token = await getInterToken(row.banco_id as number, config)
-    const cert = readFileSync(config.cert_path)
-    const key  = readFileSync(config.key_path)
+    const { cert, key } = loadCertAndKey(config)
 
     const res = await mtlsRequest({
       method: 'POST',
@@ -426,8 +451,7 @@ export async function consultarBoleto(boleto_id: number): Promise<{ status: stri
 
     const baseUrl = config.ambiente === 'sandbox' ? BASE_URL_SANDBOX : BASE_URL_PROD
     const token = await getInterToken(row.banco_id as number, config)
-    const cert = readFileSync(config.cert_path)
-    const key  = readFileSync(config.key_path)
+    const { cert, key } = loadCertAndKey(config)
 
     const res = await mtlsRequest({
       method: 'GET',
