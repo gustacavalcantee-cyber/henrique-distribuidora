@@ -6,6 +6,7 @@ import { Lancamentos } from './pages/Lancamentos'
 import { Historico } from './pages/Historico'
 import { Relatorios } from './pages/Relatorios'
 import { Despesas } from './pages/Despesas'
+import { NotaFiscal } from './pages/NotaFiscal'
 import { Cadastros } from './pages/Cadastros'
 import { Atualizacao } from './pages/Atualizacao'
 import { SplashScreen } from './components/SplashScreen'
@@ -49,6 +50,7 @@ export default function App() {
           <Route path="historico" element={<ErrorBoundary><Historico /></ErrorBoundary>} />
           <Route path="relatorios" element={<ErrorBoundary><Relatorios /></ErrorBoundary>} />
           <Route path="despesas" element={<ErrorBoundary><Despesas /></ErrorBoundary>} />
+          <Route path="nota-fiscal" element={<ErrorBoundary><NotaFiscal /></ErrorBoundary>} />
           <Route path="cadastros" element={<ErrorBoundary><Cadastros /></ErrorBoundary>} />
           <Route path="atualizacao" element={<ErrorBoundary><Atualizacao /></ErrorBoundary>} />
         </Route>

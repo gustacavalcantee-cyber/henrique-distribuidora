@@ -101,3 +101,84 @@ export interface PrecoVsCustoResult {
   comparacao_lojas: PrecoVsCustoLoja[]
   grafico_mensal: PrecoVsCustoGraficoMes[]
 }
+
+export interface NfeConfig {
+  nome: string
+  cnpj: string
+  ie: string
+  logradouro: string
+  numero_end: string
+  complemento: string
+  bairro: string
+  municipio: string
+  uf: string
+  cep: string
+  telefone: string
+  serie: string
+  numero_atual: number
+  natureza_operacao: string
+}
+
+export interface NfeItem {
+  codigo: string
+  descricao: string
+  ncm: string
+  cst: string
+  cfop: string
+  unidade: string
+  quantidade: number
+  valor_unitario: number
+  valor_desconto: number
+  valor_total: number
+  base_icms: number
+  valor_icms: number
+  aliq_icms: number
+}
+
+export interface NfeDraft {
+  loja_id: number
+  loja_nome: string
+  loja_razao_social: string
+  loja_cnpj: string
+  loja_ie: string
+  loja_endereco: string
+  loja_bairro: string
+  loja_cep: string
+  loja_municipio: string
+  loja_uf: string
+  loja_telefone: string
+  mes: number
+  ano: number
+  quinzena: 1 | 2
+  items: NfeItem[]
+  valor_total: number
+}
+
+export interface NotaFiscalSalva {
+  id: number
+  numero: number
+  serie: string
+  loja_id: number
+  loja_nome: string
+  mes: number
+  ano: number
+  quinzena: number
+  data_emissao: string
+  valor_total: number
+  status: string
+  items_json: string
+  danfe_html: string | null
+  chave_acesso: string | null
+  protocolo: string | null
+  criado_em: string
+}
+
+export interface ProdutoFiscalRow {
+  id: number
+  nome: string
+  unidade: string
+  ncm: string | null
+  cst_icms: string | null
+  cfop: string | null
+  unidade_nfe: string | null
+}
