@@ -8,7 +8,8 @@ import { join } from 'path'
 import https from 'node:https'
 import { URL } from 'node:url'
 import { app } from 'electron'
-import { getDb } from '../db/client-local'
+import { getDb } from '../db/client'
+import { getRawSqlite as getLocalRawSqlite } from '../db/client-local'
 import type { Banco, BoletoDraft, BoletoSalvo, InterConfig } from '../../shared/types'
 
 const BASE_URL_PROD = 'https://cdpj.partners.bancointer.com.br'
@@ -113,6 +114,9 @@ function loadCertAndKey(config: InterConfig): { cert: Buffer; key: Buffer } {
 function sqlite() {
   return (getDb() as any).$client
 }
+function localSqlite() {
+  return getLocalRawSqlite()
+}
 
 // -----------------------------------------------------------------------
 // Banco CRUD
@@ -158,7 +162,7 @@ export function deleteBanco(id: number): void {
 
 export function getInterConfig(banco_id: number): InterConfig | null {
   const chave = `inter_config_${banco_id}`
-  const row = sqlite().prepare('SELECT valor FROM configuracoes WHERE chave=?').get(chave)
+  const row = localSqlite().prepare('SELECT valor FROM configuracoes WHERE chave=?').get(chave)
   if (!row) return null
   try { return JSON.parse((row as any).valor) as InterConfig } catch { return null }
 }
@@ -166,11 +170,11 @@ export function getInterConfig(banco_id: number): InterConfig | null {
 export function setInterConfig(banco_id: number, config: InterConfig): void {
   const chave = `inter_config_${banco_id}`
   const valor = JSON.stringify(config)
-  const existing = sqlite().prepare('SELECT chave FROM configuracoes WHERE chave=?').get(chave)
+  const existing = localSqlite().prepare('SELECT chave FROM configuracoes WHERE chave=?').get(chave)
   if (existing) {
-    sqlite().prepare('UPDATE configuracoes SET valor=? WHERE chave=?').run(valor, chave)
+    localSqlite().prepare('UPDATE configuracoes SET valor=? WHERE chave=?').run(valor, chave)
   } else {
-    sqlite().prepare('INSERT INTO configuracoes (chave, valor) VALUES (?, ?)').run(chave, valor)
+    localSqlite().prepare('INSERT INTO configuracoes (chave, valor) VALUES (?, ?)').run(chave, valor)
   }
   sqlite().prepare(`
     UPDATE bancos SET client_id=@client_id, client_secret=@client_secret,

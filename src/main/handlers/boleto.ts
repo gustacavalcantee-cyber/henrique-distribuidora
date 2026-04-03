@@ -6,7 +6,7 @@ import {
   getInterConfig, setInterConfig,
   listBoletos, emitirBoleto, cancelarBoleto, getBoletosPdf, consultarBoleto,
 } from '../services/boleto.service'
-import { getRawSqlite } from '../db/client-local'
+import { getRawSqliteShared } from '../db/client'
 
 export function registerBoletoHandlers() {
   ipcMain.handle(IPC.BANCOS_LIST, () => listBancos())
@@ -40,7 +40,7 @@ export function registerBoletoHandlers() {
   ipcMain.handle(IPC.BOLETOS_SET_STATUS, (_e, boleto_id: number, status: string) => {
     const allowed = ['emitido', 'pago', 'cancelado', 'vencido']
     if (!allowed.includes(status)) throw new Error(`Status inválido: ${status}`)
-    getRawSqlite().prepare('UPDATE boletos SET status=? WHERE id=?').run(status, boleto_id)
+    getRawSqliteShared().prepare('UPDATE boletos SET status=? WHERE id=?').run(status, boleto_id)
   })
 
   ipcMain.handle(IPC.PICK_FILE, async (_e, filters?: Electron.FileFilter[]) => {

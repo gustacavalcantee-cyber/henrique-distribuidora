@@ -16,7 +16,6 @@ import { registerLayoutConfigHandlers } from './layout-config'
 import { registerRedeColOrderHandlers } from './rede-col-order'
 import { registerPrintOrderHandlers } from './print-order'
 import { registerSyncAdminHandlers } from './sync-admin'
-import { registerNfeHandlers } from './nfe'
 import { registerBoletoHandlers } from './boleto'
 import { registerLoteHandlers } from './lote'
 
@@ -40,7 +39,6 @@ export function registerAllHandlers() {
   registerRedeColOrderHandlers()
   registerPrintOrderHandlers()
   registerSyncAdminHandlers()
-  registerNfeHandlers()
   registerBoletoHandlers()
   registerLoteHandlers()
 }

@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react'
 import { IPC } from '../../../shared/ipc-channels'
-import type { Banco, BoletoDraft, BoletoSalvo, BoletoSacado, Loja, Rede } from '../../../shared/types'
+import type { Banco, BoletoDraft, BoletoSalvo, BoletoSacado, Loja, Rede, LoteItem, LoteResultItem } from '../../../shared/types'
 import { useIpc } from '../hooks/useIpc'
 
-type Tab = 'emitir' | 'historico' | 'bancos'
+type Tab = 'emitir' | 'historico' | 'bancos' | 'lote'
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -725,6 +725,385 @@ function BancosTab({ onBancosChange }: { onBancosChange: () => void }) {
   )
 }
 
+// ─── LoteTab ─────────────────────────────────────────────────────────────────
+
+const MESES_LOTE = ['', 'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+  'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro']
+
+function calcFinal(total: number, descPct: number) {
+  return total * (1 - Math.max(0, Math.min(100, descPct)) / 100)
+}
+
+function groupByFranquia(items: LoteItem[]): { key: string; nome: string; franqueado_id: number | null; lojas: LoteItem[] }[] {
+  const map = new Map<string, { nome: string; franqueado_id: number | null; lojas: LoteItem[] }>()
+  for (const item of items) {
+    const key = item.franqueado_id != null ? String(item.franqueado_id) : '__sem_franquia__'
+    if (!map.has(key)) map.set(key, { nome: item.franqueado_nome ?? '— Sem Franquia —', franqueado_id: item.franqueado_id, lojas: [] })
+    map.get(key)!.lojas.push(item)
+  }
+  return Array.from(map.entries()).map(([key, v]) => ({ key, ...v }))
+}
+
+function LoteTab({ bancos }: { bancos: Banco[] }) {
+  const now = new Date()
+  const [mes, setMes] = useState(now.getMonth() + 1)
+  const [ano, setAno] = useState(now.getFullYear())
+  const [quinzena, setQuinzena] = useState<1 | 2>(now.getDate() <= 15 ? 1 : 2)
+  const [items, setItems] = useState<LoteItem[]>([])
+  const [selected, setSelected] = useState<Set<number>>(new Set())
+  const [discounts, setDiscounts] = useState<Record<number, string>>({})
+  const [globalDiscount, setGlobalDiscount] = useState('')
+  const [loaded, setLoaded] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
+  const [bancoId, setBancoId] = useState<number | ''>(bancos[0]?.id ?? '')
+  const [vencimento, setVencimento] = useState(addDays(today(), 3))
+  const [processing, setProcessing] = useState(false)
+  const [results, setResults] = useState<LoteResultItem[]>([])
+  const [printingId, setPrintingId] = useState<number | null>(null)
+  const [histSearch, setHistSearch] = useState('')
+  const [histBoletos, setHistBoletos] = useState<BoletoSalvo[]>([])
+
+  // Load boleto history
+  useEffect(() => {
+    window.electron.invoke(IPC.BOLETOS_LIST).then((data: unknown) => {
+      setHistBoletos((data as BoletoSalvo[]) ?? [])
+    }).catch(() => {})
+  }, [results])
+
+  const getDesc = (id: number) => parseFloat(discounts[id] ?? '0') || 0
+  const getFinal = (item: LoteItem) => calcFinal(item.total_venda, getDesc(item.loja_id))
+  const selectedItems = items.filter(i => selected.has(i.loja_id))
+  const totalFinal = selectedItems.reduce((s, i) => s + getFinal(i), 0)
+  const groups = groupByFranquia(items)
+  const activeBancos = bancos.filter(b => b.ativo)
+
+  const toggleItem = (id: number) =>
+    setSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s })
+  const isGroupSelected = (lojas: LoteItem[]) => lojas.every(l => selected.has(l.loja_id))
+  const isGroupPartial = (lojas: LoteItem[]) => !isGroupSelected(lojas) && lojas.some(l => selected.has(l.loja_id))
+  const toggleGroup = (lojas: LoteItem[]) => {
+    const allSelected = isGroupSelected(lojas)
+    setSelected(prev => {
+      const s = new Set(prev)
+      lojas.forEach(l => allSelected ? s.delete(l.loja_id) : s.add(l.loja_id))
+      return s
+    })
+  }
+  const toggleAll = () => {
+    if (selected.size === items.length) setSelected(new Set())
+    else setSelected(new Set(items.map(i => i.loja_id)))
+  }
+  const toggleGroupCollapse = (key: string) =>
+    setCollapsedGroups(prev => {
+      const s = new Set(prev); s.has(key) ? s.delete(key) : s.add(key); return s
+    })
+  const setDiscount = (id: number, val: string) =>
+    setDiscounts(prev => ({ ...prev, [id]: val }))
+  const applyGlobalDiscount = () => {
+    const newD: Record<number, string> = {}
+    items.forEach(i => { newD[i.loja_id] = globalDiscount })
+    setDiscounts(newD)
+  }
+
+  const handleCarregar = async () => {
+    setLoading(true); setResults([])
+    try {
+      const data = await window.electron.invoke(IPC.LOTE_GET_QUINZENA, mes, ano, quinzena) as LoteItem[]
+      setItems(data)
+      setSelected(new Set(data.map(i => i.loja_id)))
+      setDiscounts({}); setCollapsedGroups(new Set()); setLoaded(true)
+    } catch (e: any) {
+      alert('Erro ao carregar: ' + (e?.message ?? e))
+    } finally { setLoading(false) }
+  }
+
+  const handleEmitirBoletos = async () => {
+    if (!bancoId) { alert('Selecione um banco'); return }
+    if (selectedItems.length === 0) { alert('Nenhuma franquia selecionada'); return }
+    setProcessing(true); setResults([])
+    for (const item of selectedItems) {
+      const valor = getFinal(item)
+      const draft: BoletoDraft = {
+        banco_id: bancoId as number,
+        valor,
+        vencimento,
+        numero_documento: Date.now().toString().slice(-15),
+        descricao: `Quinzena ${quinzena === 1 ? '1ª' : '2ª'} - ${MESES_LOTE[mes]}/${ano}`,
+        loja_id: item.loja_id,
+        sacado: {
+          nome: item.razao_social ?? item.loja_nome,
+          cpf_cnpj: item.cnpj ?? '',
+          endereco: item.endereco ?? '',
+          cidade: item.municipio ?? '',
+          uf: item.uf ?? '',
+          cep: item.cep ?? '',
+        },
+      }
+      try {
+        const saved = await window.electron.invoke(IPC.BOLETOS_EMITIR, draft) as BoletoSalvo
+        setResults(r => [...r, { loja_id: item.loja_id, loja_nome: item.loja_nome, tipo: 'boleto', status: 'ok', boleto_id: saved.id }])
+      } catch (e: any) {
+        setResults(r => [...r, { loja_id: item.loja_id, loja_nome: item.loja_nome, tipo: 'boleto', status: 'erro', mensagem: e?.message ?? String(e) }])
+      }
+      await new Promise(res => setTimeout(res, 300))
+    }
+    setProcessing(false)
+  }
+
+  const handlePrintBoleto = async (boleto_id: number) => {
+    setPrintingId(boleto_id)
+    try { await window.electron.invoke(IPC.BOLETOS_PDF, boleto_id) }
+    catch (e: any) { alert('Erro ao abrir PDF: ' + (e?.message ?? e)) }
+    finally { setPrintingId(null) }
+  }
+
+  const okCount = results.filter(r => r.status === 'ok').length
+  const errCount = results.filter(r => r.status === 'erro').length
+  const q = histSearch.trim().toLowerCase()
+  const filteredHist = histBoletos.filter(b => !q || b.sacado_nome.toLowerCase().includes(q) || (b.banco_nome ?? '').toLowerCase().includes(q))
+
+  const statusBadge = (status: string) => {
+    const map: Record<string, string> = {
+      emitido: 'bg-blue-100 text-blue-700', pago: 'bg-green-100 text-green-700',
+      cancelado: 'bg-gray-100 text-gray-500', vencido: 'bg-red-100 text-red-700',
+    }
+    return map[status] ?? 'bg-gray-100 text-gray-600'
+  }
+
+  return (
+    <div className="space-y-4 py-2">
+      {/* Período */}
+      <div className="bg-gray-50 border rounded-lg p-4">
+        <h2 className="text-sm font-semibold text-gray-700 mb-3">Período</h2>
+        <div className="flex flex-wrap gap-3 items-end">
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-gray-500">Mês</label>
+            <select className="border rounded px-2 py-1.5 text-sm" value={mes} onChange={e => setMes(Number(e.target.value))}>
+              {[1,2,3,4,5,6,7,8,9,10,11,12].map(m => <option key={m} value={m}>{MESES_LOTE[m]}</option>)}
+            </select>
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-gray-500">Ano</label>
+            <input type="number" className="border rounded px-2 py-1.5 text-sm w-20" value={ano} onChange={e => setAno(Number(e.target.value))} />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-gray-500">Quinzena</label>
+            <select className="border rounded px-2 py-1.5 text-sm" value={quinzena} onChange={e => setQuinzena(Number(e.target.value) as 1|2)}>
+              <option value={1}>1ª Quinzena (1–15)</option>
+              <option value={2}>2ª Quinzena (16–fim)</option>
+            </select>
+          </div>
+          <button onClick={handleCarregar} disabled={loading} className="px-4 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50 font-medium">
+            {loading ? 'Carregando...' : 'Carregar'}
+          </button>
+        </div>
+      </div>
+
+      {loaded && items.length === 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800">
+          Nenhuma franquia com pedidos neste período.
+        </div>
+      )}
+
+      {items.length > 0 && (
+        <>
+          {/* Config */}
+          <div className="bg-gray-50 border rounded-lg p-4">
+            <h2 className="text-sm font-semibold text-gray-700 mb-3">Configurações</h2>
+            <div className="flex flex-wrap gap-4 items-end">
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-gray-500">Banco</label>
+                <select className="border rounded px-2 py-1.5 text-sm min-w-40" value={bancoId} onChange={e => setBancoId(e.target.value ? Number(e.target.value) : '')}>
+                  <option value="">Selecione</option>
+                  {activeBancos.map(b => <option key={b.id} value={b.id}>{b.nome}</option>)}
+                </select>
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-gray-500">Vencimento</label>
+                <input type="date" className="border rounded px-2 py-1.5 text-sm" value={vencimento} onChange={e => setVencimento(e.target.value)} />
+              </div>
+              <div className="h-px w-px flex-1" />
+              <div className="flex items-end gap-2">
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs text-gray-500">Desconto global (%)</label>
+                  <input type="number" min="0" max="100" step="0.1" className="border rounded px-2 py-1.5 text-sm w-28" placeholder="0" value={globalDiscount} onChange={e => setGlobalDiscount(e.target.value)} />
+                </div>
+                <button onClick={applyGlobalDiscount} className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded text-sm hover:bg-gray-200 whitespace-nowrap">Aplicar a todos</button>
+              </div>
+            </div>
+          </div>
+
+          {/* Table */}
+          <div className="bg-white border rounded-lg overflow-hidden">
+            <div className="flex items-center gap-3 px-4 py-3 border-b bg-gray-50">
+              <input type="checkbox"
+                checked={selected.size === items.length && items.length > 0}
+                ref={el => { if (el) el.indeterminate = selected.size > 0 && selected.size < items.length }}
+                onChange={toggleAll} className="w-4 h-4 cursor-pointer" />
+              <span className="text-sm font-medium text-gray-700">{selected.size} de {items.length} selecionadas</span>
+              <span className="ml-auto text-sm font-semibold text-emerald-700">Total: {fmtMoeda(totalFinal)}</span>
+            </div>
+            <table className="w-full text-sm border-collapse">
+              <thead>
+                <tr className="text-xs text-gray-500 bg-gray-50 border-b">
+                  <th className="w-10 px-3 py-2"></th>
+                  <th className="px-3 py-2 text-left">FRANQUIA / LOJA</th>
+                  <th className="px-3 py-2 text-right w-32">VALOR BRUTO</th>
+                  <th className="px-3 py-2 text-center w-28">DESCONTO %</th>
+                  <th className="px-3 py-2 text-right w-36">VALOR FINAL</th>
+                </tr>
+              </thead>
+              <tbody>
+                {groups.map(group => {
+                  const collapsed = collapsedGroups.has(group.key)
+                  return (
+                    <>
+                      <tr key={`g-${group.key}`} className="bg-slate-50 border-b">
+                        <td className="px-3 py-2">
+                          <input type="checkbox"
+                            checked={isGroupSelected(group.lojas)}
+                            ref={el => { if (el) el.indeterminate = isGroupPartial(group.lojas) }}
+                            onChange={() => toggleGroup(group.lojas)} className="w-4 h-4 cursor-pointer" />
+                        </td>
+                        <td className="px-3 py-2 font-semibold text-gray-700" colSpan={4}>
+                          <div className="flex items-center gap-2">
+                            <button onClick={() => toggleGroupCollapse(group.key)}
+                              className="text-gray-400 hover:text-gray-600 transition-transform w-4 h-4 flex items-center justify-center shrink-0"
+                              title={collapsed ? 'Expandir' : 'Minimizar'}>
+                              <svg className={`w-3 h-3 transition-transform ${collapsed ? '-rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                              </svg>
+                            </button>
+                            <span>{group.nome}</span>
+                            <span className="text-xs font-normal text-gray-400">({group.lojas.length} {group.lojas.length === 1 ? 'loja' : 'lojas'})</span>
+                          </div>
+                        </td>
+                      </tr>
+                      {!collapsed && group.lojas.map(item => {
+                        const isSelected = selected.has(item.loja_id)
+                        const desc = getDesc(item.loja_id)
+                        const final = getFinal(item)
+                        return (
+                          <tr key={item.loja_id} className={`border-b transition-colors ${isSelected ? 'hover:bg-emerald-50/40' : 'opacity-50 bg-gray-50/50'}`}>
+                            <td className="px-3 py-2 pl-7">
+                              <input type="checkbox" checked={isSelected} onChange={() => toggleItem(item.loja_id)} className="w-4 h-4 cursor-pointer" />
+                            </td>
+                            <td className="px-3 py-2">
+                              <div className="font-medium text-gray-800">{item.loja_nome}</div>
+                              {item.cnpj && <div className="text-xs text-gray-400 font-mono">{item.cnpj}</div>}
+                              {!item.cnpj && <div className="text-xs text-amber-500">⚠ CNPJ não cadastrado</div>}
+                            </td>
+                            <td className="px-3 py-2 text-right font-mono text-gray-600">{fmtMoeda(item.total_venda)}</td>
+                            <td className="px-3 py-2 text-center">
+                              <div className="flex items-center gap-1 justify-center">
+                                <input type="number" min="0" max="100" step="0.1" className="border rounded px-1.5 py-1 text-xs w-16 text-center"
+                                  value={discounts[item.loja_id] ?? ''} placeholder="0" onChange={e => setDiscount(item.loja_id, e.target.value)} />
+                                <span className="text-xs text-gray-400">%</span>
+                              </div>
+                            </td>
+                            <td className={`px-3 py-2 text-right font-semibold ${desc > 0 ? 'text-emerald-700' : 'text-gray-700'}`}>
+                              {fmtMoeda(final)}
+                              {desc > 0 && <div className="text-xs font-normal text-emerald-500">-{desc}%</div>}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Emit button */}
+          <div className="flex gap-3 flex-wrap items-center">
+            <button onClick={handleEmitirBoletos} disabled={processing || selected.size === 0}
+              className="px-5 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2">
+              {processing ? '⏳ Processando...' : `📄 Emitir Boletos (${selected.size})`}
+            </button>
+          </div>
+
+          {/* Results */}
+          {results.length > 0 && (
+            <div className="bg-white border rounded-lg overflow-hidden">
+              <div className="px-4 py-3 border-b bg-gray-50 flex items-center gap-3">
+                <span className="text-sm font-semibold text-gray-700">Resultados</span>
+                {okCount > 0 && <span className="text-xs px-2 py-0.5 bg-green-100 text-green-700 rounded-full">{okCount} ✓ sucesso</span>}
+                {errCount > 0 && <span className="text-xs px-2 py-0.5 bg-red-100 text-red-700 rounded-full">{errCount} ✗ erro</span>}
+              </div>
+              <div className="divide-y max-h-64 overflow-auto">
+                {results.map((r, i) => (
+                  <div key={i} className={`flex items-center gap-3 px-4 py-2.5 text-sm ${r.status === 'ok' ? '' : 'bg-red-50'}`}>
+                    <span className={r.status === 'ok' ? 'text-green-600' : 'text-red-500'}>{r.status === 'ok' ? '✓' : '✗'}</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium text-gray-800">{r.loja_nome}</div>
+                      {r.mensagem && <div className="text-xs text-red-600 mt-0.5 truncate">{r.mensagem}</div>}
+                    </div>
+                    {r.status === 'ok' && r.boleto_id != null && (
+                      <button onClick={() => handlePrintBoleto(r.boleto_id!)} disabled={printingId === r.boleto_id}
+                        className="shrink-0 text-xs px-2.5 py-1 bg-blue-50 text-blue-700 rounded hover:bg-blue-100 disabled:opacity-50 border border-blue-200">
+                        {printingId === r.boleto_id ? '...' : '📄 Imprimir'}
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Boleto History */}
+      <div className="bg-white border rounded-lg overflow-hidden">
+        <div className="px-4 py-3 border-b bg-gray-50 flex items-center gap-3">
+          <span className="text-sm font-semibold text-gray-700">Histórico de Boletos</span>
+          <input className="border rounded px-2 py-1 text-sm ml-auto w-48" placeholder="Buscar por sacado..."
+            value={histSearch} onChange={e => setHistSearch(e.target.value)} />
+        </div>
+        <div className="max-h-72 overflow-auto">
+          {filteredHist.length === 0 ? (
+            <div className="py-6 text-center text-sm text-gray-400">Nenhum boleto encontrado.</div>
+          ) : (
+            <table className="w-full text-sm border-collapse">
+              <thead>
+                <tr className="text-xs text-gray-500 bg-gray-50 border-b sticky top-0">
+                  <th className="px-3 py-2 text-left">SACADO</th>
+                  <th className="px-3 py-2 text-center w-24">VENCIMENTO</th>
+                  <th className="px-3 py-2 text-right w-28">VALOR</th>
+                  <th className="px-3 py-2 text-center w-20">STATUS</th>
+                  <th className="px-3 py-2 text-center w-24">AÇÃO</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredHist.map(b => (
+                  <tr key={b.id} className="border-b hover:bg-gray-50">
+                    <td className="px-3 py-2">
+                      <div className="font-medium text-gray-800">{b.sacado_nome}</div>
+                      {b.sacado_cpf_cnpj && <div className="text-xs text-gray-400 font-mono">{b.sacado_cpf_cnpj}</div>}
+                    </td>
+                    <td className="px-3 py-2 text-center text-xs text-gray-500">{fmtData(b.vencimento)}</td>
+                    <td className="px-3 py-2 text-right font-mono text-gray-700">{fmtMoeda(b.valor)}</td>
+                    <td className="px-3 py-2 text-center">
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusBadge(b.status)}`}>{b.status}</span>
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      <button onClick={() => handlePrintBoleto(b.id)} disabled={printingId === b.id}
+                        className="text-xs px-2 py-1 bg-blue-50 text-blue-700 rounded hover:bg-blue-100 disabled:opacity-50">
+                        {printingId === b.id ? '...' : '📄 PDF'}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Main page ───────────────────────────────────────────────────────────────
 
 export function Boleto() {
@@ -742,6 +1121,7 @@ export function Boleto() {
     { id: 'emitir', label: 'Emitir Boleto' },
     { id: 'historico', label: 'Histórico' },
     { id: 'bancos', label: 'Bancos' },
+    { id: 'lote', label: '📋 Emissão em Lote' },
   ]
 
   return (
@@ -772,6 +1152,7 @@ export function Boleto() {
         {activeTab === 'emitir' && <EmitirTab bancos={bancos.filter(b => b.ativo)} />}
         {activeTab === 'historico' && <HistoricoTab />}
         {activeTab === 'bancos' && <BancosTab onBancosChange={loadBancos} />}
+        {activeTab === 'lote' && <LoteTab bancos={bancos ?? []} />}
       </div>
     </div>
   )
