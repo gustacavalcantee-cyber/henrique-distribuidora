@@ -173,6 +173,25 @@ async function pushPendingOthers(supabase: any): Promise<void> {
     sqlite.prepare('UPDATE layout_config SET synced = 1 WHERE synced = 0').run()
   }
 
+  // Push rede_col_order where synced=0 (controls column order in Lançamentos grid)
+  const pendingColOrder = sqlite.prepare('SELECT * FROM rede_col_order WHERE synced = 0').all() as AnyRow[]
+  if (pendingColOrder.length > 0) {
+    await pushTable(supabase, 'rede_col_order', pendingColOrder, {
+      upsertOn: 'rede_id',
+      skipCols: ['synced', 'updated_at'],
+    })
+    sqlite.prepare('UPDATE rede_col_order SET synced = 1 WHERE synced = 0').run()
+  }
+
+  // Push print_order — always push all records (no synced column, small table)
+  const allPrintOrder = sqlite.prepare('SELECT * FROM print_order').all() as AnyRow[]
+  if (allPrintOrder.length > 0) {
+    await pushTable(supabase, 'print_order', allPrintOrder, {
+      upsertOn: 'rede_id,loja_id',
+      skipCols: ['updated_at'],
+    })
+  }
+
   // Push estoque_entradas where synced=0
   const pendingEntradas = sqlite.prepare('SELECT * FROM estoque_entradas WHERE synced = 0').all() as AnyRow[]
   if (pendingEntradas.length > 0) {
@@ -259,7 +278,7 @@ async function pullFromSupabase(supabase: any): Promise<void> {
 
   console.log('[sync] Pulling from Supabase...')
 
-  const [redes, franqueados, lojas, produtos, custos, precos, pedidosRemote, itensPedido, despesas, configuracoes, layoutConfigs, estoqueEntradas] =
+  const [redes, franqueados, lojas, produtos, custos, precos, pedidosRemote, itensPedido, despesas, configuracoes, layoutConfigs, estoqueEntradas, redeColOrders, printOrders] =
     await Promise.all([
       fetchAllSupabase(supabase, 'redes'),
       fetchAllSupabase(supabase, 'franqueados'),
@@ -273,6 +292,8 @@ async function pullFromSupabase(supabase: any): Promise<void> {
       fetchAllSupabase(supabase, 'configuracoes'),
       fetchAllSupabase(supabase, 'layout_config'),
       fetchAllSupabase(supabase, 'estoque_entradas'),
+      fetchAllSupabase(supabase, 'rede_col_order'),
+      fetchAllSupabase(supabase, 'print_order'),
     ])
 
   // Disable FK constraints during pull: INSERT OR REPLACE does DELETE+INSERT which
@@ -352,6 +373,33 @@ async function pullFromSupabase(supabase: any): Promise<void> {
            synced = 1,
            updated_at = excluded.updated_at`
       ).run(row['id'] ?? null, row['rede_id'], row['loja_id'], row['produto_ids'] ?? '[]', row['updated_at'] ?? null)
+    }
+
+    // rede_col_order: upsert by rede_id, skip if local synced=0 (unsynced local changes win)
+    for (const row of redeColOrders) {
+      const existing = sqlite
+        .prepare('SELECT synced FROM rede_col_order WHERE rede_id = ?')
+        .get(row['rede_id']) as { synced: number } | undefined
+      if (existing?.synced === 0) continue
+      sqlite.prepare(
+        `INSERT INTO rede_col_order (rede_id, produto_ids, synced, updated_at)
+         VALUES (?, ?, 1, ?)
+         ON CONFLICT(rede_id) DO UPDATE SET
+           produto_ids = excluded.produto_ids,
+           synced = 1,
+           updated_at = excluded.updated_at`
+      ).run(row['rede_id'], row['produto_ids'] ?? '[]', row['updated_at'] ?? null)
+    }
+
+    // print_order: upsert by (rede_id, loja_id) — always overwrite (no local synced tracking)
+    for (const row of printOrders) {
+      sqlite.prepare(
+        `INSERT INTO print_order (rede_id, loja_id, produto_ids, updated_at)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(rede_id, loja_id) DO UPDATE SET
+           produto_ids = excluded.produto_ids,
+           updated_at = excluded.updated_at`
+      ).run(row['rede_id'], row['loja_id'], row['produto_ids'] ?? '[]', row['updated_at'] ?? null)
     }
 
     // estoque_entradas: upsert por (produto_id, data), skip se local synced=0
