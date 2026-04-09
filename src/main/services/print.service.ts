@@ -59,15 +59,15 @@ export function getPrintData(pedidoId: number, colOrder?: number[]): PrintData {
 
   // Resolve product list + order for this loja's print.
   //
-  // Priority for per-loja product set (which products belong to this loja):
-  //   1. print_order table — dedicated per-(rede, loja) print list, written by
-  //      useRowProdutos on every layout change. Most reliable source.
-  //   2. layout_config — fallback for lojas not yet in print_order.
+  // Priority for per-loja product SET (which products belong to this loja):
+  //   1. print_order — per-(rede, loja) snapshot written when printing from Lançamentos
+  //   2. layout_config — fallback for lojas not yet in print_order
   //
-  // Priority for column order (in what sequence products appear):
-  //   1. colOrder passed directly from the Lançamentos frontend (most current).
-  //   2. print_order itself (if no frontend order available).
-  //   3. rede_col_order table (global fallback for Histórico prints).
+  // Priority for column ORDER (sequence of products — must match Lançamentos grid):
+  //   1. colOrder from Lançamentos frontend (live grid order, most accurate)
+  //   2. rede_col_order — global rede column order, same sequence as the grid
+  //   3. print_order — per-loja snapshot (last resort, may have different sequence)
+  //   4. layout_config — final fallback
 
   const printOrderRow = rawSqlite
     .prepare('SELECT produto_ids FROM print_order WHERE rede_id = ? AND loja_id = ?')
@@ -77,26 +77,27 @@ export function getPrintData(pedidoId: number, colOrder?: number[]): PrintData {
     .prepare('SELECT produto_ids FROM layout_config WHERE rede_id = ? AND loja_id = ?')
     .get(pedido.rede_id, pedido.loja_id) as { produto_ids: string } | undefined
 
-  // The per-loja product set: what products are enabled for this loja's print
+  // The per-loja product set: which products are enabled for this loja's print
   const lojaProductIds: number[] | null = printOrderRow
     ? JSON.parse(printOrderRow.produto_ids)
     : layoutRow
       ? JSON.parse(layoutRow.produto_ids)
       : null
 
-  // The column order: how products are sequenced on the note
+  // The column order: sequence that matches the Lançamentos grid
   const colOrderFromFrontend = colOrder && colOrder.length > 0
   let canonicalIds: number[] | null = colOrderFromFrontend ? colOrder! : null
 
-  if (!canonicalIds && printOrderRow) {
-    canonicalIds = JSON.parse(printOrderRow.produto_ids)
-  }
-
+  // rede_col_order is the same sequence as the Lançamentos grid — always prefer it
   if (!canonicalIds) {
     const colOrderRow = rawSqlite
       .prepare('SELECT produto_ids FROM rede_col_order WHERE rede_id = ?')
       .get(pedido.rede_id) as { produto_ids: string } | undefined
     if (colOrderRow) canonicalIds = JSON.parse(colOrderRow.produto_ids)
+  }
+
+  if (!canonicalIds && printOrderRow) {
+    canonicalIds = JSON.parse(printOrderRow.produto_ids)
   }
 
   if (!canonicalIds && layoutRow) {
