@@ -58,8 +58,14 @@ export function Historico() {
 
   useEffect(() => { loadPedidos() }, [])
 
-  const handlePrint = (id: number) => {
-    window.electron.invoke(IPC.PRINT_PEDIDO, id).catch(console.error)
+  const handlePrint = async (id: number) => {
+    const pedido = pedidos.find(p => p.id === id)
+    let colOrder: number[] | undefined
+    if (pedido?.rede_id) {
+      const raw: string | null = await window.electron.invoke(IPC.REDE_COL_ORDER_GET, pedido.rede_id)
+      if (raw) colOrder = JSON.parse(raw)
+    }
+    window.electron.invoke(IPC.PRINT_PEDIDO, id, colOrder).catch(console.error)
   }
 
   const handleDelete = async (id: number) => {
@@ -86,7 +92,13 @@ export function Historico() {
   const handleShare = async (id: number) => {
     setShareLoading(id)
     try {
-      const image = await window.electron.invoke<string>(IPC.GET_NOTA_IMAGE, id)
+      const pedido = pedidos.find(p => p.id === id)
+      let colOrder: number[] | undefined
+      if (pedido?.rede_id) {
+        const raw: string | null = await window.electron.invoke(IPC.REDE_COL_ORDER_GET, pedido.rede_id)
+        if (raw) colOrder = JSON.parse(raw)
+      }
+      const image = await window.electron.invoke<string>(IPC.GET_NOTA_IMAGE, id, colOrder)
       setSharePreview({ image, pedidoId: id })
       setShareCopied(false)
     } finally {
