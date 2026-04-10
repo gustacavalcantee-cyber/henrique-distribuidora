@@ -18,6 +18,7 @@ import { registerPrintOrderHandlers } from './print-order'
 import { registerSyncAdminHandlers } from './sync-admin'
 import { registerBoletoHandlers } from './boleto'
 import { registerLoteHandlers } from './lote'
+import { registerListaPrecosHandlers } from './lista-precos'
 
 export function registerAllHandlers() {
   ipcMain.handle('ping', () => 'pong')
@@ -41,4 +42,5 @@ export function registerAllHandlers() {
   registerSyncAdminHandlers()
   registerBoletoHandlers()
   registerLoteHandlers()
+  registerListaPrecosHandlers()
 }
