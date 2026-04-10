@@ -100,4 +100,6 @@ export const IPC = {
   BOLETOS_SET_STATUS: 'boletos:setStatus',
   PICK_FILE: 'dialog:pickFile',
   LOTE_GET_QUINZENA: 'lote:getQuinzena',
+  LISTA_PRECOS_GET_IMAGE: 'lista-precos:getImage',
+  LISTA_PRECOS_PRINT: 'lista-precos:print',
 } as const
