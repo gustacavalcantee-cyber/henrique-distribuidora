@@ -25,6 +25,7 @@ export function Lancamentos() {
   const [editingLojaId, setEditingLojaId] = useState<number | null>(null)
   const [editingLojaNome, setEditingLojaNome] = useState('')
   const [layoutMode, setLayoutMode] = useState<LayoutMode>('tabela')
+  const [prodSearch, setProdSearch] = useState('')
   const [historicProdIds, setHistoricProdIds] = useState<Set<number>>(new Set())
   const { rows, setRows, loading, load, saveRow } = useLancamentos(activeRedeId, dataPedido)
   const allRowsRef = useRef<LancamentoRow[]>([])
@@ -320,6 +321,11 @@ export function Lancamentos() {
   // Keep ref in sync with the latest column order on every render
   colOrderRef.current = visibleProdutos.map(p => p.id)
 
+  // Filter visible columns by search — colOrderRef stays unfiltered for print/share
+  const displayProdutos = prodSearch.trim()
+    ? visibleProdutos.filter(p => p.nome.toLowerCase().includes(prodSearch.toLowerCase()))
+    : visibleProdutos
+
   // Column totals (only rows that have the product active)
   const totals: Record<number, number> = {}
   for (const row of rows) {
@@ -359,6 +365,8 @@ export function Lancamentos() {
           setLayoutMode(mode)
           if (activeRedeId) localStorage.setItem(`lancamentos_layout_${activeRedeId}`, mode)
         }}
+        prodSearch={prodSearch}
+        onProdSearch={setProdSearch}
       />
 
       {/* Rede tabs */}
@@ -448,7 +456,7 @@ export function Lancamentos() {
 
         const sharedProps = {
           rows,
-          visibleProdutos,
+          visibleProdutos: displayProdutos,
           rowProdIds,
           editMode,
           ocPlaceholders,
