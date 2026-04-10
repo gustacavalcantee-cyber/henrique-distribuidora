@@ -4,6 +4,7 @@ import { Layout } from './components/Layout'
 import { Dashboard } from './pages/Dashboard'
 import { Lancamentos } from './pages/Lancamentos'
 import { Historico } from './pages/Historico'
+import { ListaPrecos } from './pages/ListaPrecos'
 import { Relatorios } from './pages/Relatorios'
 import { Despesas } from './pages/Despesas'
 import { Boleto } from './pages/Boleto'
@@ -48,6 +49,7 @@ export default function App() {
           <Route index element={<ErrorBoundary><Dashboard /></ErrorBoundary>} />
           <Route path="lancamentos" element={<ErrorBoundary><Lancamentos /></ErrorBoundary>} />
           <Route path="historico" element={<ErrorBoundary><Historico /></ErrorBoundary>} />
+          <Route path="lista-precos" element={<ErrorBoundary><ListaPrecos /></ErrorBoundary>} />
           <Route path="relatorios" element={<ErrorBoundary><Relatorios /></ErrorBoundary>} />
           <Route path="despesas" element={<ErrorBoundary><Despesas /></ErrorBoundary>} />
           <Route path="boleto" element={<ErrorBoundary><Boleto /></ErrorBoundary>} />

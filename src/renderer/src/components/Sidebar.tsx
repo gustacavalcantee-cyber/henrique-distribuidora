@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { LayoutDashboard, ClipboardList, History, BarChart2, Wallet, Settings, RefreshCw, RotateCcw, Landmark } from 'lucide-react'
+import { LayoutDashboard, ClipboardList, History, BarChart2, Wallet, Settings, RefreshCw, RotateCcw, Landmark, Tag } from 'lucide-react'
 import logoImg from '../assets/logo.png'
 import { useState } from 'react'
 
@@ -7,6 +7,7 @@ const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard', end: true },
   { to: '/lancamentos', icon: ClipboardList, label: 'Lançamentos' },
   { to: '/historico', icon: History, label: 'Histórico' },
+  { to: '/lista-precos', icon: Tag, label: 'Lista de Preços' },
   { to: '/relatorios', icon: BarChart2, label: 'Relatórios' },
   { to: '/despesas', icon: Wallet, label: 'Despesas' },
   { to: '/boleto', icon: Landmark, label: 'Boleto' },
