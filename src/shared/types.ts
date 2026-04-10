@@ -36,10 +36,21 @@ export interface QuinzenaDetalheItem {
   unidade: string; quantidade: number; preco_unit: number; custo_unit: number
   total_venda: number; total_custo: number
 }
-export interface QuinzenaMatrizRow { data_pedido: string; quantidades: Record<number, number> }
+// One column per (produto, preco) combination — when a product has multiple prices
+// in the period, multiple ProdutoColunas are created for it.
+export interface ProdutoColuna {
+  id: number       // canonical produto_id
+  colKey: string   // unique key: "${id}:${Math.round(preco*100)}" e.g. "5:1300"
+  nome: string
+  unidade: string
+  preco: number
+}
+export interface QuinzenaMatrizRow { data_pedido: string; quantidades: Record<string, number> }
 export interface QuinzenaSummary {
   total_venda: number; total_custo: number; margem: number
-  detalhe: QuinzenaDetalheItem[]; matriz: QuinzenaMatrizRow[]; produtos: Produto[]
+  detalhe: QuinzenaDetalheItem[]; matriz: QuinzenaMatrizRow[]
+  produtos: Produto[]
+  produtosColunas: ProdutoColuna[]
 }
 export interface FinanceiroSummary {
   receita_bruta: number; custo_produtos: number; margem_bruta: number

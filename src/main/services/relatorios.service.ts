@@ -1,7 +1,7 @@
 import { eq, and, gte, lte, inArray, isNull } from 'drizzle-orm'
 import { getDb } from '../db/client-local'
 import { pedidos, itensPedido, produtos, lojas, redes, despesas as despesasTable, franqueados, custos as custosTable, precos as precosTable } from '../db/schema-local'
-import type { QuinzenaSummary, FinanceiroSummary, CobrancaLojaResult, NotaPagamento, ProdutoRelatorioResult, PrecoVsCustoResult, PrecoVsCustoCusto, PrecoVsCustoLoja, PrecoVsCustoGraficoMes, PrecoVsCustoGraficoDia } from '../../shared/types'
+import type { QuinzenaSummary, ProdutoColuna, FinanceiroSummary, CobrancaLojaResult, NotaPagamento, ProdutoRelatorioResult, PrecoVsCustoResult, PrecoVsCustoCusto, PrecoVsCustoLoja, PrecoVsCustoGraficoMes, PrecoVsCustoGraficoDia } from '../../shared/types'
 
 export function getRelatorioQuinzena(rede_id: number, loja_id: number, mes: number, ano: number, quinzena: 1 | 2): QuinzenaSummary {
   const db = getDb()
@@ -39,7 +39,7 @@ export function getRelatorioQuinzena(rede_id: number, loja_id: number, mes: numb
 
   if (pedidoIds.length === 0) {
     const todosProdutos = db.select().from(produtos).where(eq(produtos.rede_id, rede_id)).orderBy(produtos.ordem_exibicao).all()
-    return { total_venda: 0, total_custo: 0, margem: 0, detalhe: [], matriz: [], produtos: todosProdutos as any }
+    return { total_venda: 0, total_custo: 0, margem: 0, detalhe: [], matriz: [], produtos: todosProdutos as any, produtosColunas: [] }
   }
 
   const allItens = pedidoIds.flatMap(pedidoId =>
@@ -87,14 +87,33 @@ export function getRelatorioQuinzena(rede_id: number, loja_id: number, mes: numb
     })
   })
 
-  const matrizMap = new Map<string, Record<number, number>>()
+  // Build produtosColunas: one entry per distinct (canonicalId, preco_unit) pair
+  const colKeySet = new Set<string>()
+  const produtosColunasArr: ProdutoColuna[] = []
+  for (const item of allItens) {
+    if (item.quantidade === 0) continue
+    const canonicalId = produtoIdMap.get(item.produto_id!) ?? item.produto_id!
+    const colKey = `${canonicalId}:${Math.round((item.preco_unit ?? 0) * 100)}`
+    if (!colKeySet.has(colKey)) {
+      colKeySet.add(colKey)
+      const produto = produtosUnicos.find(p => p.id === canonicalId)
+      produtosColunasArr.push({ id: canonicalId, colKey, nome: produto?.nome ?? '', unidade: produto?.unidade ?? '', preco: item.preco_unit ?? 0 })
+    }
+  }
+  produtosColunasArr.sort((a, b) => {
+    const cmp = a.nome.localeCompare(b.nome, 'pt-BR')
+    return cmp !== 0 ? cmp : a.preco - b.preco
+  })
+
+  const matrizMap = new Map<string, Record<string, number>>()
   for (const item of allItens) {
     if (item.quantidade === 0) continue
     const pedido = pedidosList.find(p => p.id === item.pedido_id)!
     if (!matrizMap.has(pedido.data_pedido)) matrizMap.set(pedido.data_pedido, {})
     const row = matrizMap.get(pedido.data_pedido)!
     const canonicalId = produtoIdMap.get(item.produto_id!) ?? item.produto_id!
-    row[canonicalId] = (row[canonicalId] ?? 0) + item.quantidade
+    const colKey = `${canonicalId}:${Math.round((item.preco_unit ?? 0) * 100)}`
+    row[colKey] = (row[colKey] ?? 0) + item.quantidade
   }
   const matriz = Array.from(matrizMap.entries()).map(([data_pedido, quantidades]) => ({ data_pedido, quantidades }))
 
@@ -102,7 +121,7 @@ export function getRelatorioQuinzena(rede_id: number, loja_id: number, mes: numb
   const total_custo = detalhe.reduce((s, d) => s + d.total_custo, 0)
   const margem = total_venda > 0 ? ((total_venda - total_custo) / total_venda) * 100 : 0
 
-  return { total_venda, total_custo, margem, detalhe, matriz, produtos: produtosUnicos as any }
+  return { total_venda, total_custo, margem, detalhe, matriz, produtos: produtosUnicos as any, produtosColunas: produtosColunasArr }
 }
 
 export function getRelatorioFinanceiro(mes: number, ano: number, rede_id?: number, franqueado_id?: number): FinanceiroSummary {

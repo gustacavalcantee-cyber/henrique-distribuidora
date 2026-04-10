@@ -143,20 +143,21 @@ ${(() => {
     const fmtMoney = (n: number) => n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
     const buildMatrizSection = (s: QuinzenaSummary, sRedeName: string, sLojaName: string, sLojaCnpj: string) => {
-      const prods = s.produtos as Array<{ id: number; nome: string; unidade: string }>
+      const cols = s.produtosColunas ?? []
+      // detect products that appear with multiple prices (need price shown in header)
+      const nameCount: Record<string, number> = {}
+      for (const c of cols) nameCount[c.nome] = (nameCount[c.nome] ?? 0) + 1
+      const colHeader = (c: typeof cols[0]) =>
+        nameCount[c.nome] > 1 ? `${c.nome.toUpperCase()} (${fmtMoney(c.preco)})` : c.nome.toUpperCase()
+
       const matrizSorted = [...s.matriz].sort((a, b) => a.data_pedido.localeCompare(b.data_pedido))
-      const precosPorId: Record<number, number> = {}
-      for (const d of s.detalhe) {
-        const prod = prods.find(p => p.nome === d.produto_nome)
-        if (prod && d.preco_unit > 0 && !precosPorId[prod.id]) precosPorId[prod.id] = d.preco_unit
-      }
-      const totalQtyMap: Record<number, number> = {}
+      const totalQtyMap: Record<string, number> = {}
       for (const row of matrizSorted) {
-        for (const [prodId, qty] of Object.entries(row.quantidades)) {
-          totalQtyMap[Number(prodId)] = (totalQtyMap[Number(prodId)] ?? 0) + (qty as number)
+        for (const [colKey, qty] of Object.entries(row.quantidades)) {
+          totalQtyMap[colKey] = (totalQtyMap[colKey] ?? 0) + (qty as number)
         }
       }
-      const grandTotal = prods.reduce((acc, p) => acc + (totalQtyMap[p.id] ?? 0) * (precosPorId[p.id] ?? 0), 0)
+      const grandTotal = cols.reduce((acc, c) => acc + (totalQtyMap[c.colKey] ?? 0) * c.preco, 0)
       const MIN_ROWS = 15
       const extraRows = Math.max(0, MIN_ROWS - matrizSorted.length)
       return `
@@ -165,31 +166,31 @@ ${(() => {
     <thead>
       <tr>
         <th class="c-data">DATA</th>
-        ${prods.map(p => `<th>${p.nome.toUpperCase()}</th>`).join('')}
+        ${cols.map(c => `<th>${colHeader(c)}</th>`).join('')}
       </tr>
     </thead>
     <tbody>
       ${matrizSorted.map(row => `<tr>
         <td class="c-data">${fmtDate(row.data_pedido)}</td>
-        ${prods.map(p => `<td>${fmtQty((row.quantidades as Record<number,number>)[p.id])}</td>`).join('')}
+        ${cols.map(c => `<td>${fmtQty(row.quantidades[c.colKey])}</td>`).join('')}
       </tr>`).join('')}
       ${Array(extraRows).fill(null).map(() => `<tr>
         <td class="c-data c-dot">.</td>
-        ${prods.map(() => `<td class="c-dot">-</td>`).join('')}
+        ${cols.map(() => `<td class="c-dot">-</td>`).join('')}
       </tr>`).join('')}
     </tbody>
     <tfoot>
       <tr class="row-total">
         <td class="c-data">Total kg/mç</td>
-        ${prods.map(p => `<td>${fmtQty(totalQtyMap[p.id])}</td>`).join('')}
+        ${cols.map(c => `<td>${fmtQty(totalQtyMap[c.colKey])}</td>`).join('')}
       </tr>
       <tr class="row-preco">
         <td class="c-data">Preço kg/unt</td>
-        ${prods.map(p => `<td>${fmtMoney(precosPorId[p.id] ?? 0)}</td>`).join('')}
+        ${cols.map(c => `<td>${fmtMoney(c.preco)}</td>`).join('')}
       </tr>
       <tr class="row-grand">
         <td class="c-data">${fmtMoney(grandTotal)}</td>
-        ${prods.map(p => `<td>${fmtMoney((totalQtyMap[p.id] ?? 0) * (precosPorId[p.id] ?? 0))}</td>`).join('')}
+        ${cols.map(c => `<td>${fmtMoney((totalQtyMap[c.colKey] ?? 0) * c.preco)}</td>`).join('')}
       </tr>
     </tfoot>
   </table>`
@@ -419,46 +420,53 @@ thead tr { border-bottom: 1px solid #555; }
                   <thead>
                     <tr className="bg-gray-50">
                       <th className="border px-2 py-1">Data</th>
-                      {s.produtos.map(p => <th key={p.id} className="border px-2 py-1">{p.nome}</th>)}
+                      {(() => {
+                        const cols = s.produtosColunas ?? []
+                        const nameCount: Record<string, number> = {}
+                        for (const c of cols) nameCount[c.nome] = (nameCount[c.nome] ?? 0) + 1
+                        return cols.map(c => (
+                          <th key={c.colKey} className="border px-2 py-1">
+                            {nameCount[c.nome] > 1 ? `${c.nome} (${c.preco.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})` : c.nome}
+                          </th>
+                        ))
+                      })()}
                     </tr>
                   </thead>
                   <tbody>
                     {s.matriz.map((row, i) => (
                       <tr key={i}>
                         <td className="border px-2 py-0.5">{formatDate(row.data_pedido)}</td>
-                        {s.produtos.map(p => (
-                          <td key={p.id} className="border px-2 py-0.5 text-center">{formatQty(row.quantidades[p.id])}</td>
+                        {(s.produtosColunas ?? []).map(c => (
+                          <td key={c.colKey} className="border px-2 py-0.5 text-center">{formatQty(row.quantidades[c.colKey])}</td>
                         ))}
                       </tr>
                     ))}
                     <tr className="bg-gray-100 font-bold border-t-2 border-gray-400">
                       <td className="border px-2 py-1">Total kg/mç</td>
-                      {s.produtos.map(p => {
-                        const total = s.matriz.reduce((acc, r) => acc + (r.quantidades[p.id] ?? 0), 0)
-                        return <td key={p.id} className="border px-2 py-1 text-center">{total > 0 ? total.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</td>
+                      {(s.produtosColunas ?? []).map(c => {
+                        const total = s.matriz.reduce((acc, r) => acc + (r.quantidades[c.colKey] ?? 0), 0)
+                        return <td key={c.colKey} className="border px-2 py-1 text-center">{total > 0 ? total.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</td>
                       })}
                     </tr>
                     <tr className="bg-gray-50">
                       <td className="border px-2 py-1">Preço kg/unt</td>
-                      {s.produtos.map(p => {
-                        const detItem = s.detalhe.find(d => d.produto_nome === p.nome && d.preco_unit > 0)
-                        return <td key={p.id} className="border px-2 py-1 text-center">{detItem ? detItem.preco_unit.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</td>
-                      })}
+                      {(s.produtosColunas ?? []).map(c => (
+                        <td key={c.colKey} className="border px-2 py-1 text-center">{c.preco.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                      ))}
                     </tr>
                     {(() => {
-                      const grandTotal = s.produtos.reduce((acc, p) => {
-                        const qty = s.matriz.reduce((q, r) => q + (r.quantidades[p.id] ?? 0), 0)
-                        const det = s.detalhe.find(d => d.produto_nome === p.nome && d.preco_unit > 0)
-                        return acc + qty * (det?.preco_unit ?? 0)
+                      const cols = s.produtosColunas ?? []
+                      const grandTotal = cols.reduce((acc, c) => {
+                        const qty = s.matriz.reduce((q, r) => q + (r.quantidades[c.colKey] ?? 0), 0)
+                        return acc + qty * c.preco
                       }, 0)
                       return (
                         <tr className="bg-gray-200 font-bold border-t-2 border-gray-500">
                           <td className="border px-2 py-1">{grandTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                          {s.produtos.map(p => {
-                            const qty = s.matriz.reduce((q, r) => q + (r.quantidades[p.id] ?? 0), 0)
-                            const det = s.detalhe.find(d => d.produto_nome === p.nome && d.preco_unit > 0)
-                            const val = qty * (det?.preco_unit ?? 0)
-                            return <td key={p.id} className="border px-2 py-1 text-center">{val > 0 ? val.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</td>
+                          {cols.map(c => {
+                            const qty = s.matriz.reduce((q, r) => q + (r.quantidades[c.colKey] ?? 0), 0)
+                            const val = qty * c.preco
+                            return <td key={c.colKey} className="border px-2 py-1 text-center">{val > 0 ? val.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</td>
                           })}
                         </tr>
                       )
