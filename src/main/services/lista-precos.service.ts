@@ -29,11 +29,11 @@ export function generateListaPrecosHtml(data: ListaPrecosData): string {
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { font-family: Arial, sans-serif; width: 400px; background: #fff; position: relative; overflow: hidden; }
-.watermark {
+.watermark-logo {
   position: fixed; top: 50%; left: 50%;
-  transform: translate(-50%, -50%) rotate(-25deg);
-  font-size: 72px; font-weight: 900; color: #10b981; opacity: 0.04;
-  white-space: nowrap; pointer-events: none; z-index: 0; letter-spacing: .05em;
+  transform: translate(-50%, -50%);
+  width: 220px; height: 220px; object-fit: contain;
+  opacity: 0.06; pointer-events: none; z-index: 0;
 }
 .container { padding: 20px 22px; position: relative; z-index: 1; }
 .header {
@@ -42,7 +42,7 @@ body { font-family: Arial, sans-serif; width: 400px; background: #fff; position:
 }
 .company-name { font-size: 22px; font-weight: 900; color: #0f172a; letter-spacing: -.02em; }
 .list-title { font-size: 10px; color: #10b981; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; margin-top: 3px; }
-.logo { width: 38px; height: 38px; border-radius: 50%; object-fit: cover; }
+.logo { width: 56px; height: 56px; border-radius: 50%; object-fit: cover; }
 table { width: 100%; border-collapse: collapse; }
 thead tr { border-bottom: 1px solid #e2e8f0; }
 th { font-size: 9px; color: #94a3b8; font-weight: 600; padding: 4px 6px;
@@ -62,7 +62,7 @@ tr:nth-child(even) td { background: rgba(16,185,129,.04); }
 </style>
 </head>
 <body>
-<div class="watermark">${data.nomeEmpresa}</div>
+<img class="watermark-logo" src="${data.logoBase64}" alt="" />
 <div class="container">
   <div class="header">
     <div>
@@ -107,11 +107,11 @@ body { font-family: Arial, sans-serif; background: #e5e7eb; }
 .btn-close:hover { background: #334155; }
 .page-wrap { padding: 12px; }
 .page { background: #fff; width: 180mm; margin: 0 auto; padding: 14mm 16mm; position: relative; overflow: hidden; }
-.watermark {
+.watermark-logo {
   position: absolute; top: 50%; left: 50%;
-  transform: translate(-50%, -50%) rotate(-25deg);
-  font-size: 80px; font-weight: 900; color: #10b981; opacity: 0.04;
-  white-space: nowrap; pointer-events: none;
+  transform: translate(-50%, -50%);
+  width: 60mm; height: 60mm; object-fit: contain;
+  opacity: 0.06; pointer-events: none;
 }
 .header {
   display: flex; justify-content: space-between; align-items: flex-start;
@@ -119,7 +119,7 @@ body { font-family: Arial, sans-serif; background: #e5e7eb; }
 }
 .company-name { font-size: 22pt; font-weight: 900; color: #0f172a; }
 .list-title { font-size: 9pt; color: #10b981; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; margin-top: 2mm; }
-.logo { width: 14mm; height: 14mm; border-radius: 50%; object-fit: cover; }
+.logo { width: 20mm; height: 20mm; border-radius: 50%; object-fit: cover; }
 table { width: 100%; border-collapse: collapse; }
 thead tr { border-bottom: 1px solid #e2e8f0; }
 th { font-size: 8pt; color: #94a3b8; font-weight: 600; padding: 2mm 3mm;
@@ -150,7 +150,7 @@ tr:nth-child(even) td { background: rgba(16,185,129,.04); }
 </div>
 <div class="page-wrap">
   <div class="page">
-    <div class="watermark">${data.nomeEmpresa}</div>
+    <img class="watermark-logo" src="${data.logoBase64}" alt="" />
     <div class="header">
       <div>
         <div class="company-name">${data.nomeEmpresa}</div>
