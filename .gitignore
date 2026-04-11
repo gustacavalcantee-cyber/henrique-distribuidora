@@ -6,6 +6,7 @@ out
 *.log*
 src/main/db/.env.local
 .env.production
+bot/.env
 releases/*.dmg
 releases/*.exe
 releases/*.blockmap
