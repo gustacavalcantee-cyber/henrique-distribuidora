@@ -1,5 +1,5 @@
 import { ipcMain } from 'electron'
-import { eq, and } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import { getDb, getRawSqlite } from '../db/client-local'
 import { redes, lojas, pedidos, itensPedido } from '../db/schema-local'
 import { IPC } from '../../shared/ipc-channels'
