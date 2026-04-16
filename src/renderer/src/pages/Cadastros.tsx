@@ -35,7 +35,11 @@ function RedesTab() {
 
   const handleDelete = async (id: number, nome: string) => {
     if (!confirm(`Excluir a rede "${nome}"? Esta ação não pode ser desfeita.`)) return
-    await window.electron.invoke(IPC.REDES_DELETE, id)
+    const result = await window.electron.invoke(IPC.REDES_DELETE, id) as { ok: boolean; error?: string } | undefined
+    if (result && !result.ok) {
+      alert(`Não foi possível excluir a rede "${nome}".\n\n${result.error ?? 'Erro desconhecido.'}`)
+      return
+    }
     reload()
   }
 

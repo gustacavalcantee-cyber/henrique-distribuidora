@@ -1,7 +1,7 @@
 import { ipcMain } from 'electron'
-import { eq } from 'drizzle-orm'
-import { getDb } from '../db/client-local'
-import { redes } from '../db/schema-local'
+import { eq, and } from 'drizzle-orm'
+import { getDb, getRawSqlite } from '../db/client-local'
+import { redes, lojas, pedidos, itensPedido } from '../db/schema-local'
 import { IPC } from '../../shared/ipc-channels'
 
 export function registerRedesHandlers() {
@@ -16,7 +16,52 @@ export function registerRedesHandlers() {
     return getDb().update(redes).set({ ...updates, synced: 0 }).where(eq(redes.id, id)).returning().all()[0]
   })
 
-  ipcMain.handle(IPC.REDES_DELETE, (_event, id: number) =>
-    getDb().delete(redes).where(eq(redes.id, id)).run()
-  )
+  ipcMain.handle(IPC.REDES_DELETE, (_event, id: number) => {
+    const db = getDb()
+
+    // Count lojas and pedidos linked to this rede
+    const lojasList = db.select().from(lojas).where(eq(lojas.rede_id, id)).all()
+    const pedidosList = db.select().from(pedidos).where(eq(pedidos.rede_id, id)).all()
+
+    if (lojasList.length === 0 && pedidosList.length === 0) {
+      // Safe to hard-delete directly
+      db.delete(redes).where(eq(redes.id, id)).run()
+      return { ok: true }
+    }
+
+    // Check if any pedidos have real items
+    const pedidoIds = pedidosList.map(p => p.id)
+    const hasItens = pedidoIds.length > 0 && pedidoIds.some(pedidoId => {
+      const itens = db.select().from(itensPedido).where(eq(itensPedido.pedido_id, pedidoId)).all()
+      return itens.some(i => i.quantidade > 0)
+    })
+
+    if (hasItens) {
+      return {
+        ok: false,
+        error: `Esta rede possui ${pedidosList.length} pedido(s) com lançamentos. Não é possível excluir redes com histórico de vendas.`,
+      }
+    }
+
+    // All pedidos are empty — cascade delete safely
+    const sqlite = getRawSqlite()
+    sqlite.transaction(() => {
+      // Delete empty pedido items and pedidos
+      for (const pedidoId of pedidoIds) {
+        sqlite.prepare('DELETE FROM itens_pedido WHERE pedido_id = ?').run(pedidoId)
+      }
+      if (pedidoIds.length > 0) {
+        sqlite.prepare(`DELETE FROM pedidos WHERE id IN (${pedidoIds.map(() => '?').join(',')})`)
+          .run(...pedidoIds)
+      }
+      // Soft-delete lojas
+      for (const loja of lojasList) {
+        sqlite.prepare('UPDATE lojas SET ativo = 0, synced = 0 WHERE id = ?').run(loja.id)
+      }
+      // Delete the rede
+      sqlite.prepare('DELETE FROM redes WHERE id = ?').run(id)
+    })()
+
+    return { ok: true }
+  })
 }
