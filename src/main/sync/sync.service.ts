@@ -547,13 +547,23 @@ export async function startSync(win: BrowserWindow): Promise<void> {
   }, 8_000)
 }
 
-/** Delete a rede (and its lojas) from Supabase — call before local delete */
+/** Delete a rede (and all its data) from Supabase — call before local delete.
+ *  Cascades: precos → lojas → rede, so FK constraints are satisfied. */
 export async function pushDeleteRede(redeId: number): Promise<void> {
   const supabase = getSupabase()
   if (!supabase) return
-  // Soft-delete lojas first (FK constraint: pedidos reference lojas)
-  await supabase.from('lojas').update({ ativo: 0 }).eq('rede_id', redeId)
-  // Now safe to delete the rede
+  // 1. Get lojas for this rede so we can delete their precos
+  const { data: lojas } = await supabase.from('lojas').select('id').eq('rede_id', redeId)
+  const lojaIds = (lojas ?? []).map((l: { id: number }) => l.id)
+  // 2. Delete precos for these lojas (FK: precos.loja_id → lojas)
+  if (lojaIds.length > 0) {
+    await supabase.from('precos').delete().in('loja_id', lojaIds)
+    await supabase.from('layout_config').delete().in('loja_id', lojaIds)
+    await supabase.from('print_order').delete().in('loja_id', lojaIds)
+  }
+  // 3. Hard-delete lojas (FK: lojas.rede_id → redes)
+  await supabase.from('lojas').delete().eq('rede_id', redeId)
+  // 4. Delete rede
   await supabase.from('redes').delete().eq('id', redeId)
 }
 

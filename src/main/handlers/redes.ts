@@ -46,24 +46,37 @@ export function registerRedesHandlers() {
       console.warn('[redes] pushDeleteRede error (non-fatal):', (err as Error).message)
     }
 
-    // Cascade delete locally
+    // Cascade delete locally — disable FK temporarily to avoid constraint errors
+    // (precos/layout_config reference lojas; lojas reference redes)
     const sqlite = getRawSqlite()
-    sqlite.transaction(() => {
-      // Delete empty pedido items and pedidos
-      for (const pedidoId of pedidoIds) {
-        sqlite.prepare('DELETE FROM itens_pedido WHERE pedido_id = ?').run(pedidoId)
-      }
-      if (pedidoIds.length > 0) {
-        sqlite.prepare(`DELETE FROM pedidos WHERE id IN (${pedidoIds.map(() => '?').join(',')})`)
-          .run(...pedidoIds)
-      }
-      // Hard-delete lojas (already soft-deleted in Supabase by pushDeleteRede)
-      for (const loja of lojasList) {
-        sqlite.prepare('DELETE FROM lojas WHERE id = ?').run(loja.id)
-      }
-      // Delete the rede
-      sqlite.prepare('DELETE FROM redes WHERE id = ?').run(id)
-    })()
+    sqlite.pragma('foreign_keys = OFF')
+    try {
+      sqlite.transaction(() => {
+        const lojaIds = lojasList.map(l => l.id)
+        // Delete precos and layout configs for these lojas
+        if (lojaIds.length > 0) {
+          sqlite.prepare(`DELETE FROM precos WHERE loja_id IN (${lojaIds.map(() => '?').join(',')})`).run(...lojaIds)
+          sqlite.prepare(`DELETE FROM layout_config WHERE loja_id IN (${lojaIds.map(() => '?').join(',')})`).run(...lojaIds)
+          sqlite.prepare(`DELETE FROM print_order WHERE loja_id IN (${lojaIds.map(() => '?').join(',')})`).run(...lojaIds)
+        }
+        // Delete empty pedido items and pedidos
+        for (const pedidoId of pedidoIds) {
+          sqlite.prepare('DELETE FROM itens_pedido WHERE pedido_id = ?').run(pedidoId)
+        }
+        if (pedidoIds.length > 0) {
+          sqlite.prepare(`DELETE FROM pedidos WHERE id IN (${pedidoIds.map(() => '?').join(',')})`)
+            .run(...pedidoIds)
+        }
+        // Hard-delete lojas
+        if (lojaIds.length > 0) {
+          sqlite.prepare(`DELETE FROM lojas WHERE id IN (${lojaIds.map(() => '?').join(',')})`).run(...lojaIds)
+        }
+        // Delete the rede
+        sqlite.prepare('DELETE FROM redes WHERE id = ?').run(id)
+      })()
+    } finally {
+      sqlite.pragma('foreign_keys = ON')
+    }
 
     return { ok: true }
   })
