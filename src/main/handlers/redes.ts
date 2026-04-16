@@ -3,6 +3,7 @@ import { eq, and } from 'drizzle-orm'
 import { getDb, getRawSqlite } from '../db/client-local'
 import { redes, lojas, pedidos, itensPedido } from '../db/schema-local'
 import { IPC } from '../../shared/ipc-channels'
+import { pushDeleteRede } from '../sync/sync.service'
 
 export function registerRedesHandlers() {
   ipcMain.handle(IPC.REDES_LIST, () => getDb().select().from(redes).all())
@@ -16,18 +17,12 @@ export function registerRedesHandlers() {
     return getDb().update(redes).set({ ...updates, synced: 0 }).where(eq(redes.id, id)).returning().all()[0]
   })
 
-  ipcMain.handle(IPC.REDES_DELETE, (_event, id: number) => {
+  ipcMain.handle(IPC.REDES_DELETE, async (_event, id: number) => {
     const db = getDb()
 
     // Count lojas and pedidos linked to this rede
     const lojasList = db.select().from(lojas).where(eq(lojas.rede_id, id)).all()
     const pedidosList = db.select().from(pedidos).where(eq(pedidos.rede_id, id)).all()
-
-    if (lojasList.length === 0 && pedidosList.length === 0) {
-      // Safe to hard-delete directly
-      db.delete(redes).where(eq(redes.id, id)).run()
-      return { ok: true }
-    }
 
     // Check if any pedidos have real items
     const pedidoIds = pedidosList.map(p => p.id)
@@ -43,7 +38,15 @@ export function registerRedesHandlers() {
       }
     }
 
-    // All pedidos are empty — cascade delete safely
+    // Push deletion to Supabase first (soft-delete lojas, then delete rede)
+    // Errors are non-fatal — local deletion proceeds regardless
+    try {
+      await pushDeleteRede(id)
+    } catch (err) {
+      console.warn('[redes] pushDeleteRede error (non-fatal):', (err as Error).message)
+    }
+
+    // Cascade delete locally
     const sqlite = getRawSqlite()
     sqlite.transaction(() => {
       // Delete empty pedido items and pedidos
@@ -54,9 +57,9 @@ export function registerRedesHandlers() {
         sqlite.prepare(`DELETE FROM pedidos WHERE id IN (${pedidoIds.map(() => '?').join(',')})`)
           .run(...pedidoIds)
       }
-      // Soft-delete lojas
+      // Hard-delete lojas (already soft-deleted in Supabase by pushDeleteRede)
       for (const loja of lojasList) {
-        sqlite.prepare('UPDATE lojas SET ativo = 0, synced = 0 WHERE id = ?').run(loja.id)
+        sqlite.prepare('DELETE FROM lojas WHERE id = ?').run(loja.id)
       }
       // Delete the rede
       sqlite.prepare('DELETE FROM redes WHERE id = ?').run(id)

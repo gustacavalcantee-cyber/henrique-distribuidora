@@ -126,13 +126,21 @@ async function pushPendingPedidos(supabase: any): Promise<void> {
 async function pushPendingOthers(supabase: any): Promise<void> {
   const sqlite = getRawSqlite()
 
-  const tables = ['redes', 'franqueados', 'produtos', 'precos', 'custos', 'despesas']
+  const tables = ['redes', 'franqueados', 'precos', 'custos', 'despesas']
 
   for (const table of tables) {
     const pending = sqlite.prepare(`SELECT * FROM ${table} WHERE synced = 0`).all() as AnyRow[]
     if (pending.length === 0) continue
     await pushTable(supabase, table, pending)
     sqlite.prepare(`UPDATE ${table} SET synced = 1 WHERE synced = 0`).run()
+  }
+
+  // Produtos: skip local-only NF-e columns that don't exist in Supabase schema
+  const prodNfeSkipCols = ['synced', 'device_id', 'updated_at', 'remote_id', 'conflict_state', 'ncm', 'cst_icms', 'cfop', 'unidade_nfe']
+  const pendingProdutos = sqlite.prepare('SELECT * FROM produtos WHERE synced = 0').all() as AnyRow[]
+  if (pendingProdutos.length > 0) {
+    await pushTable(supabase, 'produtos', pendingProdutos, { skipCols: prodNfeSkipCols })
+    sqlite.prepare('UPDATE produtos SET synced = 1 WHERE synced = 0').run()
   }
 
   // Lojas: upsert to Supabase with their current ativo state.
@@ -537,6 +545,16 @@ export async function startSync(win: BrowserWindow): Promise<void> {
   setInterval(() => {
     if (!win.isDestroyed()) runSync(supabase, win, false)
   }, 8_000)
+}
+
+/** Delete a rede (and its lojas) from Supabase — call before local delete */
+export async function pushDeleteRede(redeId: number): Promise<void> {
+  const supabase = getSupabase()
+  if (!supabase) return
+  // Soft-delete lojas first (FK constraint: pedidos reference lojas)
+  await supabase.from('lojas').update({ ativo: 0 }).eq('rede_id', redeId)
+  // Now safe to delete the rede
+  await supabase.from('redes').delete().eq('id', redeId)
 }
 
 /** Delete a pedido (and its itens) from Supabase — call before local delete */

@@ -248,6 +248,16 @@ function initSchema(sqlite: Database.Database): void {
     try { sqlite.exec(`ALTER TABLE produtos ADD COLUMN ${col} TEXT`) } catch { /* already exists */ }
   }
 
+  // One-time fix: reset synced=0 for all produtos so they get re-pushed with the correct
+  // skip list (excluding ncm/cst_icms/cfop/unidade_nfe that don't exist in Supabase).
+  // Previously, the push failed silently but still marked synced=1, leaving some products
+  // (e.g. newly created ones) in a stuck state — present locally but absent from Supabase.
+  const prodSyncFix = sqlite.prepare("SELECT value FROM sync_meta WHERE key = 'produtos_nfe_sync_fix_v1'").get()
+  if (!prodSyncFix) {
+    sqlite.prepare('UPDATE produtos SET synced = 0').run()
+    sqlite.prepare("INSERT OR REPLACE INTO sync_meta (key, value) VALUES ('produtos_nfe_sync_fix_v1', '1')").run()
+  }
+
   // Forced cleanup v2: delete ALL layout_config on every device so contaminated data
   // (re-pushed from other devices after v1 ran) is fully wiped. Each franchise starts
   // completely fresh — user configures columns independently via edit mode.
