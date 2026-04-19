@@ -4,14 +4,16 @@ import { IPC } from '../../../shared/ipc-channels'
 
 interface UseOcNumbersArgs {
   activeRedeId: number | null
+  dataPedido: string
   rows: LancamentoRow[]
   setRows: React.Dispatch<React.SetStateAction<LancamentoRow[]>>
 }
 
-export function useOcNumbers({ activeRedeId, rows, setRows }: UseOcNumbersArgs) {
+export function useOcNumbers({ activeRedeId, dataPedido, rows, setRows }: UseOcNumbersArgs) {
   const [lastOcBase, setLastOcBase] = useState<{ prefix: string; num: number; pad: number } | null>(null)
 
   // Busca o ultimo OC desta rede para montar o placeholder
+  // Re-fetches whenever the date changes so each new date gets the correct next OC
   useEffect(() => {
     if (!activeRedeId) return
     window.electron.invoke<string | null>(IPC.PEDIDOS_LAST_OC, activeRedeId).then(lastOc => {
@@ -20,7 +22,7 @@ export function useOcNumbers({ activeRedeId, rows, setRows }: UseOcNumbersArgs) 
       if (!match) { setLastOcBase(null); return }
       setLastOcBase({ prefix: match[1], num: parseInt(match[2], 10), pad: match[2].length })
     })
-  }, [activeRedeId])
+  }, [activeRedeId, dataPedido])
 
   // Calcula os placeholders para linhas sem OC preenchido
   const ocPlaceholders = (() => {

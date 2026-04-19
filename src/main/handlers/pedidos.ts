@@ -67,7 +67,7 @@ export function registerPedidosHandlers() {
   ipcMain.handle(IPC.PEDIDOS_LAST_OC, (_event, rede_id: number) => {
     const last = getDb().select({ numero_oc: pedidos.numero_oc })
       .from(pedidos).where(eq(pedidos.rede_id, rede_id))
-      .orderBy(desc(pedidos.criado_em)).limit(1).all()[0]
+      .orderBy(desc(pedidos.id)).limit(1).all()[0]
     return last?.numero_oc ?? null
   })
 

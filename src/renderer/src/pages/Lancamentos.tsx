@@ -53,7 +53,7 @@ export function Lancamentos() {
     handleToggleGlobalProd,
   } = useRowProdutos({ activeRedeId, rows, produtos, historicProdIds })
 
-  const { ocPlaceholders, handleOcChange } = useOcNumbers({ activeRedeId, rows, setRows })
+  const { ocPlaceholders, handleOcChange } = useOcNumbers({ activeRedeId, dataPedido, rows, setRows })
 
   // Share preview modal
   const [sharePreview, setSharePreview] = useState<{ image: string; pedidoId: number } | null>(null)
