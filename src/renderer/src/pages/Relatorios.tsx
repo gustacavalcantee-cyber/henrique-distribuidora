@@ -88,20 +88,17 @@ h1 { font-size: 14px; font-weight: bold; margin-bottom: 2px; }
 .card-label { font-size: 10px; color: #666; text-transform: uppercase; }
 .card-value { font-size: 16px; font-weight: bold; margin-top: 2px; }
 .card-green .card-value { color: #16a34a; }
-.card-red .card-value { color: #dc2626; }
-.card-blue .card-value { color: #2563eb; }
 table { width: 100%; border-collapse: collapse; }
 th { background: #f0f0f0; font-size: 10px; text-align: left; padding: 3px 6px; border-bottom: 1px solid #ccc; }
 td { font-size: 11px; padding: 3px 6px; border-bottom: 1px solid #eee; }
 .right { text-align: right; }
 .date-row td { background: #dbeafe; font-weight: bold; color: #1e40af; padding: 4px 6px; }
+.date-total td { background: #eff6ff; font-weight: bold; color: #1e3a8a; font-size: 10.5px; padding: 3px 6px; border-top: 1px solid #bfdbfe; }
 </style></head><body>
 <h1>${nomeFornecedor.toUpperCase()}</h1>
 <div class="sub">${redeName} ${lojaName} — ${String(mes).padStart(2,'0')}/${ano} ${qLabel}</div>
 <div class="cards">
-  <div class="card card-green"><div class="card-label">Vendas</div><div class="card-value">R$ ${fmt(summary.total_venda)}</div></div>
-  <div class="card card-red"><div class="card-label">Custo</div><div class="card-value">R$ ${fmt(summary.total_custo)}</div></div>
-  <div class="card card-blue"><div class="card-label">Margem</div><div class="card-value">${summary.margem.toFixed(1)}%</div></div>
+  <div class="card card-green"><div class="card-label">Total de Vendas</div><div class="card-value">R$ ${fmt(summary.total_venda)}</div></div>
 </div>
 <table><thead><tr><th>Produto</th><th class="right">Qtd</th><th class="right">Preço</th><th class="right">Total</th></tr></thead>
 <tbody>
@@ -113,7 +110,8 @@ ${(() => {
   }
   return Array.from(grupos.entries()).map(([date, items]) => {
     const [y,m,d] = date.split('-')
-    return `<tr class="date-row"><td colspan="4">${d}/${m}/${y}</td></tr>` +
+    const dayTotal = items.reduce((acc, i) => acc + i.total_venda, 0)
+    return `<tr class="date-row"><td colspan="3">${d}/${m}/${y}</td><td class="right">R$ ${fmt(dayTotal)}</td></tr>` +
       items.map(i => `<tr><td style="padding-left:14px">${i.produto_nome}</td><td class="right">${i.quantidade.toLocaleString('pt-BR',{maximumFractionDigits:2})}</td><td class="right">R$ ${fmt(i.preco_unit)}</td><td class="right">R$ ${fmt(i.total_venda)}</td></tr>`).join('')
   }).join('')
 })()}
@@ -344,9 +342,9 @@ thead tr { border-bottom: 1px solid #555; }
             dateMap.get(ocKey)!.push(d)
           }
           return (
-            <div className="flex gap-4 overflow-auto">
+            <div className="flex gap-4 overflow-x-auto min-w-0">
               {/* Left: Detail */}
-              <div className="flex-1 overflow-auto">
+              <div className="flex-1 min-w-0 overflow-x-auto">
                 <h3 className="font-semibold text-gray-700 mb-2 text-sm">Detalhe por Pedido</h3>
                 <table className="text-xs border-collapse w-full">
                   <thead>
@@ -359,62 +357,66 @@ thead tr { border-bottom: 1px solid #555; }
                     </tr>
                   </thead>
                   <tbody>
-                    {Array.from(grupos.entries()).map(([date, ocs]) => (
-                      <>
-                        <tr key={`${keyPrefix}-d-${date}`} className="bg-blue-50">
-                          <td colSpan={5} className="px-2 py-1 font-bold text-blue-800">{formatDate(date)}</td>
-                        </tr>
-                        {Array.from(ocs.entries()).map(([ocKey, items]) => {
-                          const [oc, loja] = ocKey.split('||')
-                          return (
-                            <>
-                              <tr key={`${keyPrefix}-oc-${ocKey}`} className="bg-gray-100">
-                                <td colSpan={5} className="px-3 py-0.5 font-mono text-gray-600">
-                                  {oc} <span className="text-gray-400 font-sans">—</span> {loja}
-                                </td>
-                              </tr>
-                              {[...items].sort((a, b) => a.produto_nome.localeCompare(b.produto_nome, 'pt-BR')).map((item, i) => (
-                                <tr key={`${keyPrefix}-item-${i}`} className="hover:bg-gray-50">
-                                  <td className="border-b px-4 py-0.5">{item.produto_nome}</td>
-                                  <td className="border-b px-2 py-0.5 text-center">{formatQty(item.quantidade)}</td>
-                                  <td className="border-b px-1 py-0.5 text-right">
-                                    {editingItemId === item.item_id ? (
-                                      <input
-                                        type="text"
-                                        autoFocus
-                                        className="w-16 text-xs border border-blue-400 rounded px-1 py-0.5 text-right"
-                                        value={editingItemValue}
-                                        onChange={e => setEditingItemValue(e.target.value)}
-                                        onBlur={e => handleItemPrecoSave(item.item_id, e.target.value)}
-                                        onKeyDown={e => {
-                                          if (e.key === 'Enter') handleItemPrecoSave(item.item_id, editingItemValue)
-                                          if (e.key === 'Escape') setEditingItemId(null)
-                                        }}
-                                      />
-                                    ) : (
-                                      <span
-                                        className="cursor-pointer hover:bg-yellow-100 px-1 rounded"
-                                        title="Clique para editar o preço"
-                                        onClick={() => { setEditingItemId(item.item_id); setEditingItemValue(String(item.preco_unit).replace('.', ',')) }}
-                                      >
-                                        {formatMoney(item.preco_unit)}
-                                      </span>
-                                    )}
+                    {Array.from(grupos.entries()).map(([date, ocs]) => {
+                      const dayTotal = Array.from(ocs.values()).flat().reduce((acc, i) => acc + i.total_venda, 0)
+                      return (
+                        <>
+                          <tr key={`${keyPrefix}-d-${date}`} className="bg-blue-50">
+                            <td colSpan={4} className="px-2 py-1 font-bold text-blue-800">{formatDate(date)}</td>
+                            <td className="px-2 py-1 text-right font-bold text-blue-800">R$ {formatMoney(dayTotal)}</td>
+                          </tr>
+                          {Array.from(ocs.entries()).map(([ocKey, items]) => {
+                            const [oc, loja] = ocKey.split('||')
+                            return (
+                              <>
+                                <tr key={`${keyPrefix}-oc-${ocKey}`} className="bg-gray-100">
+                                  <td colSpan={5} className="px-3 py-0.5 font-mono text-gray-600">
+                                    {oc} <span className="text-gray-400 font-sans">—</span> {loja}
                                   </td>
-                                  <td className="border-b px-2 py-0.5 text-right">{formatMoney(item.total_venda)}</td>
-                                  <td className="border-b px-2 py-0.5 text-right">{formatMoney(item.total_custo)}</td>
                                 </tr>
-                              ))}
-                            </>
-                          )
-                        })}
-                      </>
-                    ))}
+                                {[...items].sort((a, b) => a.produto_nome.localeCompare(b.produto_nome, 'pt-BR')).map((item, i) => (
+                                  <tr key={`${keyPrefix}-item-${i}`} className="hover:bg-gray-50">
+                                    <td className="border-b px-4 py-0.5">{item.produto_nome}</td>
+                                    <td className="border-b px-2 py-0.5 text-center">{formatQty(item.quantidade)}</td>
+                                    <td className="border-b px-1 py-0.5 text-right">
+                                      {editingItemId === item.item_id ? (
+                                        <input
+                                          type="text"
+                                          autoFocus
+                                          className="w-16 text-xs border border-blue-400 rounded px-1 py-0.5 text-right"
+                                          value={editingItemValue}
+                                          onChange={e => setEditingItemValue(e.target.value)}
+                                          onBlur={e => handleItemPrecoSave(item.item_id, e.target.value)}
+                                          onKeyDown={e => {
+                                            if (e.key === 'Enter') handleItemPrecoSave(item.item_id, editingItemValue)
+                                            if (e.key === 'Escape') setEditingItemId(null)
+                                          }}
+                                        />
+                                      ) : (
+                                        <span
+                                          className="cursor-pointer hover:bg-yellow-100 px-1 rounded"
+                                          title="Clique para editar o preço"
+                                          onClick={() => { setEditingItemId(item.item_id); setEditingItemValue(String(item.preco_unit).replace('.', ',')) }}
+                                        >
+                                          {formatMoney(item.preco_unit)}
+                                        </span>
+                                      )}
+                                    </td>
+                                    <td className="border-b px-2 py-0.5 text-right">{formatMoney(item.total_venda)}</td>
+                                    <td className="border-b px-2 py-0.5 text-right">{formatMoney(item.total_custo)}</td>
+                                  </tr>
+                                ))}
+                              </>
+                            )
+                          })}
+                        </>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
               {/* Right: Matrix */}
-              <div className="flex-1 overflow-auto">
+              <div className="flex-1 min-w-0 overflow-x-auto">
                 <h3 className="font-semibold text-gray-700 mb-2 text-sm">Matriz para Nota Fiscal</h3>
                 <table className="text-xs border-collapse">
                   <thead>
@@ -484,8 +486,8 @@ thead tr { border-bottom: 1px solid #555; }
 
         return (
           <>
-            {/* Action buttons */}
-            <div className="flex justify-end gap-2">
+            {/* Action buttons — sticky so they stay visible even when the matrix is wide */}
+            <div className="sticky top-0 z-10 bg-white pb-1 flex justify-end gap-2">
               <button
                 onClick={handleCompartilharQuinzena}
                 disabled={shareLoading}
