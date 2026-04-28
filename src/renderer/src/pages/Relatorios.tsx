@@ -112,7 +112,7 @@ ${(() => {
     const [y,m,d] = date.split('-')
     const dayTotal = items.reduce((acc, i) => acc + i.total_venda, 0)
     return `<tr class="date-row"><td colspan="4">${d}/${m}/${y}</td></tr>` +
-      items.map(i => `<tr><td style="padding-left:14px">${i.produto_nome} <span style="color:#6b7280;font-size:9.5px;font-weight:bold;">${i.unidade}</span></td><td class="right">${i.quantidade.toLocaleString('pt-BR',{maximumFractionDigits:2})}</td><td class="right">R$ ${fmt(i.preco_unit)}</td><td class="right">R$ ${fmt(i.total_venda)}</td></tr>`).join('') +
+      items.map(i => `<tr><td style="padding-left:14px">${i.produto_nome}</td><td class="right">${i.quantidade.toLocaleString('pt-BR',{maximumFractionDigits:2})} <span style="color:#6b7280;font-size:9.5px;font-weight:bold;">${i.unidade}</span></td><td class="right">R$ ${fmt(i.preco_unit)}</td><td class="right">R$ ${fmt(i.total_venda)}</td></tr>`).join('') +
       `<tr class="total-row"><td>TOTAL</td><td colspan="2"></td><td class="right">R$ ${fmt(dayTotal)}</td></tr>`
   }).join('')
 })()}
