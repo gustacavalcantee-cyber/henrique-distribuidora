@@ -93,7 +93,7 @@ th { background: #f0f0f0; font-size: 10px; text-align: left; padding: 3px 6px; b
 td { font-size: 11px; padding: 3px 6px; border-bottom: 1px solid #eee; }
 .right { text-align: right; }
 .date-row td { background: #dbeafe; font-weight: bold; color: #1e40af; padding: 4px 6px; }
-.date-total td { background: #eff6ff; font-weight: bold; color: #1e3a8a; font-size: 10.5px; padding: 3px 6px; border-top: 1px solid #bfdbfe; }
+.total-row td { background: #1e40af; color: #fff; font-weight: bold; padding: 4px 6px; }
 </style></head><body>
 <h1>${nomeFornecedor.toUpperCase()}</h1>
 <div class="sub">${redeName} ${lojaName} — ${String(mes).padStart(2,'0')}/${ano} ${qLabel}</div>
@@ -111,8 +111,9 @@ ${(() => {
   return Array.from(grupos.entries()).map(([date, items]) => {
     const [y,m,d] = date.split('-')
     const dayTotal = items.reduce((acc, i) => acc + i.total_venda, 0)
-    return `<tr class="date-row"><td colspan="3">${d}/${m}/${y}</td><td class="right">R$ ${fmt(dayTotal)}</td></tr>` +
-      items.map(i => `<tr><td style="padding-left:14px">${i.produto_nome}</td><td class="right">${i.quantidade.toLocaleString('pt-BR',{maximumFractionDigits:2})}</td><td class="right">R$ ${fmt(i.preco_unit)}</td><td class="right">R$ ${fmt(i.total_venda)}</td></tr>`).join('')
+    return `<tr class="date-row"><td colspan="4">${d}/${m}/${y}</td></tr>` +
+      items.map(i => `<tr><td style="padding-left:14px">${i.produto_nome}</td><td class="right">${i.quantidade.toLocaleString('pt-BR',{maximumFractionDigits:2})}</td><td class="right">R$ ${fmt(i.preco_unit)}</td><td class="right">R$ ${fmt(i.total_venda)}</td></tr>`).join('') +
+      `<tr class="total-row"><td>TOTAL</td><td colspan="2"></td><td class="right">R$ ${fmt(dayTotal)}</td></tr>`
   }).join('')
 })()}
 </tbody></table>
@@ -319,6 +320,22 @@ thead tr { border-bottom: 1px solid #555; }
         <button onClick={handleBuscar} className="bg-blue-600 text-white px-3 py-1.5 rounded text-sm hover:bg-blue-700">
           Buscar
         </button>
+        {summary && (
+          <>
+            <button
+              onClick={handleCompartilharQuinzena}
+              disabled={shareLoading}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded text-sm bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 font-medium"
+            >
+              <Share2 size={13} />
+              {shareLoading ? 'Gerando...' : 'Compartilhar'}
+            </button>
+            <button onClick={handlePrintRelatorio} className="flex items-center gap-1.5 bg-green-600 text-white px-3 py-1.5 rounded text-sm hover:bg-green-700 font-medium">
+              <Printer size={13} />
+              Imprimir
+            </button>
+          </>
+        )}
       </div>
 
       {loading && <div className="text-gray-500">Carregando...</div>}
@@ -489,22 +506,6 @@ thead tr { border-bottom: 1px solid #555; }
 
         return (
           <>
-            {/* Action buttons — sticky so they stay visible even when the matrix is wide */}
-            <div className="sticky top-0 z-10 bg-white pb-1 flex justify-end gap-2">
-              <button
-                onClick={handleCompartilharQuinzena}
-                disabled={shareLoading}
-                className="flex items-center gap-1.5 px-4 py-1.5 rounded text-sm bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 font-medium"
-              >
-                <Share2 size={13} />
-                {shareLoading ? 'Gerando...' : 'Compartilhar'}
-              </button>
-              <button onClick={handlePrintRelatorio} className="bg-green-600 text-white px-4 py-1.5 rounded text-sm hover:bg-green-700 font-medium">
-                <Printer size={13} className="inline mr-1" />
-                Imprimir Relatório
-              </button>
-            </div>
-
             {/* Store 1 */}
             {summary2 && (
               <div className="text-sm font-semibold text-gray-700 border-b pb-1">{loja1Name}</div>
