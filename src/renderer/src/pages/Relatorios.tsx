@@ -353,7 +353,6 @@ thead tr { border-bottom: 1px solid #555; }
                       <th className="border px-2 py-1">Qtd</th>
                       <th className="border px-2 py-1">Preço</th>
                       <th className="border px-2 py-1">Total</th>
-                      <th className="border px-2 py-1">Custo</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -363,14 +362,13 @@ thead tr { border-bottom: 1px solid #555; }
                         <>
                           <tr key={`${keyPrefix}-d-${date}`} className="bg-blue-50">
                             <td colSpan={4} className="px-2 py-1 font-bold text-blue-800">{formatDate(date)}</td>
-                            <td className="px-2 py-1 text-right font-bold text-blue-800">R$ {formatMoney(dayTotal)}</td>
                           </tr>
                           {Array.from(ocs.entries()).map(([ocKey, items]) => {
                             const [oc, loja] = ocKey.split('||')
                             return (
                               <>
                                 <tr key={`${keyPrefix}-oc-${ocKey}`} className="bg-gray-100">
-                                  <td colSpan={5} className="px-3 py-0.5 font-mono text-gray-600">
+                                  <td colSpan={4} className="px-3 py-0.5 font-mono text-gray-600">
                                     {oc} <span className="text-gray-400 font-sans">—</span> {loja}
                                   </td>
                                 </tr>
@@ -403,12 +401,17 @@ thead tr { border-bottom: 1px solid #555; }
                                       )}
                                     </td>
                                     <td className="border-b px-2 py-0.5 text-right">{formatMoney(item.total_venda)}</td>
-                                    <td className="border-b px-2 py-0.5 text-right">{formatMoney(item.total_custo)}</td>
                                   </tr>
                                 ))}
                               </>
                             )
                           })}
+                          {/* Dark blue TOTAL row at the bottom of each date group */}
+                          <tr key={`${keyPrefix}-total-${date}`} className="bg-blue-800 text-white">
+                            <td className="px-2 py-1 font-bold tracking-wide">TOTAL</td>
+                            <td colSpan={2} className="px-2 py-1" />
+                            <td className="px-2 py-1 text-right font-bold">R$ {formatMoney(dayTotal)}</td>
+                          </tr>
                         </>
                       )
                     })}
