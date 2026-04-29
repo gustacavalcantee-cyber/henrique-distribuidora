@@ -660,6 +660,76 @@ ${Object.values(byLoja).map(ns => {
     setShareLoading(false)
   }
 
+  const handleCompartilharDetalhado = async () => {
+    if (!notas) return
+    const abertas = notas.filter(n => n.status_pagamento === 'aberto' || n.status_pagamento === 'atrasada')
+    if (abertas.length === 0) { alert('Não há notas em aberto para compartilhar.'); return }
+    setShareLoading(true)
+    const [nomeFornecedor, produtos] = await Promise.all([
+      window.electron.invoke<string>(IPC.CONFIG_GET, 'nome_fornecedor').then(v => v ?? ''),
+      window.electron.invoke<import('../../../shared/types').Produto[]>(IPC.PRODUTOS_LIST),
+    ])
+    const prodMap = new Map(produtos.map(p => [p.id, p]))
+    // Fetch items for every open pedido in parallel
+    const itensByPedido = new Map<number, import('../../../shared/types').ItemPedido[]>()
+    await Promise.all(abertas.map(async n => {
+      const items = await window.electron.invoke<import('../../../shared/types').ItemPedido[]>(IPC.PEDIDOS_ITENS, n.pedido_id)
+      itensByPedido.set(n.pedido_id, items.filter(i => i.quantidade > 0))
+    }))
+    const fmt = (v: number) => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    const fmtDate = (iso: string) => iso.split('-').reverse().join('/')
+    const periodoStr = mes === 0 ? String(ano) : `${String(mes).padStart(2,'0')}/${ano}`
+    // Group notas by loja
+    const byLoja: Record<number, NotaPagamento[]> = {}
+    for (const n of abertas) {
+      if (!byLoja[n.loja_id]) byLoja[n.loja_id] = []
+      byLoja[n.loja_id].push(n)
+    }
+    const grandTotal = abertas.reduce((s, n) => s + n.total_venda, 0)
+    const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: Arial, sans-serif; font-size: 12px; background: #fff; padding: 20px; width: 580px; }
+h1 { font-size: 14px; font-weight: bold; margin-bottom: 2px; }
+.sub { font-size: 11px; color: #666; margin-bottom: 14px; }
+.loja-hdr { background: #1e293b; color: #fff; padding: 5px 8px; margin-top: 14px; margin-bottom: 3px; font-size: 12px; font-weight: bold; border-radius: 3px; }
+table { width: 100%; border-collapse: collapse; margin-bottom: 0; }
+th { background: #f0f0f0; font-size: 10px; text-align: left; padding: 3px 6px; border-bottom: 1px solid #ccc; }
+th.right { text-align: right; }
+td { font-size: 11px; padding: 3px 6px; border-bottom: 1px solid #eee; }
+.right { text-align: right; }
+.date-row td { background: #dbeafe; font-weight: bold; color: #1e40af; padding: 4px 6px; }
+.total-row td { background: #1e40af; color: #fff; font-weight: bold; padding: 4px 6px; }
+.grand-row td { background: #1e293b; color: #fff; font-weight: bold; padding: 6px 8px; font-size: 13px; }
+</style></head><body>
+<h1>NOTAS EM ABERTO — DETALHADO</h1>
+<div class="sub">${nomeFornecedor.toUpperCase()} — ${periodoStr}</div>
+${Object.values(byLoja).map(lojaNotas => {
+  const n0 = lojaNotas[0]
+  const topLine = n0.franqueado_nome ?? n0.rede_nome ?? ''
+  return `<div class="loja-hdr">${topLine ? topLine + ' — ' : ''}${n0.loja_nome_only}</div>
+<table><thead><tr><th>Produto</th><th class="right">Qtd</th><th class="right">Preço</th><th class="right">Total</th></tr></thead>
+<tbody>${lojaNotas.map(n => {
+  const items = itensByPedido.get(n.pedido_id) ?? []
+  const dayTotal = items.reduce((s, i) => s + i.quantidade * i.preco_unit, 0)
+  return `<tr class="date-row"><td colspan="4">${fmtDate(n.data_pedido)} — ${n.numero_oc}</td></tr>` +
+    items.map(i => {
+      const prod = prodMap.get(i.produto_id!)
+      return `<tr><td style="padding-left:12px">${prod?.nome ?? '?'}</td><td class="right">${i.quantidade.toLocaleString('pt-BR',{maximumFractionDigits:2})} <span style="color:#6b7280;font-size:9px;font-weight:bold">${prod?.unidade ?? ''}</span></td><td class="right">R$ ${fmt(i.preco_unit)}</td><td class="right">R$ ${fmt(i.quantidade * i.preco_unit)}</td></tr>`
+    }).join('') +
+    `<tr class="total-row"><td>TOTAL</td><td colspan="2"></td><td class="right">R$ ${fmt(dayTotal)}</td></tr>`
+}).join('')}
+</tbody></table>`
+}).join('')}
+<table style="margin-top:12px"><tbody>
+  <tr class="grand-row"><td>TOTAL GERAL EM ABERTO</td><td colspan="2"></td><td class="right">R$ ${fmt(grandTotal)}</td></tr>
+</tbody></table>
+</body></html>`
+    const image = await window.electron.invoke<string>(IPC.RENDER_HTML_IMAGE, html, 600)
+    setShareImage(image)
+    setShareLoading(false)
+  }
+
   const notasAbertas = notas?.filter(n => n.status_pagamento === 'aberto') ?? []
   const notasAtrasadas = notas?.filter(n => n.status_pagamento === 'atrasada') ?? []
   const valorAberto = notasAbertas.reduce((s, n) => s + n.total_venda, 0)
@@ -749,6 +819,14 @@ ${Object.values(byLoja).map(ns => {
                   >
                     <Share2 size={13} />
                     {shareLoading ? 'Gerando...' : 'Em Aberto'}
+                  </button>
+                  <button
+                    onClick={handleCompartilharDetalhado}
+                    disabled={shareLoading}
+                    className="flex items-center gap-1.5 px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    <Share2 size={13} />
+                    {shareLoading ? 'Gerando...' : 'Detalhado'}
                   </button>
                   <button
                     onClick={() => handleCompartilhar('pagas')}
