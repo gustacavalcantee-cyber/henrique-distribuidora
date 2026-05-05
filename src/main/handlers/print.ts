@@ -126,7 +126,7 @@ export function registerPrintHandlers() {
     try {
       await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
       await new Promise(r => setTimeout(r, 400))
-      const pdfData = await win.webContents.printToPDF({ printBackground: true, pageSize: 'A4', marginsType: 1 })
+      const pdfData = await win.webContents.printToPDF({ printBackground: true, pageSize: 'A4' })
       writeFileSync(filePath, pdfData)
       shell.openPath(filePath)
       return { success: true }
