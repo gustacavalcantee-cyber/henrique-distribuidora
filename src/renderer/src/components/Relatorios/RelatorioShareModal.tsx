@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
-import { Share2, X, Check } from 'lucide-react'
+import { Share2, X, Check, FileDown } from 'lucide-react'
 import { IPC } from '../../../../shared/ipc-channels'
 
 interface RelatorioShareModalProps {
@@ -11,9 +11,8 @@ interface RelatorioShareModalProps {
 
 export function RelatorioShareModal({ image, filename = 'relatorio.png', onClose }: RelatorioShareModalProps) {
   const [copied, setCopied] = useState(false)
-  const [whatsappCopied, setWhatsappCopied] = useState(false)
+  const [pdfLoading, setPdfLoading] = useState(false)
 
-  // ESC closes the modal
   useEffect(() => {
     if (!image) return
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
@@ -29,11 +28,11 @@ export function RelatorioShareModal({ image, filename = 'relatorio.png', onClose
     setTimeout(() => setCopied(false), 2000)
   }
 
-  const handleWhatsApp = async () => {
-    await window.electron.invoke(IPC.CLIPBOARD_WRITE_IMAGE, image)
-    await window.electron.invoke(IPC.OPEN_EXTERNAL, 'https://web.whatsapp.com')
-    setWhatsappCopied(true)
-    setTimeout(() => setWhatsappCopied(false), 3000)
+  const handleSavePdf = async () => {
+    setPdfLoading(true)
+    const pdfName = filename.replace(/\.png$/, '.pdf')
+    await window.electron.invoke(IPC.SAVE_IMAGE_AS_PDF, image, pdfName)
+    setPdfLoading(false)
   }
 
   return createPortal(
@@ -51,10 +50,7 @@ export function RelatorioShareModal({ image, filename = 'relatorio.png', onClose
             <Share2 size={16} />
             Prévia para compartilhar
           </div>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 rounded p-1 hover:bg-gray-100"
-          >
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 rounded p-1 hover:bg-gray-100">
             <X size={16} />
           </button>
         </div>
@@ -63,20 +59,18 @@ export function RelatorioShareModal({ image, filename = 'relatorio.png', onClose
         </div>
         <div className="flex gap-2 justify-end px-4 py-3 border-t border-gray-100 flex-shrink-0">
           <button
-            onClick={handleWhatsApp}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-green-500 hover:bg-green-600 text-white rounded"
+            onClick={handleSavePdf}
+            disabled={pdfLoading}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-red-600 hover:bg-red-700 text-white rounded disabled:opacity-50"
           >
-            {whatsappCopied
-              ? 'Copiado! Cole no WhatsApp.'
-              : '📲 WhatsApp'}
+            <FileDown size={14} />
+            {pdfLoading ? 'Gerando...' : 'Salvar PDF'}
           </button>
           <button
             onClick={handleCopy}
             className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-300 rounded hover:bg-gray-50 text-gray-700"
           >
-            {copied
-              ? <><Check size={14} className="text-green-600" /> Copiado!</>
-              : 'Copiar imagem'}
+            {copied ? <><Check size={14} className="text-green-600" /> Copiado!</> : 'Copiar imagem'}
           </button>
           <a
             href={image}

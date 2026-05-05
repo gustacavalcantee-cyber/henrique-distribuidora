@@ -1,6 +1,6 @@
-import { useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
-import { Share2, X, Check } from 'lucide-react'
+import { Share2, X, Check, FileDown } from 'lucide-react'
 import { IPC } from '../../../../shared/ipc-channels'
 
 interface ShareModalProps {
@@ -11,6 +11,8 @@ interface ShareModalProps {
 }
 
 export function ShareModal({ sharePreview, shareCopied, onClose, onCopy }: ShareModalProps) {
+  const [pdfLoading, setPdfLoading] = useState(false)
+
   // ESC closes the modal
   useEffect(() => {
     if (!sharePreview) return
@@ -20,6 +22,13 @@ export function ShareModal({ sharePreview, shareCopied, onClose, onCopy }: Share
   }, [sharePreview, onClose])
 
   if (!sharePreview) return null
+
+  const handleSavePdf = async () => {
+    setPdfLoading(true)
+    await window.electron.invoke(IPC.SAVE_IMAGE_AS_PDF, sharePreview.image, `nota-${sharePreview.pedidoId}.pdf`)
+    setPdfLoading(false)
+  }
+
   return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
@@ -47,6 +56,14 @@ export function ShareModal({ sharePreview, shareCopied, onClose, onCopy }: Share
         </div>
         <div className="flex gap-2 justify-end px-4 py-3 border-t border-gray-100 flex-shrink-0">
           <button
+            onClick={handleSavePdf}
+            disabled={pdfLoading}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-red-600 hover:bg-red-700 text-white rounded disabled:opacity-50"
+          >
+            <FileDown size={14} />
+            {pdfLoading ? 'Gerando...' : 'Salvar PDF'}
+          </button>
+          <button
             onClick={onCopy}
             className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-300 rounded hover:bg-gray-50 text-gray-700"
           >
@@ -59,19 +76,8 @@ export function ShareModal({ sharePreview, shareCopied, onClose, onCopy }: Share
             download={`nota-${sharePreview.pedidoId}.png`}
             className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-300 rounded hover:bg-gray-50 text-gray-700"
           >
-            Salvar
+            Salvar PNG
           </a>
-          <button
-            onClick={async () => {
-              await window.electron.invoke(IPC.CLIPBOARD_WRITE_IMAGE, sharePreview.image)
-              await window.electron.invoke(IPC.SHARE_NOTA, sharePreview.pedidoId)
-              onClose()
-            }}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-green-600 text-white rounded hover:bg-green-700"
-          >
-            <Share2 size={14} />
-            Enviar via WhatsApp
-          </button>
         </div>
       </div>
     </div>,

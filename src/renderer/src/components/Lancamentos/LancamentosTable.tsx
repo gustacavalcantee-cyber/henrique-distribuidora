@@ -159,27 +159,39 @@ export function LancamentosTable({
 
               {/* Nome da loja */}
               <td className="border px-1 py-0.5 font-medium text-gray-700 whitespace-nowrap">
-                {editingLojaId === row.loja_id ? (
-                  <input
-                    autoFocus
-                    className="w-full px-1 py-0.5 text-sm text-slate-800 bg-white border border-emerald-400 focus:outline-none focus:ring-1 focus:ring-emerald-400 rounded"
-                    value={editingLojaNome}
-                    onChange={e => onEditLojaNameChange(e.target.value)}
-                    onBlur={() => onSaveLojaNome(row.loja_id)}
-                    onKeyDown={e => onEditLojaKeyDown(e, row.loja_id)}
-                  />
-                ) : (
-                  <span className="flex items-center gap-1">
-                    {editMode && <GripVertical size={12} className="text-gray-300 cursor-grab flex-shrink-0" />}
-                    <span
-                      className="block px-1 py-0.5 cursor-pointer hover:bg-gray-100 rounded flex-1"
-                      title="Clique duplo para editar"
-                      onDoubleClick={() => onEditLoja(row.loja_id, row.loja_nome)}
-                    >
-                      {row.loja_nome}
+                {(() => {
+                  const filledCount = Object.values(row.quantidades).filter(q => q != null && q > 0).length
+                  const badge = filledCount > 0 ? (
+                    <span className="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1 text-xs font-bold bg-blue-500 text-white rounded-full leading-none flex-shrink-0">
+                      {filledCount}
                     </span>
-                  </span>
-                )}
+                  ) : null
+                  return editingLojaId === row.loja_id ? (
+                    <div className="flex items-center gap-1">
+                      <input
+                        autoFocus
+                        className="w-full px-1 py-0.5 text-sm text-slate-800 bg-white border border-emerald-400 focus:outline-none focus:ring-1 focus:ring-emerald-400 rounded"
+                        value={editingLojaNome}
+                        onChange={e => onEditLojaNameChange(e.target.value)}
+                        onBlur={() => onSaveLojaNome(row.loja_id)}
+                        onKeyDown={e => onEditLojaKeyDown(e, row.loja_id)}
+                      />
+                      {badge}
+                    </div>
+                  ) : (
+                    <span className="flex items-center gap-1">
+                      {editMode && <GripVertical size={12} className="text-gray-300 cursor-grab flex-shrink-0" />}
+                      <span
+                        className="block px-1 py-0.5 cursor-pointer hover:bg-gray-100 rounded flex-1"
+                        title="Clique duplo para editar"
+                        onDoubleClick={() => onEditLoja(row.loja_id, row.loja_nome)}
+                      >
+                        {row.loja_nome}
+                      </span>
+                      {badge}
+                    </span>
+                  )
+                })()}
               </td>
 
               {/* Células de quantidade */}

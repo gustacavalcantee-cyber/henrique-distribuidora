@@ -1,4 +1,5 @@
-import { ipcMain, BrowserWindow, shell, clipboard, nativeImage } from 'electron'
+import { ipcMain, BrowserWindow, shell, clipboard, nativeImage, dialog } from 'electron'
+import { writeFileSync } from 'fs'
 import { IPC } from '../../shared/ipc-channels'
 import { getPrintData, generatePrintHtml, generateShareHtml } from '../services/print.service'
 
@@ -112,6 +113,26 @@ export function registerPrintHandlers() {
 
   ipcMain.handle(IPC.OPEN_EXTERNAL, (_event, url: string) => {
     return shell.openExternal(url)
+  })
+
+  ipcMain.handle(IPC.SAVE_IMAGE_AS_PDF, async (_event, dataUrl: string, suggestedName = 'relatorio.pdf') => {
+    const { filePath } = await dialog.showSaveDialog({
+      defaultPath: suggestedName,
+      filters: [{ name: 'PDF', extensions: ['pdf'] }],
+    })
+    if (!filePath) return { cancelled: true }
+    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>*{margin:0;padding:0;}body{margin:0;}img{width:100%;display:block;}</style></head><body><img src="${dataUrl}"></body></html>`
+    const win = new BrowserWindow({ width: 640, height: 900, show: false, frame: false, webPreferences: { sandbox: false } })
+    try {
+      await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
+      await new Promise(r => setTimeout(r, 400))
+      const pdfData = await win.webContents.printToPDF({ printBackground: true, pageSize: 'A4', marginsType: 1 })
+      writeFileSync(filePath, pdfData)
+      shell.openPath(filePath)
+      return { success: true }
+    } finally {
+      win.close()
+    }
   })
 
   ipcMain.handle(IPC.RENDER_HTML_IMAGE, async (_event, html: string, width = 600) => {

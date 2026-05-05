@@ -206,7 +206,10 @@ export function getPrintData(pedidoId: number, colOrder?: number[]): PrintData {
     mergedLinhas.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
   }
 
-  const totalGeral = mergedLinhas.reduce((sum, l) => sum + (l.total ?? 0), 0)
+  // Filter out products that were removed or not ordered (quantity null or 0)
+  const printLinhas = mergedLinhas.filter(l => l.quantidade != null && l.quantidade > 0)
+
+  const totalGeral = printLinhas.reduce((sum, l) => sum + (l.total ?? 0), 0)
   const [y, m, d] = pedido.data_pedido.split('-')
   const dataFormatada = `${d}/${m}/${y}`
 
@@ -217,7 +220,7 @@ export function getPrintData(pedidoId: number, colOrder?: number[]): PrintData {
     lojaNome: loja?.nome?.toUpperCase() ?? '',
     numerOc: pedido.numero_oc,
     data: dataFormatada,
-    linhas: mergedLinhas,
+    linhas: printLinhas,
     totalGeral,
   }
 }
