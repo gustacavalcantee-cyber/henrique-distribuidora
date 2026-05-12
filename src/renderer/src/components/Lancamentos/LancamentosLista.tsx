@@ -62,24 +62,38 @@ export function LancamentosLista({
             />
 
             {/* Nome da loja */}
-            {editingLojaId === row.loja_id ? (
-              <input
-                autoFocus
-                className="flex-1 min-w-0 px-2 py-1 text-sm font-semibold text-slate-800 bg-white border border-emerald-400 rounded focus:outline-none"
-                value={editingLojaNome}
-                onChange={e => onEditLojaNameChange(e.target.value)}
-                onBlur={() => onSaveLojaNome(row.loja_id)}
-                onKeyDown={e => onEditLojaKeyDown(e, row.loja_id)}
-              />
-            ) : (
-              <span
-                className="flex-1 min-w-0 text-sm font-semibold text-gray-800 cursor-pointer truncate"
-                title="Clique duplo para editar"
-                onDoubleClick={() => onEditLoja(row.loja_id, row.loja_nome)}
-              >
-                {row.loja_nome}
-              </span>
-            )}
+            {(() => {
+              const filledCount = Object.values(row.quantidades).filter(q => q != null && q > 0).length
+              const badge = filledCount > 0 ? (
+                <span className="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1 text-xs font-bold bg-blue-500 text-white rounded-full leading-none flex-shrink-0">
+                  {filledCount}
+                </span>
+              ) : null
+              return editingLojaId === row.loja_id ? (
+                <div className="flex items-center gap-1 flex-1 min-w-0">
+                  <input
+                    autoFocus
+                    className="flex-1 min-w-0 px-2 py-1 text-sm font-semibold text-slate-800 bg-white border border-emerald-400 rounded focus:outline-none"
+                    value={editingLojaNome}
+                    onChange={e => onEditLojaNameChange(e.target.value)}
+                    onBlur={() => onSaveLojaNome(row.loja_id)}
+                    onKeyDown={e => onEditLojaKeyDown(e, row.loja_id)}
+                  />
+                  {badge}
+                </div>
+              ) : (
+                <span className="flex items-center gap-1 flex-1 min-w-0">
+                  <span
+                    className="text-sm font-semibold text-gray-800 cursor-pointer truncate"
+                    title="Clique duplo para editar"
+                    onDoubleClick={() => onEditLoja(row.loja_id, row.loja_nome)}
+                  >
+                    {row.loja_nome}
+                  </span>
+                  {badge}
+                </span>
+              )
+            })()}
 
             {/* Botões */}
             <div className="flex items-center gap-1 ml-auto flex-shrink-0">

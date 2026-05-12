@@ -43,7 +43,7 @@ export function LancamentosCards({
   return (
     <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }}>
       {rows.map(row => {
-        const activeCount = rowProdIds[row.loja_id]?.size ?? 0
+        const filledCount = Object.values(row.quantidades).filter(q => q != null && q > 0).length
         const rowTotal = visibleProdutos.reduce((sum, p) => {
           if (!rowProdIds[row.loja_id]?.has(p.id)) return sum
           const qty = row.quantidades[p.id]
@@ -91,9 +91,9 @@ export function LancamentosCards({
                     }
                   }}
                 />
-                {activeCount > 0 && (
-                  <span className="text-xs text-gray-400 flex-shrink-0">
-                    {activeCount} prod.
+                {filledCount > 0 && (
+                  <span className="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1 text-xs font-bold bg-blue-500 text-white rounded-full leading-none flex-shrink-0">
+                    {filledCount}
                   </span>
                 )}
                 {editMode && (

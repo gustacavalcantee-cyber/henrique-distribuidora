@@ -359,7 +359,9 @@ async function pullFromSupabase(supabase: any): Promise<void> {
     for (const item of itensPedido) {
       const parent = sqlite.prepare('SELECT synced FROM pedidos WHERE id = ?').get(item['pedido_id']) as { synced: number } | undefined
       if (!parent || parent.synced === 0) continue
-      const cols = Object.keys(item)
+      // Exclude 'id' — Supabase SERIAL ids conflict with SQLite local auto-increment ids.
+      // Let SQLite generate its own local id; items are identified by (pedido_id, produto_id).
+      const cols = Object.keys(item).filter(c => c !== 'id')
       sqlite.prepare(`INSERT INTO itens_pedido (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`).run(cols.map(c => item[c] ?? null))
     }
 
