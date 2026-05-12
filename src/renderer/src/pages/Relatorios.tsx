@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Printer, Share2 } from 'lucide-react'
 import type { Rede, Loja, Franqueado, QuinzenaSummary, FinanceiroSummary, CobrancaLojaResult, NotaPagamento, ProdutoRelatorioResult } from '../../../shared/types'
 import { IPC } from '../../../shared/ipc-channels'
@@ -591,6 +591,20 @@ function FinanceiroTab() {
     setNotas(notasList)
     setLoading(false)
   }
+
+  // Ref-stable handle so the DB_SYNCED/DB_READY listener (registered once) always
+  // calls the latest version of handleBuscar with current filter values
+  const handleBuscarRef = useRef(handleBuscar)
+  handleBuscarRef.current = handleBuscar
+  const hasDataRef = useRef(false)
+  hasDataRef.current = summary !== null || notas !== null
+
+  // Auto-refresh when a sync completes or when the user clicks "Recarregar dados"
+  useEffect(() => {
+    window.electron.on(IPC.DB_SYNCED, () => { if (hasDataRef.current) handleBuscarRef.current() })
+    window.electron.on(IPC.DB_READY,  () => { if (hasDataRef.current) handleBuscarRef.current() })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const handleStatusChange = async (pedido_id: number, status: string) => {
     await window.electron.invoke(IPC.PEDIDOS_UPDATE_STATUS, pedido_id, status)

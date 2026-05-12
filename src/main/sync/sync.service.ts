@@ -97,7 +97,8 @@ async function pushPendingPedidos(supabase: any): Promise<void> {
       continue
     }
 
-    const supabaseId: number = result?.[0]?.id ?? pedido['remote_id']
+    // Fallback to pedido['id'] if upsert returned no data (e.g. no-op upsert on unchanged row)
+    const supabaseId: number = result?.[0]?.id ?? pedido['remote_id'] ?? pedido['id']
 
     // Push itens for this pedido (delete existing in Supabase then re-insert)
     if (supabaseId) {
