@@ -284,8 +284,12 @@ function upsertLocal(
   }
 }
 
-async function pullFromSupabase(supabase: any): Promise<void> {
+async function pullFromSupabase(supabase: any): Promise<number> {
   const sqlite = getRawSqlite()
+  // Counter for auto-heal: pedidos detected as "local has items, Supabase has zero"
+  // are silently re-flagged for push. Returning the count lets the caller trigger
+  // an immediate push instead of waiting for the next 8s polling cycle.
+  let autoHealCount = 0
 
   console.log('[sync] Pulling from Supabase...')
 
@@ -368,7 +372,21 @@ async function pullFromSupabase(supabase: any): Promise<void> {
       // Guard: only replace if Supabase actually has items for this pedido.
       // If Supabase has 0 items (push failed / status-change push with empty local DB),
       // keep the existing local items rather than wiping them.
-      if (!items || items.length === 0) continue
+      if (!items || items.length === 0) {
+        // AUTO-HEAL: if local has items but Supabase doesn't, flag the pedido for
+        // re-push. The next push cycle will send our local items back to Supabase,
+        // restoring data without any manual intervention.
+        const localItemCount = (sqlite.prepare(
+          'SELECT COUNT(*) as c FROM itens_pedido WHERE pedido_id = ?'
+        ).get(remotePedido['id']) as { c: number }).c
+        if (localItemCount > 0) {
+          console.log(`[sync] auto-heal: pedido ${remotePedido['id']} has ${localItemCount} local items but 0 in Supabase — re-push scheduled`)
+          sqlite.prepare('UPDATE pedidos SET synced = 0 WHERE id = ?').run(remotePedido['id'])
+          sqlite.prepare('UPDATE itens_pedido SET synced = 0 WHERE pedido_id = ?').run(remotePedido['id'])
+          autoHealCount++
+        }
+        continue
+      }
       sqlite.prepare('DELETE FROM itens_pedido WHERE pedido_id = ?').run(remotePedido['id'])
       for (const item of items) {
         // Exclude 'id' — Supabase SERIAL ids conflict with SQLite local auto-increment ids.
@@ -453,7 +471,11 @@ async function pullFromSupabase(supabase: any): Promise<void> {
     sqlite.pragma('foreign_keys = ON')
   }
 
+  if (autoHealCount > 0) {
+    console.log(`[sync] auto-heal: flagged ${autoHealCount} pedido(s) for re-push`)
+  }
   console.log('[sync] Pull complete.')
+  return autoHealCount
 }
 
 // --------------------------------------------------------------------------
@@ -487,8 +509,19 @@ async function runSync(supabase: any, win: BrowserWindow, alwaysNotify: boolean)
     const before = alwaysNotify ? '' : dataSignature(sqlite)
     await pushPendingPedidos(supabase)
     await pushPendingOthers(supabase)
-    await pullFromSupabase(supabase)
-    const changed = alwaysNotify || dataSignature(sqlite) !== before
+    const healed = await pullFromSupabase(supabase)
+    // Auto-heal detected pedidos with local items but no remote items — re-push now
+    // instead of waiting for the next polling cycle. Also broadcasts so other devices
+    // pull the recovered data immediately.
+    if (healed > 0) {
+      await pushPendingPedidos(supabase)
+      _broadcastChannel?.send({
+        type: 'broadcast',
+        event: 'updated',
+        payload: { from: getDeviceId() },
+      })
+    }
+    const changed = alwaysNotify || healed > 0 || dataSignature(sqlite) !== before
     if (!win.isDestroyed() && changed) win.webContents.send(IPC.DB_SYNCED)
     // A broadcast arrived while we were syncing — pull once more and notify
     if (_pendingBroadcast && !win.isDestroyed()) {
@@ -518,7 +551,17 @@ export async function startSync(win: BrowserWindow): Promise<void> {
   try {
     await pushPendingPedidos(supabase)
     await pushPendingOthers(supabase)
-    await pullFromSupabase(supabase)
+    const healed = await pullFromSupabase(supabase)
+    // Auto-heal on startup: if local has items that Supabase lost, re-push them now
+    // so the recovered data is in the cloud before the UI starts querying.
+    if (healed > 0) {
+      await pushPendingPedidos(supabase)
+      _broadcastChannel?.send({
+        type: 'broadcast',
+        event: 'updated',
+        payload: { from: getDeviceId() },
+      })
+    }
     // Notify renderer that fresh data (including configs) is in SQLite
     if (!win.isDestroyed()) win.webContents.send(IPC.DB_READY)
   } catch (err: unknown) {
