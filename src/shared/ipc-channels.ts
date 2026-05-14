@@ -76,6 +76,7 @@ export const IPC = {
   OPEN_EXTERNAL: 'shell:openExternal',
   SYNC_ERROR: 'sync:error',
   SYNC_FORCE_PULL: 'sync:forcePull',
+  SYNC_FORCE_REPUSH: 'sync:forceRepush',
   NFE_CONFIG_GET: 'nfe:configGet',
   NFE_CONFIG_SET: 'nfe:configSet',
   NFE_GERAR_PREVIEW: 'nfe:gerarPreview',

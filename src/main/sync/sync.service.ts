@@ -100,11 +100,13 @@ async function pushPendingPedidos(supabase: any): Promise<void> {
     // Fallback to pedido['id'] if upsert returned no data (e.g. no-op upsert on unchanged row)
     const supabaseId: number = result?.[0]?.id ?? pedido['remote_id'] ?? pedido['id']
 
-    // Push itens for this pedido (delete existing in Supabase then re-insert)
+    // Push itens for this pedido: only replace Supabase items if local has items.
+    // If local has 0 items, keep Supabase items as-is — prevents wiping correct data
+    // from another device when e.g. a status-change push is made before items are loaded.
     if (supabaseId) {
-      await supabase.from('itens_pedido').delete().eq('pedido_id', supabaseId)
       const itens = sqlite.prepare('SELECT * FROM itens_pedido WHERE pedido_id = ?').all(pedido['id']) as AnyRow[]
       if (itens.length > 0) {
+        await supabase.from('itens_pedido').delete().eq('pedido_id', supabaseId)
         const itensCleaned = itens.map(i => ({
           pedido_id: supabaseId,
           produto_id: i['produto_id'],
@@ -350,20 +352,29 @@ async function pullFromSupabase(supabase: any): Promise<void> {
       }
     }
 
-    // For itens_pedido: delete and re-insert for every synced pedido to avoid
-    // stale/duplicate rows caused by local IDs differing from Supabase IDs
+    // For itens_pedido: per-pedido replace — only swap local items for Supabase items when
+    // Supabase actually HAS items for that pedido.  If Supabase has zero items (push never
+    // happened or was wiped by a race) we keep the local items as-is to avoid data loss.
+    const supabaseItemsByPedido = new Map<number, AnyRow[]>()
+    for (const item of itensPedido) {
+      const pid: number = item['pedido_id']
+      if (!supabaseItemsByPedido.has(pid)) supabaseItemsByPedido.set(pid, [])
+      supabaseItemsByPedido.get(pid)!.push(item)
+    }
     for (const remotePedido of pedidosRemote) {
       const local = sqlite.prepare('SELECT synced FROM pedidos WHERE id = ?').get(remotePedido['id']) as { synced: number } | undefined
       if (!local || local.synced === 0) continue
+      const items = supabaseItemsByPedido.get(remotePedido['id'])
+      // Guard: only replace if Supabase actually has items for this pedido.
+      // If Supabase has 0 items (push failed / status-change push with empty local DB),
+      // keep the existing local items rather than wiping them.
+      if (!items || items.length === 0) continue
       sqlite.prepare('DELETE FROM itens_pedido WHERE pedido_id = ?').run(remotePedido['id'])
-    }
-    for (const item of itensPedido) {
-      const parent = sqlite.prepare('SELECT synced FROM pedidos WHERE id = ?').get(item['pedido_id']) as { synced: number } | undefined
-      if (!parent || parent.synced === 0) continue
-      // Exclude 'id' — Supabase SERIAL ids conflict with SQLite local auto-increment ids.
-      // Let SQLite generate its own local id; items are identified by (pedido_id, produto_id).
-      const cols = Object.keys(item).filter(c => c !== 'id')
-      sqlite.prepare(`INSERT INTO itens_pedido (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`).run(cols.map(c => item[c] ?? null))
+      for (const item of items) {
+        // Exclude 'id' — Supabase SERIAL ids conflict with SQLite local auto-increment ids.
+        const cols = Object.keys(item).filter(c => c !== 'id')
+        sqlite.prepare(`INSERT INTO itens_pedido (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`).run(cols.map(c => item[c] ?? null))
+      }
     }
 
     upsertLocal(sqlite, 'despesas', despesas, 'id')
