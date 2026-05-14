@@ -8,13 +8,32 @@ export function SyncIndicator() {
   const [resyncing, setResyncing] = useState(false)
   const [repushing, setRepushing] = useState(false)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Tracks when the current "syncing burst" started — used to cap orange display
+  // at MAX_SYNCING_MS regardless of how many DB_SYNCED events arrive. Without this
+  // cap, frequent events from another active device (or constant broadcasts) would
+  // keep resetting the timer and the icon would stay orange permanently.
+  const syncBurstStartRef = useRef<number | null>(null)
 
   useEffect(() => {
+    const MAX_SYNCING_MS = 4_000
+    const MIN_SYNCING_MS = 600
+
     window.electron.on(IPC.DB_SYNCED, () => {
       setState('syncing')
       setErrorMsg('')
+      // First event of a burst → mark start time
+      if (syncBurstStartRef.current === null) {
+        syncBurstStartRef.current = Date.now()
+      }
+      // Compute remaining time so total orange display caps at MAX_SYNCING_MS
+      const elapsed = Date.now() - syncBurstStartRef.current
+      const remaining = Math.max(MIN_SYNCING_MS, MAX_SYNCING_MS - elapsed)
       if (timerRef.current) clearTimeout(timerRef.current)
-      timerRef.current = setTimeout(() => setState('ok'), 3_000)
+      timerRef.current = setTimeout(() => {
+        setState('ok')
+        syncBurstStartRef.current = null
+        timerRef.current = null
+      }, remaining)
     })
 
     window.electron.on(IPC.SYNC_ERROR, (...args: unknown[]) => {
@@ -27,6 +46,11 @@ export function SyncIndicator() {
     window.electron.on(IPC.DB_READY, () => {
       setState('ok')
       setErrorMsg('')
+      syncBurstStartRef.current = null
+      if (timerRef.current) {
+        clearTimeout(timerRef.current)
+        timerRef.current = null
+      }
     })
   }, [])
 
