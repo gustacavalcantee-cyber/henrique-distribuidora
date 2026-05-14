@@ -488,6 +488,9 @@ let _isSyncing = false
 let _pendingSync = false
 // Pending flag: a broadcast (remote change) arrived while _isSyncing — pull+notify when done
 let _pendingBroadcast = false
+// Debounce timer for broadcast handler: collapses bursts of remote-change notifications
+// into a single sync, preventing UI flicker when another device saves rapidly.
+let _broadcastDebounce: ReturnType<typeof setTimeout> | null = null
 
 function dataSignature(sqlite: ReturnType<typeof getRawSqlite>): string {
   const p = (sqlite.prepare('SELECT COUNT(*) as c FROM pedidos').get() as { c: number }).c
@@ -578,10 +581,19 @@ export async function startSync(win: BrowserWindow): Promise<void> {
   function subscribeBroadcast() {
     _broadcastChannel = supabase
       .channel('sync-broadcast')
-      .on('broadcast', { event: 'updated' }, async (msg: { payload?: { from?: string } }) => {
+      .on('broadcast', { event: 'updated' }, (msg: { payload?: { from?: string } }) => {
         if (msg.payload?.from === deviceId) return // ignore own broadcasts
-        console.log('[sync] broadcast received — pulling from remote')
-        await runSync(supabase, win, true) // always show orange — remote device changed
+        // Debounce: when another device is saving rapidly, broadcasts arrive in
+        // bursts. Instead of running a full sync (and triggering a UI re-fetch)
+        // for each one, wait 1.5s for the burst to settle, then sync once.
+        if (_broadcastDebounce) clearTimeout(_broadcastDebounce)
+        _broadcastDebounce = setTimeout(() => {
+          _broadcastDebounce = null
+          console.log('[sync] coalesced broadcast — pulling from remote')
+          runSync(supabase, win, true).catch((e) => {
+            console.warn('[sync] coalesced broadcast sync failed:', (e as Error).message)
+          })
+        }, 1_500)
       })
       .subscribe((status: string) => {
         console.log('[sync] broadcast channel status:', status)
