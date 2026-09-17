@@ -11,16 +11,9 @@ interface QuantidadeInputProps {
   dataCellId?: string
 }
 
-// Regex for a "plain number" being typed — no operators. When the input matches
-// this we propagate to the parent immediately so the existing auto-save timer
-// keeps working exactly like before. When the input contains + - * / we hold
-// off and only commit on Enter/Blur (after evaluating).
-const PLAIN_NUMBER = /^-?\d*[.,]?\d*$/
-
-// Enter detection is defensive: `e.key` should be "Enter" on both Return and
+// Enter detection is defensive: e.key should be "Enter" on both Return and
 // NumpadEnter across platforms, but some IME/keyboard layouts on macOS have
-// reported inconsistent behavior, so we also accept e.code and the legacy
-// keyCode/which as fallbacks.
+// reported inconsistent behavior, so we also accept e.code and legacy keyCode.
 function isEnterKey(e: React.KeyboardEvent<HTMLInputElement>): boolean {
   return (
     e.key === 'Enter' ||
@@ -41,68 +34,55 @@ export function QuantidadeInput({
   className, dataCellId,
 }: QuantidadeInputProps) {
   const [text, setText] = useState<string>(fmtInitial(qty))
-  const dirtyRef = useRef(false)
-  // Latest text kept in a ref so commit() sees the most recent value even when
-  // Enter fires in the same tick as the last onChange (React batches the state
-  // update, so the closure over `text` could otherwise be one keystroke behind).
-  const textRef = useRef(text)
-  textRef.current = text
+  const inputRef = useRef<HTMLInputElement>(null)
 
-  // Sync external qty changes (e.g., server pull) into the visible text — but
-  // only when the user is not in the middle of editing.
+  // Sync qty → text only when the user is NOT actively editing this input
+  // (prevents overwriting a math expression they are in the middle of typing).
   useEffect(() => {
-    if (!dirtyRef.current) {
-      const next = fmtInitial(qty)
-      setText(next)
-      textRef.current = next
+    if (document.activeElement !== inputRef.current) {
+      setText(fmtInitial(qty))
     }
   }, [qty])
 
-  const commit = () => {
-    const current = textRef.current
-    if (!dirtyRef.current) return
-    const result = evalMath(current)
+  // Evaluate whatever is in the DOM right now, propagate the number, and update
+  // the visible text. Reads e.currentTarget.value directly to sidestep React's
+  // async batching — the input's actual value is the ground truth.
+  const commitFromValue = (raw: string) => {
+    const result = evalMath(raw)
     if (result === null) {
-      // Invalid or empty: if the field was cleared, propagate that; otherwise
-      // leave the raw text visible so the user can fix it.
-      if (current.trim() === '') onQuantidadeChange('')
-      dirtyRef.current = false
+      if (raw.trim() === '') onQuantidadeChange('')
       return
     }
     const asStr = String(result)
     setText(asStr)
-    textRef.current = asStr
     onQuantidadeChange(asStr)
-    dirtyRef.current = false
   }
 
   return (
     <input
+      ref={inputRef}
       type="text"
-      // NOTE: `inputMode="decimal"` was removed — in some Electron/Chromium
-      // builds on macOS it filters out `+ - * / (` so the math expression
-      // never reaches the input. Plain "text" accepts every character.
       data-cell-id={dataCellId}
       className={className}
       value={text}
       onChange={e => {
         const raw = e.target.value
         setText(raw)
-        textRef.current = raw
-        dirtyRef.current = true
-        // Plain number → propagate immediately so auto-save timer still works.
-        // Math expression (has an operator) → wait for Enter/Blur.
-        if (PLAIN_NUMBER.test(raw)) onQuantidadeChange(raw.replace(',', '.'))
+        // Propagate plain numbers immediately so the auto-save timer in the
+        // parent still fires while typing straight numeric values. A math
+        // expression only propagates on Enter/Blur through commitFromValue.
+        if (/^-?\d*[.,]?\d*$/.test(raw)) onQuantidadeChange(raw.replace(',', '.'))
       }}
       onBlur={e => {
-        commit()
+        commitFromValue(e.currentTarget.value)
         onCellBlur(e)
       }}
       onKeyDown={e => {
         if (isEnterKey(e)) {
           e.preventDefault()
-          commit()
-          ;(e.target as HTMLInputElement).blur()
+          e.stopPropagation()
+          commitFromValue(e.currentTarget.value)
+          e.currentTarget.blur()
           return
         }
         onKeyDown?.(e)
