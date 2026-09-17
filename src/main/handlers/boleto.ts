@@ -4,7 +4,7 @@ import type { Banco, BoletoDraft, InterConfig } from '../../shared/types'
 import {
   listBancos, createBanco, updateBanco, deleteBanco,
   getInterConfig, setInterConfig,
-  listBoletos, emitirBoleto, cancelarBoleto, getBoletosPdf, consultarBoleto,
+  listBoletos, emitirBoleto, cancelarBoleto, getBoletosPdf, getBoletosPdfLote, consultarBoleto,
 } from '../services/boleto.service'
 import { getRawSqliteShared } from '../db/client'
 
@@ -29,6 +29,12 @@ export function registerBoletoHandlers() {
 
   ipcMain.handle(IPC.BOLETOS_PDF, async (_e, boleto_id: number) => {
     const path = await getBoletosPdf(boleto_id)
+    shell.openPath(path)
+    return path
+  })
+
+  ipcMain.handle(IPC.BOLETOS_PDF_LOTE, async (_e, boletoIds: number[]) => {
+    const path = await getBoletosPdfLote(boletoIds)
     shell.openPath(path)
     return path
   })

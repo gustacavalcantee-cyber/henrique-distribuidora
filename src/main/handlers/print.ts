@@ -1,7 +1,7 @@
 import { ipcMain, BrowserWindow, shell, clipboard, nativeImage, dialog } from 'electron'
 import { writeFileSync } from 'fs'
 import { IPC } from '../../shared/ipc-channels'
-import { getPrintData, generatePrintHtml, generateShareHtml } from '../services/print.service'
+import { getPrintData, generatePrintHtml, generateShareHtml, generateBatchPrintHtml } from '../services/print.service'
 
 export function registerPrintHandlers() {
   ipcMain.handle(IPC.PRINT_PEDIDO, async (_event, pedidoId: number, colOrder?: number[]) => {
@@ -13,6 +13,24 @@ export function registerPrintHandlers() {
       height: 750,
       show: true,
       title: `Visualização — OC ${data.numerOc} | ${data.lojaNome}`,
+      webPreferences: { sandbox: false },
+    })
+
+    win.setMenuBarVisibility(false)
+    await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
+    win.show()
+  })
+
+  ipcMain.handle(IPC.PRINT_PEDIDOS_LOTE, async (_event, pedidoIds: number[], colOrder?: number[]) => {
+    if (!Array.isArray(pedidoIds) || pedidoIds.length === 0) return
+    const dataArray = pedidoIds.map(id => getPrintData(id, colOrder))
+    const html = generateBatchPrintHtml(dataArray, true)
+
+    const win = new BrowserWindow({
+      width: 1200,
+      height: 750,
+      show: true,
+      title: `Impressão em lote — ${dataArray.length} pedidos`,
       webPreferences: { sandbox: false },
     })
 

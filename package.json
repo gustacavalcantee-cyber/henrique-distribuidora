@@ -1,6 +1,6 @@
 {
   "name": "henrique-distribuidora",
-  "version": "1.0.154",
+  "version": "1.0.155",
   "description": "An Electron application with React and TypeScript",
   "main": "./out/main/index.js",
   "author": "example.com",
@@ -37,6 +37,7 @@
     "electron-updater": "^6.8.3",
     "exceljs": "^4.4.0",
     "lucide-react": "^0.577.0",
+    "pdf-lib": "^1.17.1",
     "postgres": "^3.4.8",
     "react-router-dom": "^7.13.1",
     "recharts": "^3.8.0",

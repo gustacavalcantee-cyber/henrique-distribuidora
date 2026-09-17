@@ -268,6 +268,37 @@ export function Lancamentos() {
     await window.electron.invoke(IPC.PRINT_PEDIDO, freshRow.pedido_id, colOrderRef.current)
   }, [activeRedeId, dataPedido, saveRow, enrichRow, rowProdIds])
 
+  // Batch print — one preview window with a page per pedido, so the user
+  // prints all lançamentos of the day with a single Ctrl+P.
+  const [printAllLoading, setPrintAllLoading] = useState(false)
+  const handlePrintAll = useCallback(async () => {
+    if (!activeRedeId) return
+    setPrintAllLoading(true)
+    try {
+      // Persist per-loja product order for every row that has one so the batch
+      // preview respects the same column order shown in the grid.
+      for (const row of rows) {
+        if (!rowProdIds[row.loja_id]) continue
+        const lojaOrder = [...rowProdIds[row.loja_id]]
+        await window.electron.invoke(IPC.PRINT_ORDER_SAVE, activeRedeId, row.loja_id, lojaOrder)
+      }
+      // Save any pending edits before pulling the fresh list
+      for (const row of rows) {
+        if (row.numero_oc) await saveRow(enrichRow(row), activeRedeId, dataPedido)
+      }
+      const updated = await window.electron.invoke<import('../../../shared/types').LancamentoRow[]>(IPC.PEDIDOS_BY_DATE_REDE, activeRedeId, dataPedido)
+      const pedidoIds = updated
+        .filter(r => r.pedido_id != null)
+        .map(r => r.pedido_id as number)
+      if (pedidoIds.length === 0) return
+      await window.electron.invoke(IPC.PRINT_PEDIDOS_LOTE, pedidoIds, colOrderRef.current)
+    } finally {
+      setPrintAllLoading(false)
+    }
+  }, [activeRedeId, dataPedido, rows, rowProdIds, saveRow, enrichRow])
+
+  const printableCount = rows.filter(r => r.pedido_id != null && r.numero_oc).length
+
   const handleShare = useCallback(async (row: LancamentoRow) => {
     if (!activeRedeId || !row.numero_oc) return
     setShareLoading(true)
@@ -367,6 +398,9 @@ export function Lancamentos() {
         }}
         prodSearch={prodSearch}
         onProdSearch={setProdSearch}
+        onPrintAll={handlePrintAll}
+        printAllLoading={printAllLoading}
+        printAllCount={printableCount}
       />
 
       {/* Rede tabs */}

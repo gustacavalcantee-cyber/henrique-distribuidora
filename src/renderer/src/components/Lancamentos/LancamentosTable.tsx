@@ -1,6 +1,7 @@
 import { useRef } from 'react'
 import { ChevronUp, ChevronDown, X, Plus, Printer, Share2, GripVertical } from 'lucide-react'
 import type { Produto, LancamentoRow } from '../../../../shared/types'
+import { QuantidadeInput } from './QuantidadeInput'
 
 interface LancamentosTableProps {
   rows: LancamentoRow[]
@@ -201,21 +202,18 @@ export function LancamentosTable({
                 return (
                   <td key={p.id} className="border px-1 py-0.5">
                     {isActive ? (
-                      <input
-                        data-cell-id={`${row.loja_id}-${prodIndex}`}
+                      <QuantidadeInput
+                        qty={qty ?? null}
+                        unidade={p.unidade}
+                        dataCellId={`${row.loja_id}-${prodIndex}`}
                         className="w-full px-1 py-0.5 text-sm text-center text-slate-800 bg-white focus:outline-none focus:ring-1 focus:ring-emerald-400 rounded"
-                        type="number"
-                        step={p.unidade === 'KG' ? '0.1' : '1'}
-                        min="0"
-                        value={qty ?? ''}
-                        onChange={e => onQuantidadeChange(row.loja_id, p.id, e.target.value)}
-                        onBlur={e => {
+                        onQuantidadeChange={value => onQuantidadeChange(row.loja_id, p.id, value)}
+                        onCellBlur={e => {
                           // Não salva se o foco está indo para outra célula de quantidade
-                          if ((e.relatedTarget as HTMLElement)?.hasAttribute('data-cell-id')) return
+                          if ((e?.relatedTarget as HTMLElement)?.hasAttribute('data-cell-id')) return
                           onCellBlur(row.loja_id)
                         }}
                         onKeyDown={e => {
-                          if (e.key === 'Enter') { (e.target as HTMLInputElement).blur(); return }
                           if (e.key === 'Tab') {
                             e.preventDefault()
                             const forward = !e.shiftKey

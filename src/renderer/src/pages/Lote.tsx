@@ -482,6 +482,24 @@ export function Lote() {
     }
   }
 
+  // Batch print: merge all successful boleto PDFs into one file and open it.
+  const [printAllLoading, setPrintAllLoading] = useState(false)
+  const boletoIdsForBatch = results
+    .filter(r => r.status === 'ok' && r.tipo === 'boleto' && r.boleto_id != null)
+    .map(r => r.boleto_id as number)
+
+  const handlePrintAllBoletos = async () => {
+    if (boletoIdsForBatch.length === 0) return
+    setPrintAllLoading(true)
+    try {
+      await window.electron.invoke(IPC.BOLETOS_PDF_LOTE, boletoIdsForBatch)
+    } catch (e: any) {
+      alert('Erro ao gerar PDF em lote: ' + (e?.message ?? e))
+    } finally {
+      setPrintAllLoading(false)
+    }
+  }
+
   // ── Render ─────────────────────────────────────────────────────────────────
 
   const activeBancos = (bancos ?? []).filter(b => b.ativo)
@@ -734,10 +752,20 @@ export function Lote() {
             {/* ── Resultados ── */}
             {results.length > 0 && (
               <div className="bg-white border rounded-lg overflow-hidden">
-                <div className="px-4 py-3 border-b bg-gray-50 flex items-center gap-3">
+                <div className="px-4 py-3 border-b bg-gray-50 flex items-center gap-3 flex-wrap">
                   <span className="text-sm font-semibold text-gray-700">Resultados</span>
                   {okCount > 0 && <span className="text-xs px-2 py-0.5 bg-green-100 text-green-700 rounded-full">{okCount} ✓ sucesso</span>}
                   {errCount > 0 && <span className="text-xs px-2 py-0.5 bg-red-100 text-red-700 rounded-full">{errCount} ✗ erro</span>}
+                  {boletoIdsForBatch.length > 1 && (
+                    <button
+                      onClick={handlePrintAllBoletos}
+                      disabled={printAllLoading}
+                      className="ml-auto text-xs px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 flex items-center gap-1.5"
+                      title={`Une os ${boletoIdsForBatch.length} boletos em um único PDF`}
+                    >
+                      {printAllLoading ? '⏳ Gerando...' : `📄 Imprimir Todos (${boletoIdsForBatch.length})`}
+                    </button>
+                  )}
                 </div>
                 <div className="divide-y max-h-72 overflow-auto">
                   {results.map((r, i) => (

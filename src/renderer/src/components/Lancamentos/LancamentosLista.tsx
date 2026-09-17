@@ -1,5 +1,6 @@
 import { Printer, Share2, X, Plus } from 'lucide-react'
 import type { Produto, LancamentoRow } from '../../../../shared/types'
+import { QuantidadeInput } from './QuantidadeInput'
 
 interface LancamentosListaProps {
   rows: LancamentoRow[]
@@ -147,15 +148,12 @@ export function LancamentosLista({
                     <span className="text-xs text-gray-400 w-8 text-right">{p.unidade}</span>
                     {isActive ? (
                       <div className="flex items-center gap-1">
-                        <input
+                        <QuantidadeInput
+                          qty={qty ?? null}
+                          unidade={p.unidade}
                           className="w-20 px-2 py-0.5 text-sm text-center text-slate-800 border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-emerald-400 bg-white"
-                          type="number"
-                          step={p.unidade === 'KG' ? '0.1' : '1'}
-                          min="0"
-                          value={qty ?? ''}
-                          onChange={e => onQuantidadeChange(row.loja_id, p.id, e.target.value)}
-                          onBlur={() => onCellBlur(row.loja_id)}
-                          onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                          onQuantidadeChange={value => onQuantidadeChange(row.loja_id, p.id, value)}
+                          onCellBlur={() => onCellBlur(row.loja_id)}
                         />
                         {editMode && (
                           <button

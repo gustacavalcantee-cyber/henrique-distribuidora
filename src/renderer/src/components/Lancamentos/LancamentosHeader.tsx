@@ -1,4 +1,4 @@
-import { Plus, Pencil, Check, Table2, List, LayoutGrid, Search, X } from 'lucide-react'
+import { Plus, Pencil, Check, Table2, List, LayoutGrid, Search, X, Printer } from 'lucide-react'
 import type { Produto, LancamentoRow } from '../../../../shared/types'
 
 export type LayoutMode = 'tabela' | 'lista' | 'cards'
@@ -24,6 +24,9 @@ interface LancamentosHeaderProps {
   onLayoutChange: (mode: LayoutMode) => void
   prodSearch: string
   onProdSearch: (v: string) => void
+  onPrintAll: () => void
+  printAllLoading: boolean
+  printAllCount: number
 }
 
 export function LancamentosHeader({
@@ -32,6 +35,7 @@ export function LancamentosHeader({
   onDateChange, onToggleEditMode, onToggleAddMenu, onRestoreRow,
   onToggleGlobalProdMenu, onGlobalProdSearch, onToggleGlobalProd, onLayoutChange,
   prodSearch, onProdSearch,
+  onPrintAll, printAllLoading, printAllCount,
 }: LancamentosHeaderProps) {
   return (
     <div className="flex items-center gap-4">
@@ -130,6 +134,19 @@ export function LancamentosHeader({
           </button>
         )}
       </div>
+
+      {/* Botão Imprimir Tudo — abre uma única prévia com todos os pedidos lançados */}
+      <button
+        onClick={onPrintAll}
+        disabled={printAllCount === 0 || printAllLoading}
+        title={printAllCount === 0
+          ? 'Nenhum pedido salvo nesta data para imprimir'
+          : `Imprimir ${printAllCount} pedido${printAllCount === 1 ? '' : 's'} em um único documento`}
+        className="flex items-center gap-1 px-3 py-1 text-sm bg-gray-700 text-white rounded hover:bg-gray-900 disabled:opacity-40 disabled:cursor-not-allowed"
+      >
+        <Printer size={14} />
+        {printAllLoading ? 'Gerando...' : `Imprimir Tudo${printAllCount > 0 ? ` (${printAllCount})` : ''}`}
+      </button>
 
       {/* Botão Produto global */}
       {editMode && (

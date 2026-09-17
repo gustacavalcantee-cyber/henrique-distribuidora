@@ -8,6 +8,7 @@ import { join } from 'path'
 import https from 'node:https'
 import { URL } from 'node:url'
 import { app } from 'electron'
+import { PDFDocument } from 'pdf-lib'
 import { getDb } from '../db/client'
 import { getRawSqlite as getLocalRawSqlite } from '../db/client-local'
 import type { Banco, BoletoDraft, BoletoSalvo, InterConfig } from '../../shared/types'
@@ -394,6 +395,39 @@ async function downloadBoletoPdf(banco_id: number, config: InterConfig, identifi
   const pdfPath = join(pdfDir, `boleto_${safeName}.pdf`)
   writeFileSync(pdfPath, pdfBuffer)
   return pdfPath
+}
+
+/**
+ * Merges the PDFs of multiple boletos into a single file and returns its path.
+ * Downloads any PDF that isn't cached locally yet, then concatenates all pages
+ * into one document so the user can print everything with a single Ctrl+P.
+ */
+export async function getBoletosPdfLote(boletoIds: number[]): Promise<string> {
+  if (!Array.isArray(boletoIds) || boletoIds.length === 0) {
+    throw new Error('Nenhum boleto informado')
+  }
+  const merged = await PDFDocument.create()
+  const errors: string[] = []
+  for (const id of boletoIds) {
+    try {
+      const path = await getBoletosPdf(id)
+      const bytes = readFileSync(path)
+      const src = await PDFDocument.load(bytes)
+      const copied = await merged.copyPages(src, src.getPageIndices())
+      copied.forEach(p => merged.addPage(p))
+    } catch (err) {
+      errors.push(`Boleto ${id}: ${(err as Error).message}`)
+    }
+  }
+  if (merged.getPageCount() === 0) {
+    throw new Error('Nenhum PDF pôde ser incluído: ' + errors.join('; '))
+  }
+  const outDir = join(app.getPath('userData'), 'boletos')
+  mkdirSync(outDir, { recursive: true })
+  const outPath = join(outDir, `boletos_lote_${Date.now()}.pdf`)
+  const outBytes = await merged.save()
+  writeFileSync(outPath, outBytes)
+  return outPath
 }
 
 export async function getBoletosPdf(boleto_id: number): Promise<string> {
