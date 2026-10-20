@@ -858,6 +858,22 @@ function LoteTab({ bancos }: { bancos: Banco[] }) {
     finally { setPrintingId(null) }
   }
 
+  // Merge every currently-filtered boleto into one PDF so the user can print
+  // the whole set with a single Ctrl+P instead of opening each PDF manually.
+  const [batchPrintLoading, setBatchPrintLoading] = useState(false)
+  const handlePrintAllHist = async () => {
+    const ids = filteredHist.map(b => b.id)
+    if (ids.length === 0) return
+    setBatchPrintLoading(true)
+    try {
+      await window.electron.invoke(IPC.BOLETOS_PDF_LOTE, ids)
+    } catch (e: any) {
+      alert('Erro ao gerar PDF em lote: ' + (e?.message ?? e))
+    } finally {
+      setBatchPrintLoading(false)
+    }
+  }
+
   const okCount = results.filter(r => r.status === 'ok').length
   const errCount = results.filter(r => r.status === 'erro').length
   const q = histSearch.trim().toLowerCase()
@@ -1056,10 +1072,20 @@ function LoteTab({ bancos }: { bancos: Banco[] }) {
 
       {/* Boleto History */}
       <div className="bg-white border rounded-lg overflow-hidden">
-        <div className="px-4 py-3 border-b bg-gray-50 flex items-center gap-3">
+        <div className="px-4 py-3 border-b bg-gray-50 flex items-center gap-3 flex-wrap">
           <span className="text-sm font-semibold text-gray-700">Histórico de Boletos</span>
           <input className="border rounded px-2 py-1 text-sm ml-auto w-48" placeholder="Buscar por sacado..."
             value={histSearch} onChange={e => setHistSearch(e.target.value)} />
+          {filteredHist.length >= 2 && (
+            <button
+              onClick={handlePrintAllHist}
+              disabled={batchPrintLoading}
+              className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 flex items-center gap-1.5 whitespace-nowrap"
+              title={`Une os ${filteredHist.length} boletos${q ? ' filtrados' : ''} em um único PDF`}
+            >
+              {batchPrintLoading ? '⏳ Gerando...' : `📄 Imprimir Todos (${filteredHist.length})`}
+            </button>
+          )}
         </div>
         <div className="max-h-72 overflow-auto">
           {filteredHist.length === 0 ? (
