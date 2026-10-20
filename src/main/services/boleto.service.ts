@@ -9,7 +9,6 @@ import https from 'node:https'
 import { URL } from 'node:url'
 import { app } from 'electron'
 import { PDFDocument } from 'pdf-lib'
-import { getDb } from '../db/client'
 import { getRawSqlite as getLocalRawSqlite } from '../db/client-local'
 import type { Banco, BoletoDraft, BoletoSalvo, InterConfig } from '../../shared/types'
 
@@ -111,9 +110,14 @@ function loadCertAndKey(config: InterConfig): { cert: Buffer; key: Buffer } {
 // -----------------------------------------------------------------------
 // Local DB helpers
 // -----------------------------------------------------------------------
+// All boleto / banco / inter-config state lives in the offline-first local
+// SQLite (henrique-local.db in userData). The old "shared" Google Drive DB
+// (henrique.db) is no longer the source of truth for this feature — reading
+// from it caused the bancos+boletos to appear empty whenever Google Drive
+// resolved conflicts to an older snapshot.
 
 function sqlite() {
-  return (getDb() as any).$client
+  return getLocalRawSqlite()
 }
 function localSqlite() {
   return getLocalRawSqlite()
