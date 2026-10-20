@@ -570,3 +570,128 @@ export async function consultarBoleto(boleto_id: number): Promise<{ status: stri
 
   return { status: row.status as string }
 }
+
+// -----------------------------------------------------------------------
+// Importar boletos emitidos no Inter — recupera cobranças da API dentro
+// de um intervalo de datas e insere no banco local as que ainda não existem.
+// Usado para re-popular o histórico quando o DB local perdeu entradas
+// (ex: conflito de sync do Google Drive na versão antiga do app).
+// -----------------------------------------------------------------------
+
+export async function importarBoletosDoInter(
+  banco_id: number,
+  dataInicial: string,
+  dataFinal: string,
+): Promise<{ importados: number; existentes: number; erros: number; total: number }> {
+  const banco = sqlite().prepare('SELECT * FROM bancos WHERE id=?').get(banco_id) as Banco | null
+  if (!banco) throw new Error('Banco não encontrado')
+  if (banco.provedor !== 'inter') throw new Error('Importação só disponível para Banco Inter')
+  const config = getInterConfig(banco_id)
+  if (!config) throw new Error('Config Inter não encontrada')
+
+  const baseUrl = config.ambiente === 'sandbox' ? BASE_URL_SANDBOX : BASE_URL_PROD
+  const token = await getInterToken(banco_id, config)
+  const { cert, key } = loadCertAndKey(config)
+  const rejectUnauthorized = config.ambiente !== 'sandbox'
+  const authHeaders = {
+    'Authorization': `Bearer ${token}`,
+    'x-inter-conta-corrente': config.conta ?? '',
+  }
+
+  // Inter situacao → nossa status
+  const statusMap: Record<string, string> = {
+    EMABERTO: 'emitido',
+    RECEBIDO: 'pago',
+    PAGO: 'pago',
+    CANCELADO: 'cancelado',
+    VENCIDO: 'vencido',
+    EXPIRADO: 'vencido',
+    PROTESTO: 'vencido',
+  }
+
+  let importados = 0
+  let existentes = 0
+  let erros = 0
+  let total = 0
+  let pagina = 0
+  // The API paginates — keep going until we hit the last page or run out
+  for (;;) {
+    const url = `${baseUrl}/cobranca/v3/cobrancas?dataInicial=${dataInicial}&dataFinal=${dataFinal}&filtrarDataPor=EMISSAO&itensPorPagina=50&paginaAtual=${pagina}`
+    const res = await mtlsRequest({
+      method: 'GET', url, cert, key, rejectUnauthorized, headers: authHeaders,
+    })
+    const json = res.json<any>()
+    if (res.statusCode !== 200) {
+      throw new Error(`Erro ${res.statusCode} ao listar cobranças: ${JSON.stringify(json).slice(0, 400)}`)
+    }
+    // The response is `{ totalPaginas, totalElementos, ultimaPagina, cobrancas: [...] }`.
+    // Each cobranca has fields at top-level (nossoNumero, situacao, pagador, …) or
+    // nested under `cobranca`/`boleto` depending on API version. Handle both.
+    const cobrancas: any[] = json.cobrancas ?? json.content ?? []
+    total = Number(json.totalElementos ?? total) || total
+    if (cobrancas.length === 0) break
+
+    for (const raw of cobrancas) {
+      try {
+        const c = raw.cobranca ?? raw
+        const b = raw.boleto ?? raw
+        const codigoSolicitacao: string | undefined = raw.codigoSolicitacao ?? c.codigoSolicitacao
+        const nossoNumero: string | undefined = b.nossoNumero ?? raw.nossoNumero
+        if (!codigoSolicitacao && !nossoNumero) { erros++; continue }
+
+        // Skip if already in local DB (match on inter_id first, then nosso_numero)
+        const exists = sqlite().prepare(
+          'SELECT id FROM boletos WHERE (inter_id = ? AND inter_id IS NOT NULL) OR (nosso_numero = ? AND nosso_numero IS NOT NULL) LIMIT 1'
+        ).get(codigoSolicitacao ?? '', nossoNumero ?? '') as { id: number } | undefined
+        if (exists) { existentes++; continue }
+
+        const pagador = c.pagador ?? raw.pagador ?? {}
+        const situacao: string = c.situacao ?? raw.situacao ?? 'EMABERTO'
+        const status = statusMap[situacao] ?? 'emitido'
+
+        sqlite().prepare(`
+          INSERT INTO boletos (
+            banco_id, loja_id, pedido_id,
+            sacado_nome, sacado_cpf_cnpj, sacado_endereco, sacado_cidade, sacado_uf, sacado_cep,
+            valor, vencimento, descricao, numero_documento,
+            nosso_numero, linha_digitavel, codigo_barras, status, pdf_path, inter_id,
+            criado_em
+          ) VALUES (
+            @banco_id, NULL, NULL,
+            @sacado_nome, @sacado_cpf_cnpj, @sacado_endereco, @sacado_cidade, @sacado_uf, @sacado_cep,
+            @valor, @vencimento, @descricao, @numero_documento,
+            @nosso_numero, @linha_digitavel, @codigo_barras, @status, NULL, @inter_id,
+            COALESCE(@criado_em, datetime('now'))
+          )
+        `).run({
+          banco_id,
+          sacado_nome: pagador.nome ?? pagador.nomePagador ?? '(sem nome)',
+          sacado_cpf_cnpj: pagador.cpfCnpj ?? pagador.cpf_cnpj ?? '',
+          sacado_endereco: pagador.endereco ?? null,
+          sacado_cidade: pagador.cidade ?? null,
+          sacado_uf: pagador.uf ?? null,
+          sacado_cep: pagador.cep ?? null,
+          valor: Number(c.valorNominal ?? raw.valorNominal ?? 0),
+          vencimento: (c.dataVencimento ?? raw.dataVencimento ?? '').slice(0, 10),
+          descricao: (c.mensagem?.linha1 ?? raw.mensagem?.linha1 ?? null),
+          numero_documento: c.seuNumero ?? raw.seuNumero ?? null,
+          nosso_numero: nossoNumero ?? null,
+          linha_digitavel: b.linhaDigitavel ?? raw.linhaDigitavel ?? null,
+          codigo_barras: b.codigoBarras ?? raw.codigoBarras ?? null,
+          status,
+          inter_id: codigoSolicitacao ?? null,
+          criado_em: (c.dataEmissao ?? raw.dataEmissao ?? null),
+        })
+        importados++
+      } catch {
+        erros++
+      }
+    }
+
+    if (json.ultimaPagina === true || json.last === true) break
+    pagina++
+    if (pagina > 200) break // sanity — avoid infinite loop if the API misreports
+  }
+
+  return { importados, existentes, erros, total }
+}

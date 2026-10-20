@@ -334,6 +334,47 @@ function HistoricoTab() {
     }
   }
 
+  // Pulls every cobrança issued at Inter in a date range into the local DB.
+  // Used to re-populate the history when local entries were lost in the old
+  // Google-Drive-shared DB — the Inter servers always have the full set.
+  const [importing, setImporting] = useState(false)
+  const handleImportarDoInter = async () => {
+    const bancos = await window.electron.invoke(IPC.BANCOS_LIST) as Banco[]
+    const interBanco = (bancos ?? []).find(b => b.provedor === 'inter' && b.ativo)
+    if (!interBanco) { alert('Nenhum banco Inter ativo encontrado. Cadastre em "Bancos" antes.'); return }
+
+    const today = new Date().toISOString().slice(0, 10)
+    const past = new Date(); past.setDate(past.getDate() - 180)
+    const defaultStart = past.toISOString().slice(0, 10)
+
+    const dataInicial = prompt(`Data inicial (AAAA-MM-DD):`, defaultStart)
+    if (!dataInicial) return
+    const dataFinal = prompt(`Data final (AAAA-MM-DD):`, today)
+    if (!dataFinal) return
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dataInicial) || !/^\d{4}-\d{2}-\d{2}$/.test(dataFinal)) {
+      alert('Datas inválidas. Use o formato AAAA-MM-DD, ex: 2026-07-01.'); return
+    }
+
+    setImporting(true)
+    try {
+      const res = await window.electron.invoke(IPC.BOLETOS_IMPORTAR_INTER, interBanco.id, dataInicial, dataFinal) as {
+        importados: number; existentes: number; erros: number; total: number
+      }
+      alert(
+        `Importação concluída!\n\n` +
+        `✓ Importados: ${res.importados}\n` +
+        `• Já existiam: ${res.existentes}\n` +
+        `✗ Erros: ${res.erros}\n` +
+        `Total encontrado no Inter: ${res.total}`
+      )
+      load()
+    } catch (e: any) {
+      alert(`Erro ao importar: ${e?.message ?? e}`)
+    } finally {
+      setImporting(false)
+    }
+  }
+
   // Consulta o Inter para todos os boletos "emitido" e atualiza o status local
   const handleSincronizarTodos = async () => {
     // Load all emitido boletos (ignores current filter)
@@ -377,6 +418,14 @@ function HistoricoTab() {
             ? <>⏳ Sincronizando {syncProgress?.done}/{syncProgress?.total}...</>
             : <>🔄 Sincronizar com Inter</>
           }
+        </button>
+        <button
+          onClick={handleImportarDoInter}
+          disabled={syncing || loading || importing}
+          className="px-3 py-1 text-xs bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-40 flex items-center gap-1.5"
+          title="Busca no banco Inter todos os boletos emitidos num intervalo de datas e importa pro histórico local — útil pra recuperar boletos que sumiram"
+        >
+          {importing ? <>⏳ Importando...</> : <>⬇️ Importar do Inter</>}
         </button>
         <button
           onClick={handleMarcarTodosCancelado}

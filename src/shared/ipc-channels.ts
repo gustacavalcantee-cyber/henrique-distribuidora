@@ -99,6 +99,7 @@ export const IPC = {
   BOLETOS_PDF: 'boletos:pdf',
   BOLETOS_PDF_LOTE: 'boletos:pdfLote',
   BOLETOS_CONSULTAR: 'boletos:consultar',
+  BOLETOS_IMPORTAR_INTER: 'boletos:importarInter',
   INTER_CONFIG_GET: 'inter:configGet',
   INTER_CONFIG_SET: 'inter:configSet',
   BOLETOS_SET_STATUS: 'boletos:setStatus',

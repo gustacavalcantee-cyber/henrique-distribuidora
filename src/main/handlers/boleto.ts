@@ -5,6 +5,7 @@ import {
   listBancos, createBanco, updateBanco, deleteBanco,
   getInterConfig, setInterConfig,
   listBoletos, emitirBoleto, cancelarBoleto, getBoletosPdf, getBoletosPdfLote, consultarBoleto,
+  importarBoletosDoInter,
 } from '../services/boleto.service'
 import { getRawSqlite } from '../db/client-local'
 
@@ -40,6 +41,10 @@ export function registerBoletoHandlers() {
   })
 
   ipcMain.handle(IPC.BOLETOS_CONSULTAR, (_e, boleto_id: number) => consultarBoleto(boleto_id))
+
+  ipcMain.handle(IPC.BOLETOS_IMPORTAR_INTER, (_e, banco_id: number, dataInicial: string, dataFinal: string) =>
+    importarBoletosDoInter(banco_id, dataInicial, dataFinal)
+  )
 
   // Manually override status locally — for when Inter website reflects a change
   // that the API doesn't yet return (e.g. cancelled via internet banking)
