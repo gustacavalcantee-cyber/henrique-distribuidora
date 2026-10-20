@@ -44,6 +44,7 @@ function HistoricoSection() {
   const [tab, setTab] = useState<'boletos' | 'nfes'>('boletos')
   const [search, setSearch] = useState('')
   const [printing, setPrinting] = useState<number | null>(null)
+  const [batchPrintLoading, setBatchPrintLoading] = useState(false)
 
   const { data: boletos, loading: loadingB } = useIpc<BoletoSalvo[]>(IPC.BOLETOS_LIST)
   const { data: nfes, loading: loadingN } = useIpc<NotaFiscalSalva[]>(IPC.NFE_LIST)
@@ -66,6 +67,21 @@ function HistoricoSection() {
       alert('Erro ao abrir PDF: ' + (e?.message ?? e))
     } finally {
       setPrinting(null)
+    }
+  }
+
+  // Merge every currently-filtered boleto into one PDF and open it, so the user
+  // can print the whole set with a single Ctrl+P instead of opening each.
+  const handlePrintAllFiltered = async () => {
+    const ids = filteredBoletos.map(b => b.id)
+    if (ids.length === 0) return
+    setBatchPrintLoading(true)
+    try {
+      await window.electron.invoke(IPC.BOLETOS_PDF_LOTE, ids)
+    } catch (e: any) {
+      alert('Erro ao gerar PDF em lote: ' + (e?.message ?? e))
+    } finally {
+      setBatchPrintLoading(false)
     }
   }
 
@@ -115,6 +131,16 @@ function HistoricoSection() {
           value={search}
           onChange={e => setSearch(e.target.value)}
         />
+        {tab === 'boletos' && filteredBoletos.length >= 2 && (
+          <button
+            onClick={handlePrintAllFiltered}
+            disabled={batchPrintLoading}
+            className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 flex items-center gap-1.5 whitespace-nowrap"
+            title={`Une os ${filteredBoletos.length} boletos${q ? ' filtrados' : ''} em um único PDF`}
+          >
+            {batchPrintLoading ? '⏳ Gerando...' : `📄 Imprimir Todos (${filteredBoletos.length})`}
+          </button>
+        )}
       </div>
 
       {tab === 'boletos' && (
@@ -756,12 +782,12 @@ export function Lote() {
                   <span className="text-sm font-semibold text-gray-700">Resultados</span>
                   {okCount > 0 && <span className="text-xs px-2 py-0.5 bg-green-100 text-green-700 rounded-full">{okCount} ✓ sucesso</span>}
                   {errCount > 0 && <span className="text-xs px-2 py-0.5 bg-red-100 text-red-700 rounded-full">{errCount} ✗ erro</span>}
-                  {boletoIdsForBatch.length > 1 && (
+                  {boletoIdsForBatch.length >= 1 && (
                     <button
                       onClick={handlePrintAllBoletos}
                       disabled={printAllLoading}
                       className="ml-auto text-xs px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 flex items-center gap-1.5"
-                      title={`Une os ${boletoIdsForBatch.length} boletos em um único PDF`}
+                      title={`Une os ${boletoIdsForBatch.length} boleto${boletoIdsForBatch.length === 1 ? '' : 's'} em um único PDF`}
                     >
                       {printAllLoading ? '⏳ Gerando...' : `📄 Imprimir Todos (${boletoIdsForBatch.length})`}
                     </button>
