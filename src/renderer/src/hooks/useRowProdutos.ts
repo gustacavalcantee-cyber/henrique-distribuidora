@@ -68,12 +68,13 @@ export function useRowProdutos({ activeRedeId, rows, produtos, historicProdIds }
 
   // Re-read layout from SQLite after startup pull completes (DB_READY)
   useEffect(() => {
-    window.electron.on(IPC.DB_READY, () => {
+    const off = window.electron.on(IPC.DB_READY, () => {
       initializedRef.current = new Set()
       initRunningRef.current = false
       setRowProdIds({})
       forceInit()
     })
+    return () => { off?.() }
   }, [])
 
   useEffect(() => {

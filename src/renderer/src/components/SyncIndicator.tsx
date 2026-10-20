@@ -18,7 +18,7 @@ export function SyncIndicator() {
     const MAX_SYNCING_MS = 4_000
     const MIN_SYNCING_MS = 600
 
-    window.electron.on(IPC.DB_SYNCED, () => {
+    const off1 = window.electron.on(IPC.DB_SYNCED, () => {
       setState('syncing')
       setErrorMsg('')
       // First event of a burst → mark start time
@@ -36,14 +36,14 @@ export function SyncIndicator() {
       }, remaining)
     })
 
-    window.electron.on(IPC.SYNC_ERROR, (...args: unknown[]) => {
+    const off2 = window.electron.on(IPC.SYNC_ERROR, (...args: unknown[]) => {
       const msg = (args[1] ?? args[0] ?? 'Erro de sincronização') as string
       setState('error')
       setErrorMsg(msg)
       // Keep error visible until next successful sync
     })
 
-    window.electron.on(IPC.DB_READY, () => {
+    const off3 = window.electron.on(IPC.DB_READY, () => {
       setState('ok')
       setErrorMsg('')
       syncBurstStartRef.current = null
@@ -52,6 +52,8 @@ export function SyncIndicator() {
         timerRef.current = null
       }
     })
+
+    return () => { off1?.(); off2?.(); off3?.() }
   }, [])
 
   const handleForceResync = async () => {

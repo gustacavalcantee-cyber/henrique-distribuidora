@@ -92,7 +92,7 @@ export function EstoqueTab({ dataPedido, redes, produtos }: EstoqueTabProps) {
 
   // Reload silencioso quando outro dispositivo sincroniza
   useEffect(() => {
-    window.electron.on(IPC.DB_SYNCED, () => {
+    const off = window.electron.on(IPC.DB_SYNCED, () => {
       const ids = selectedProdIdsRef.current
       const data = dataPedidoRef.current
       if (ids.length === 0) return
@@ -103,6 +103,7 @@ export function EstoqueTab({ dataPedido, redes, produtos }: EstoqueTabProps) {
         IPC.ESTOQUE_QUANTIDADES_DIA, data, ids
       ).then(setQuantidades).catch(() => {})
     })
+    return () => { off?.() }
   }, [])
 
   const handleContemChange = useCallback((prodId: number, value: string) => {

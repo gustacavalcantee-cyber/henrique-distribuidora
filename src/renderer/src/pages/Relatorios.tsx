@@ -601,8 +601,9 @@ function FinanceiroTab() {
 
   // Auto-refresh when a sync completes or when the user clicks "Recarregar dados"
   useEffect(() => {
-    window.electron.on(IPC.DB_SYNCED, () => { if (hasDataRef.current) handleBuscarRef.current() })
-    window.electron.on(IPC.DB_READY,  () => { if (hasDataRef.current) handleBuscarRef.current() })
+    const off1 = window.electron.on(IPC.DB_SYNCED, () => { if (hasDataRef.current) handleBuscarRef.current() })
+    const off2 = window.electron.on(IPC.DB_READY,  () => { if (hasDataRef.current) handleBuscarRef.current() })
+    return () => { off1?.(); off2?.() }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -1210,20 +1211,30 @@ td { font-size: 11px; padding: 5px 6px; border-bottom: 1px solid #eee; }
             <span className="text-xs text-gray-400">Use ▲▼ para ordenar — a ordem é salva automaticamente</span>
           </div>
           <div className="flex flex-col gap-1">
-            {orderedLojas.map((l, idx) => (
-              <div key={l.id} className="flex items-center gap-2">
-                <div className="flex flex-col">
-                  <button onClick={() => moveUp(idx)} disabled={idx === 0}
-                    className="text-gray-400 hover:text-gray-600 disabled:opacity-20 leading-none text-xs h-3">▲</button>
-                  <button onClick={() => moveDown(idx)} disabled={idx === orderedLojas.length - 1}
-                    className="text-gray-400 hover:text-gray-600 disabled:opacity-20 leading-none text-xs h-3">▼</button>
+            {orderedLojas.map((l, idx) => {
+              // Show rede name next to loja — the same franqueado may own stores
+              // in multiple shopping centers under different redes (e.g. a Subway
+              // and a Bob's in the same mall), so just the loja name isn't enough
+              // to tell them apart.
+              const redeNome = redes?.find(r => r.id === l.rede_id)?.nome.replace(/_/g, ' ')
+              return (
+                <div key={l.id} className="flex items-center gap-2">
+                  <div className="flex flex-col">
+                    <button onClick={() => moveUp(idx)} disabled={idx === 0}
+                      className="text-gray-400 hover:text-gray-600 disabled:opacity-20 leading-none text-xs h-3">▲</button>
+                    <button onClick={() => moveDown(idx)} disabled={idx === orderedLojas.length - 1}
+                      className="text-gray-400 hover:text-gray-600 disabled:opacity-20 leading-none text-xs h-3">▼</button>
+                  </div>
+                  <label className="flex items-center gap-1.5 text-sm cursor-pointer">
+                    <input type="checkbox" checked={selectedLojas.has(l.id)} onChange={() => toggleLoja(l.id)} className="cursor-pointer" />
+                    <span>{l.nome.replace(/_/g, ' ')}</span>
+                    {redeNome && (
+                      <span className="text-xs text-gray-400 font-normal">— {redeNome}</span>
+                    )}
+                  </label>
                 </div>
-                <label className="flex items-center gap-1.5 text-sm cursor-pointer">
-                  <input type="checkbox" checked={selectedLojas.has(l.id)} onChange={() => toggleLoja(l.id)} className="cursor-pointer" />
-                  {l.nome.replace(/_/g, ' ')}
-                </label>
-              </div>
-            ))}
+              )
+            })}
           </div>
         </div>
       )}

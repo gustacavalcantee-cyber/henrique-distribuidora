@@ -19,13 +19,13 @@ export function Atualizacao() {
 
   useEffect(() => {
     // Listen to main-process push events
-    window.electron.on(IPC.UPDATE_AVAILABLE, (data: unknown) => {
+    const off1 = window.electron.on(IPC.UPDATE_AVAILABLE, (data: unknown) => {
       const { version } = data as { version: string }
       setState({ status: 'available', version })
       setLastCheck(new Date())
     })
 
-    window.electron.on(IPC.UPDATE_PROGRESS, (data: unknown) => {
+    const off2 = window.electron.on(IPC.UPDATE_PROGRESS, (data: unknown) => {
       const { percent } = data as { percent: number }
       setState(prev => {
         if (prev.status === 'available' || prev.status === 'downloading') {
@@ -35,18 +35,19 @@ export function Atualizacao() {
       })
     })
 
-    window.electron.on(IPC.UPDATE_DOWNLOADED, (data: unknown) => {
+    const off3 = window.electron.on(IPC.UPDATE_DOWNLOADED, (data: unknown) => {
       const { version } = data as { version: string }
       setState({ status: 'downloaded', version })
     })
 
-    window.electron.on(IPC.UPDATE_ERROR, (data: unknown) => {
+    const off4 = window.electron.on(IPC.UPDATE_ERROR, (data: unknown) => {
       const { message } = data as { message: string }
       setState({ status: 'error', message })
     })
 
     // Trigger a manual check on page open to get current state
     handleCheck()
+    return () => { off1?.(); off2?.(); off3?.(); off4?.() }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 

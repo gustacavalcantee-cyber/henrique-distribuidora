@@ -106,9 +106,10 @@ export function Lancamentos() {
 
   // Silently refresh data when another device syncs — no loading spinner, no scroll to top
   useEffect(() => {
-    window.electron.on(IPC.DB_SYNCED, () => {
+    const off = window.electron.on(IPC.DB_SYNCED, () => {
       if (activeRedeIdRef.current && activeRedeIdRef.current > 0) loadRef.current(true, true)
     })
+    return () => { off?.() }
   }, [])
 
   // Keep latestRowsRef always current so handleCellBlur never reads stale state
@@ -287,8 +288,13 @@ export function Lancamentos() {
         if (row.numero_oc) await saveRow(enrichRow(row), activeRedeId, dataPedido)
       }
       const updated = await window.electron.invoke<import('../../../shared/types').LancamentoRow[]>(IPC.PEDIDOS_BY_DATE_REDE, activeRedeId, dataPedido)
-      const pedidoIds = updated
-        .filter(r => r.pedido_id != null)
+      // Preserve the on-screen row order (the one the user arranged in the
+      // Lançamentos grid, drag-reordered or saved in localStorage) — the server
+      // returns rows in its own order which may differ from what's displayed.
+      const updatedByLoja = new Map(updated.map(r => [r.loja_id, r]))
+      const pedidoIds = rows
+        .map(r => updatedByLoja.get(r.loja_id))
+        .filter((r): r is import('../../../shared/types').LancamentoRow => !!r && r.pedido_id != null)
         .map(r => r.pedido_id as number)
       if (pedidoIds.length === 0) return
       await window.electron.invoke(IPC.PRINT_PEDIDOS_LOTE, pedidoIds, colOrderRef.current)
