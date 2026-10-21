@@ -3,6 +3,7 @@ import { eq, and, isNull } from 'drizzle-orm'
 import { getDb } from '../db/client-local'
 import { precos } from '../db/schema-local'
 import { IPC } from '../../shared/ipc-channels'
+import { triggerSync, getMainWindow } from '../sync/sync.service'
 
 export function registerPrecosHandlers() {
   ipcMain.handle(IPC.PRECOS_LIST, () => getDb().select().from(precos).all())
@@ -17,6 +18,8 @@ export function registerPrecosHandlers() {
     db.update(precos).set({ vigencia_fim: today, synced: 0 })
       .where(and(eq(precos.produto_id, data.produto_id), eq(precos.loja_id, data.loja_id), isNull(precos.vigencia_fim)))
       .run()
-    return db.insert(precos).values({ ...data, vigencia_inicio: today, synced: 0 }).returning().all()[0]
+    const row = db.insert(precos).values({ ...data, vigencia_inicio: today, synced: 0 }).returning().all()[0]
+    triggerSync(getMainWindow() ?? undefined)
+    return row
   })
 }

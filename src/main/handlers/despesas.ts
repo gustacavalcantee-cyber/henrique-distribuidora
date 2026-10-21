@@ -3,6 +3,7 @@ import { eq, and, gte, lte, type SQL } from 'drizzle-orm'
 import { getDb } from '../db/client-local'
 import { despesas } from '../db/schema-local'
 import { IPC } from '../../shared/ipc-channels'
+import { triggerSync, getMainWindow } from '../sync/sync.service'
 
 export function registerDespesasHandlers() {
   ipcMain.handle(IPC.DESPESAS_LIST, (_event, filters?: { data_inicio?: string; data_fim?: string; rede_id?: number }) => {
@@ -17,13 +18,17 @@ export function registerDespesasHandlers() {
       .all()
   })
 
-  ipcMain.handle(IPC.DESPESAS_CREATE, (_event, data: { data: string; categoria: string; descricao?: string; rede_id?: number; loja_id?: number; valor: number }) =>
-    getDb().insert(despesas).values({ ...data, synced: 0 }).returning().all()[0]
-  )
+  ipcMain.handle(IPC.DESPESAS_CREATE, (_event, data: { data: string; categoria: string; descricao?: string; rede_id?: number; loja_id?: number; valor: number }) => {
+    const row = getDb().insert(despesas).values({ ...data, synced: 0 }).returning().all()[0]
+    triggerSync(getMainWindow() ?? undefined)
+    return row
+  })
 
   ipcMain.handle(IPC.DESPESAS_UPDATE, (_event, data: { id: number; data?: string; categoria?: string; descricao?: string; valor?: number }) => {
     const { id, ...updates } = data
-    return getDb().update(despesas).set({ ...updates, synced: 0 }).where(eq(despesas.id, id)).returning().all()[0]
+    const row = getDb().update(despesas).set({ ...updates, synced: 0 }).where(eq(despesas.id, id)).returning().all()[0]
+    triggerSync(getMainWindow() ?? undefined)
+    return row
   })
 
   ipcMain.handle(IPC.DESPESAS_DELETE, (_event, id: number) =>

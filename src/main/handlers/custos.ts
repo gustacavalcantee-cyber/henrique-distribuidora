@@ -3,6 +3,7 @@ import { eq, and, isNull } from 'drizzle-orm'
 import { getDb } from '../db/client-local'
 import { custos } from '../db/schema-local'
 import { IPC } from '../../shared/ipc-channels'
+import { triggerSync, getMainWindow } from '../sync/sync.service'
 
 export function registerCustosHandlers() {
   ipcMain.handle(IPC.CUSTOS_LIST, () => getDb().select().from(custos).all())
@@ -13,6 +14,8 @@ export function registerCustosHandlers() {
     db.update(custos).set({ vigencia_fim: today, synced: 0 })
       .where(and(eq(custos.produto_id, data.produto_id), isNull(custos.vigencia_fim)))
       .run()
-    return db.insert(custos).values({ ...data, vigencia_inicio: today, synced: 0 }).returning().all()[0]
+    const row = db.insert(custos).values({ ...data, vigencia_inicio: today, synced: 0 }).returning().all()[0]
+    triggerSync(getMainWindow() ?? undefined)
+    return row
   })
 }

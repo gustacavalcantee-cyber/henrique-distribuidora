@@ -14,9 +14,14 @@ export function registerLojasHandlers() {
     return db.select().from(lojas).where(activeFilter).all()
   })
 
-  ipcMain.handle(IPC.LOJAS_CREATE, (_event, data: { rede_id: number; nome: string; codigo?: string; cnpj?: string }) =>
-    getDb().insert(lojas).values({ ...data, synced: 0 }).returning().all()[0]
-  )
+  ipcMain.handle(IPC.LOJAS_CREATE, (_event, data: { rede_id: number; nome: string; codigo?: string; cnpj?: string }) => {
+    const row = getDb().insert(lojas).values({ ...data, synced: 0 }).returning().all()[0]
+    // Push to Supabase immediately — without this, the new loja only ships on the
+    // next 8s polling cycle, and if the user quits the app before that, the loja
+    // sits in local "synced=0" limbo and never reaches other machines.
+    triggerSync(getMainWindow() ?? undefined)
+    return row
+  })
 
   ipcMain.handle(IPC.LOJAS_UPDATE, (_event, data: {
     id: number
@@ -40,7 +45,9 @@ export function registerLojasHandlers() {
     const sets = toUpdate.map(([k]) => `${k} = ?`).join(', ')
     const vals = toUpdate.map(([, v]) => v ?? null)
     getRawSqlite().prepare(`UPDATE lojas SET ${sets}, synced = 0 WHERE id = ?`).run(...vals, id)
-    return getRawSqlite().prepare('SELECT * FROM lojas WHERE id=?').get(id)
+    const updated = getRawSqlite().prepare('SELECT * FROM lojas WHERE id=?').get(id)
+    triggerSync(getMainWindow() ?? undefined)
+    return updated
   })
 
   ipcMain.handle(IPC.LOJAS_DELETE, (_event, id: number) => {

@@ -3,18 +3,22 @@ import { eq } from 'drizzle-orm'
 import { getDb, getRawSqlite } from '../db/client-local'
 import { redes, lojas, pedidos, itensPedido } from '../db/schema-local'
 import { IPC } from '../../shared/ipc-channels'
-import { pushDeleteRede } from '../sync/sync.service'
+import { pushDeleteRede, triggerSync, getMainWindow } from '../sync/sync.service'
 
 export function registerRedesHandlers() {
   ipcMain.handle(IPC.REDES_LIST, () => getDb().select().from(redes).all())
 
-  ipcMain.handle(IPC.REDES_CREATE, (_event, data: { nome: string; cor_tema: string }) =>
-    getDb().insert(redes).values({ ...data, synced: 0 }).returning().all()[0]
-  )
+  ipcMain.handle(IPC.REDES_CREATE, (_event, data: { nome: string; cor_tema: string }) => {
+    const row = getDb().insert(redes).values({ ...data, synced: 0 }).returning().all()[0]
+    triggerSync(getMainWindow() ?? undefined)
+    return row
+  })
 
   ipcMain.handle(IPC.REDES_UPDATE, (_event, data: { id: number; nome?: string; cor_tema?: string; ativo?: number }) => {
     const { id, ...updates } = data
-    return getDb().update(redes).set({ ...updates, synced: 0 }).where(eq(redes.id, id)).returning().all()[0]
+    const row = getDb().update(redes).set({ ...updates, synced: 0 }).where(eq(redes.id, id)).returning().all()[0]
+    triggerSync(getMainWindow() ?? undefined)
+    return row
   })
 
   ipcMain.handle(IPC.REDES_DELETE, async (_event, id: number) => {
