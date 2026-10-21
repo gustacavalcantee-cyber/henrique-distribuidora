@@ -75,6 +75,17 @@ export function checkDuplicate(rede_id: number, loja_id: number, data_pedido: st
 export function salvarPedido(input: SalvarPedidoInput): number {
   const db = getDb()
 
+  // Guard against the race where a quick tab-switch in Lançamentos fires an
+  // auto-save with the NEW activeRedeId but the OLD row.loja_id. If the loja
+  // doesn't belong to the given rede, trust the loja (it's the row the user
+  // actually typed into) and override rede_id. This prevents cross-rede
+  // "ghost pedidos" that pollute the Quinzena report.
+  const lojaRow = db.select({ rede_id: lojas.rede_id }).from(lojas).where(eq(lojas.id, input.loja_id)).limit(1).all()[0]
+  if (lojaRow && lojaRow.rede_id != null && lojaRow.rede_id !== input.rede_id) {
+    console.warn(`[pedidos] rede mismatch on save: input.rede_id=${input.rede_id} but loja ${input.loja_id} belongs to rede ${lojaRow.rede_id}. Trusting loja.`)
+    input = { ...input, rede_id: lojaRow.rede_id }
+  }
+
   const existing = db.select({ id: pedidos.id })
     .from(pedidos)
     .where(and(

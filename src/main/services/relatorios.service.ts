@@ -23,15 +23,26 @@ export function getRelatorioQuinzena(rede_id: number, loja_id: number, mes: numb
     effectiveLojaIds = siblings.length > 0 ? siblings.map(l => l.id) : [loja_id]
   }
 
+  // Filter by loja ownership, NOT just pedido.rede_id — historical pedidos
+  // may have the wrong rede_id stored (race condition from quick tab switches
+  // in Lançamentos). Trusting loja.rede_id gives the correct result and makes
+  // the report resilient to stale ghost pedidos still in the DB.
+  const lojaIdsDaRede = todasLojasQuinzena
+    .filter(l => l.rede_id === rede_id)
+    .map(l => l.id)
   const baseConditions = [
     gte(pedidos.data_pedido, data_inicio),
     lte(pedidos.data_pedido, data_fim),
-    eq(pedidos.rede_id, rede_id),
   ]
   if (effectiveLojaIds && effectiveLojaIds.length === 1) {
     baseConditions.push(eq(pedidos.loja_id, effectiveLojaIds[0]))
   } else if (effectiveLojaIds && effectiveLojaIds.length > 1) {
     baseConditions.push(inArray(pedidos.loja_id, effectiveLojaIds))
+  } else if (lojaIdsDaRede.length > 0) {
+    baseConditions.push(inArray(pedidos.loja_id, lojaIdsDaRede))
+  } else {
+    // Rede has no lojas: force empty result
+    baseConditions.push(eq(pedidos.loja_id, -1))
   }
 
   const pedidosList = db.select().from(pedidos).where(and(...baseConditions)).orderBy(pedidos.data_pedido).all()
@@ -130,7 +141,13 @@ export function getRelatorioFinanceiro(mes: number, ano: number, rede_id?: numbe
   const data_fim = mes === 0 ? `${ano}-12-31` : `${ano}-${String(mes).padStart(2, '0')}-${new Date(ano, mes, 0).getDate()}`
 
   const pedidoConditions: ReturnType<typeof gte>[] = [gte(pedidos.data_pedido, data_inicio), lte(pedidos.data_pedido, data_fim)]
-  if (rede_id) pedidoConditions.push(eq(pedidos.rede_id, rede_id))
+  // Filter by loja ownership rather than pedido.rede_id for the same reason as
+  // Quinzena — pedidos with mismatched rede_id/loja.rede_id would otherwise
+  // skew the report.
+  if (rede_id) {
+    const idsDaRede = db.select({ id: lojas.id }).from(lojas).where(eq(lojas.rede_id, rede_id)).all().map(l => l.id)
+    pedidoConditions.push(idsDaRede.length > 0 ? inArray(pedidos.loja_id, idsDaRede) : eq(pedidos.loja_id, -1))
+  }
   if (franqueado_id) {
     const lojasDoFranqueado = db.select().from(lojas).where(eq(lojas.franqueado_id, franqueado_id)).all()
     const ids = lojasDoFranqueado.map(l => l.id)
@@ -245,8 +262,10 @@ export function getRelatorioPorProduto(
   else if (periodo === '2') { data_inicio = `${ano}-${mesStr}-16`; data_fim = `${ano}-${mesStr}-${lastDay}` }
   else { data_inicio = `${ano}-${mesStr}-01`; data_fim = `${ano}-${mesStr}-${lastDay}` }
 
-  const pedidosList = db.select().from(pedidos).where(
-    and(eq(pedidos.rede_id, rede_id), gte(pedidos.data_pedido, data_inicio), lte(pedidos.data_pedido, data_fim))
+  // Trust loja ownership instead of pedido.rede_id — see Quinzena fix for why.
+  const idsDaRede = db.select({ id: lojas.id }).from(lojas).where(eq(lojas.rede_id, rede_id)).all().map(l => l.id)
+  const pedidosList = idsDaRede.length === 0 ? [] : db.select().from(pedidos).where(
+    and(inArray(pedidos.loja_id, idsDaRede), gte(pedidos.data_pedido, data_inicio), lte(pedidos.data_pedido, data_fim))
   ).all()
 
   const todosProdutos = db.select().from(produtos).where(inArray(produtos.id, produto_ids)).all()
@@ -306,7 +325,12 @@ export function getNotasMes(mes: number, ano: number, rede_id?: number, franquea
   const data_fim = mes === 0 ? `${ano}-12-31` : `${ano}-${String(mes).padStart(2, '0')}-${new Date(ano, mes, 0).getDate()}`
 
   const conditions: ReturnType<typeof gte>[] = [gte(pedidos.data_pedido, data_inicio), lte(pedidos.data_pedido, data_fim)]
-  if (rede_id) conditions.push(eq(pedidos.rede_id, rede_id))
+  // Trust loja ownership — see Quinzena fix. Mismatched pedido.rede_id entries
+  // would otherwise leak into the wrong rede's notas.
+  if (rede_id) {
+    const idsDaRede = db.select({ id: lojas.id }).from(lojas).where(eq(lojas.rede_id, rede_id)).all().map(l => l.id)
+    conditions.push(idsDaRede.length > 0 ? inArray(pedidos.loja_id, idsDaRede) : eq(pedidos.loja_id, -1))
+  }
   if (franqueado_id) {
     const lojasDoFranqueado = db.select().from(lojas).where(eq(lojas.franqueado_id, franqueado_id)).all()
     const ids = lojasDoFranqueado.map(l => l.id)
