@@ -38,7 +38,7 @@ export function LancamentosHeader({
   onPrintAll, printAllLoading, printAllCount,
 }: LancamentosHeaderProps) {
   return (
-    <div className="flex items-center gap-4">
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
       <h2 className="text-2xl font-bold text-gray-900">Lançamentos</h2>
 
       {/* Seletor de data */}

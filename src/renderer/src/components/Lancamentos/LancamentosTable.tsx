@@ -47,8 +47,11 @@ export function LancamentosTable({
   const dragColRef = useRef<number | null>(null)
 
   return (
-    <div ref={tableRef} style={{ overflowX: 'auto', width: '100%', minWidth: 0 }}>
-      <table className="text-sm border-collapse" style={{ minWidth: 'max-content' }}>
+    <div ref={tableRef} style={{ width: '100%', minWidth: 0 }}>
+      {/* border-separate (not border-collapse) is required for position:sticky
+          cells to render reliably in Chromium — collapsed borders bleed through
+          the sticky layer. border-spacing:0 keeps the collapsed look. */}
+      <table className="text-sm border-separate" style={{ minWidth: 'max-content', borderSpacing: 0 }}>
         <thead>
           {/* Linha de totais */}
           <tr className="bg-gray-100">

@@ -378,7 +378,11 @@ export function Lancamentos() {
   const closeAll = () => { setShowAddMenu(false); setShowGlobalProdMenu(false); setShowRowProdMenu(null) }
 
   return (
-    <div className="flex flex-col gap-4 h-full" onClick={closeAll}>
+    // min-w-0 + overflow-hidden on the page shell stops a wide header or table
+    // from pushing the whole page past the viewport (which hid the horizontal
+    // scrollbar behind the app chrome). The inner content column handles its
+    // own horizontal scroll now.
+    <div className="flex flex-col gap-4 h-full min-w-0 overflow-hidden" onClick={closeAll}>
       {/* Header */}
       <LancamentosHeader
         dataPedido={dataPedido}
@@ -412,7 +416,7 @@ export function Lancamentos() {
       {/* Two-column layout: scrollable rede sidebar + main content.
           Each panel scrolls independently so a long rede list never pushes
           the grid out of view and vice-versa. */}
-      <div className="flex gap-4 flex-1 min-h-0">
+      <div className="flex gap-4 flex-1 min-h-0 min-w-0">
         {/* Rede sidebar — vertical, rolável, destaque na cor da franquia */}
         <aside className="w-44 shrink-0 overflow-y-auto border-r border-gray-100 pr-1 -mr-1">
           <nav className="flex flex-col gap-0.5 py-1">
@@ -455,8 +459,10 @@ export function Lancamentos() {
           </nav>
         </aside>
 
-        {/* Main content area — scrollable independently from the rede sidebar */}
-        <div className="flex-1 min-w-0 overflow-auto">
+        {/* Main content area — scrollable independently from the rede sidebar.
+            `overflow-auto` + `min-w-0` ensures horizontal scroll shows up here
+            (not on the app shell) whenever the table has more columns than fit. */}
+        <div className="flex-1 min-w-0 overflow-auto wide-scrollbar">
 
       {/* Per-row product picker */}
       {showRowProdMenu !== null && rowProdMenuPos && (
