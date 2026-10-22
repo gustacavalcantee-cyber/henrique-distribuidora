@@ -123,14 +123,22 @@ export function LancamentosTable({
                 <div className="text-gray-400 font-normal">{p.unidade}</div>
               </th>
             ))}
-            <th className="border px-2 py-1 text-xs text-gray-600">AÇÕES</th>
+            {/* AÇÕES is sticky to the right edge so the Imprimir/Enviar buttons
+                are always reachable even when the table has many product
+                columns and overflows horizontally. */}
+            <th
+              className="border px-2 py-1 text-xs text-gray-600 sticky right-0 bg-gray-50 z-10"
+              style={{ boxShadow: '-6px 0 6px -4px rgb(0 0 0 / 0.08)' }}
+            >
+              AÇÕES
+            </th>
           </tr>
         </thead>
         <tbody>
           {rows.map((row, rowIndex) => (
             <tr
               key={row.loja_id}
-              className="hover:bg-gray-50"
+              className="group hover:bg-gray-50"
               draggable={editMode}
               onDragStart={editMode ? () => { dragRowRef.current = row.loja_id } : undefined}
               onDragOver={editMode ? (e) => { e.preventDefault() } : undefined}
@@ -247,8 +255,13 @@ export function LancamentosTable({
                 )
               })}
 
-              {/* Ações */}
-              <td className="border px-1 py-0.5">
+              {/* Ações — sticky right so Imprimir/Enviar never get clipped by
+                  horizontal overflow. Row-level bg (hover-aware) keeps the
+                  underlying product columns from showing through. */}
+              <td
+                className="border px-1 py-0.5 sticky right-0 bg-white group-hover:bg-gray-50 z-10"
+                style={{ boxShadow: '-6px 0 6px -4px rgb(0 0 0 / 0.08)' }}
+              >
                 <div className="flex items-center gap-1">
                   {editMode && (
                     <>
