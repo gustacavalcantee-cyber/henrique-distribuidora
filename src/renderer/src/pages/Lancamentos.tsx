@@ -378,7 +378,7 @@ export function Lancamentos() {
   const closeAll = () => { setShowAddMenu(false); setShowGlobalProdMenu(false); setShowRowProdMenu(null) }
 
   return (
-    <div className="flex flex-col gap-4" onClick={closeAll}>
+    <div className="flex flex-col gap-4 h-full" onClick={closeAll}>
       {/* Header */}
       <LancamentosHeader
         dataPedido={dataPedido}
@@ -409,34 +409,54 @@ export function Lancamentos() {
         printAllCount={printableCount}
       />
 
-      {/* Rede tabs */}
-      <div className="border-b border-gray-200">
-        <nav className="flex gap-0">
-          {redes.map(rede => (
+      {/* Two-column layout: scrollable rede sidebar + main content.
+          Each panel scrolls independently so a long rede list never pushes
+          the grid out of view and vice-versa. */}
+      <div className="flex gap-4 flex-1 min-h-0">
+        {/* Rede sidebar — vertical, rolável, destaque na cor da franquia */}
+        <aside className="w-44 shrink-0 overflow-y-auto border-r border-gray-100 pr-1 -mr-1">
+          <nav className="flex flex-col gap-0.5 py-1">
+            {redes.map(rede => {
+              const active = activeRedeId === rede.id
+              return (
+                <button
+                  key={rede.id}
+                  onClick={() => setActiveRedeId(rede.id)}
+                  className="flex items-center gap-2.5 px-3 py-2 text-sm text-left rounded-md transition-colors hover:bg-gray-50 cursor-pointer"
+                  style={{
+                    // 8-digit hex = color + alpha. 1F ≈ 12% opacity — picks up
+                    // the rede's cor_tema from Cadastros as a soft tinted bg.
+                    backgroundColor: active ? `${rede.cor_tema}1F` : undefined,
+                    color: active ? rede.cor_tema : '#374151',
+                    fontWeight: active ? 600 : 500,
+                  }}
+                >
+                  <span
+                    className="w-2 h-2 rounded-full shrink-0"
+                    style={{ backgroundColor: rede.cor_tema }}
+                  />
+                  <span className="truncate">{rede.nome}</span>
+                </button>
+              )
+            })}
+            <div className="h-px bg-gray-100 my-1 mx-2" />
             <button
-              key={rede.id}
-              onClick={() => setActiveRedeId(rede.id)}
-              className="px-4 py-2 text-sm font-medium border-b-2 transition-colors"
+              onClick={() => setActiveRedeId(-1)}
+              className="flex items-center gap-2.5 px-3 py-2 text-sm text-left rounded-md transition-colors hover:bg-gray-50 cursor-pointer"
               style={{
-                borderBottomColor: activeRedeId === rede.id ? rede.cor_tema : 'transparent',
-                color: activeRedeId === rede.id ? rede.cor_tema : '#6b7280',
+                backgroundColor: activeRedeId === -1 ? '#10b9811F' : undefined,
+                color: activeRedeId === -1 ? '#059669' : '#374151',
+                fontWeight: activeRedeId === -1 ? 600 : 500,
               }}
             >
-              {rede.nome}
+              <span className="w-2 h-2 rounded-full shrink-0 bg-emerald-500" />
+              <span>Estoque</span>
             </button>
-          ))}
-          <button
-            onClick={() => setActiveRedeId(-1)}
-            className="px-4 py-2 text-sm font-medium border-b-2 transition-colors"
-            style={{
-              borderBottomColor: activeRedeId === -1 ? '#10b981' : 'transparent',
-              color: activeRedeId === -1 ? '#10b981' : '#6b7280',
-            }}
-          >
-            Estoque
-          </button>
-        </nav>
-      </div>
+          </nav>
+        </aside>
+
+        {/* Main content area — scrollable independently from the rede sidebar */}
+        <div className="flex-1 min-w-0 overflow-auto">
 
       {/* Per-row product picker */}
       {showRowProdMenu !== null && rowProdMenuPos && (
@@ -542,6 +562,8 @@ export function Lancamentos() {
           />
         )
       })())}
+        </div>
+      </div>
 
       <ShareModal
         sharePreview={sharePreview}
