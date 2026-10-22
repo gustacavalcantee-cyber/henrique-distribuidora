@@ -35,22 +35,27 @@ html, body, #root {
   background: #94a3b8;
 }
 
-/* Wide, always-visible horizontal scrollbar for the Lançamentos content area —
-   makes it obvious the table can be scrolled sideways when it has many
-   product columns. */
-.wide-scrollbar::-webkit-scrollbar {
+/* Horizontal scrollbar for the Lançamentos table container — bigger than the
+   default so the user clearly sees side-scroll is available when the table
+   has many product columns. Always rendered (overflow-x: auto behavior
+   still, but the webkit scrollbar is prominent even when hovered). */
+.table-h-scroll::-webkit-scrollbar {
   height: 14px;
-  width: 10px;
 }
-.wide-scrollbar::-webkit-scrollbar-track {
+.table-h-scroll::-webkit-scrollbar-track {
   background: #f1f5f9;
   border-radius: 7px;
 }
-.wide-scrollbar::-webkit-scrollbar-thumb {
+.table-h-scroll::-webkit-scrollbar-thumb {
   background: #94a3b8;
   border-radius: 7px;
   border: 2px solid #f1f5f9;
 }
-.wide-scrollbar::-webkit-scrollbar-thumb:hover {
+.table-h-scroll::-webkit-scrollbar-thumb:hover {
   background: #64748b;
+}
+/* Firefox */
+.table-h-scroll {
+  scrollbar-width: auto;
+  scrollbar-color: #94a3b8 #f1f5f9;
 }

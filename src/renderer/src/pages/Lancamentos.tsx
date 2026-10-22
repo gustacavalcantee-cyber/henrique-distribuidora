@@ -459,10 +459,10 @@ export function Lancamentos() {
           </nav>
         </aside>
 
-        {/* Main content area — scrollable independently from the rede sidebar.
-            `overflow-auto` + `min-w-0` ensures horizontal scroll shows up here
-            (not on the app shell) whenever the table has more columns than fit. */}
-        <div className="flex-1 min-w-0 overflow-auto wide-scrollbar">
+        {/* Main content area — vertical scroll stays discreet here, horizontal
+            scroll is owned by the table container (`.table-h-scroll`) so it
+            lands right under the grid where it belongs. */}
+        <div className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden">
 
       {/* Per-row product picker */}
       {showRowProdMenu !== null && rowProdMenuPos && (
