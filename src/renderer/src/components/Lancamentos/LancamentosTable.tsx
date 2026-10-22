@@ -51,10 +51,7 @@ export function LancamentosTable({
     // scroll so the scrollbar lives at the bottom of the viewport, not at
     // the bottom of the (potentially very tall) table.
     <div ref={tableRef} style={{ width: '100%', minWidth: 0 }}>
-      {/* border-separate (not border-collapse) is required for position:sticky
-          cells to render reliably in Chromium — collapsed borders bleed through
-          the sticky layer. border-spacing:0 keeps the collapsed look. */}
-      <table className="text-sm border-separate" style={{ minWidth: 'max-content', borderSpacing: 0 }}>
+      <table className="text-sm border-collapse" style={{ minWidth: 'max-content' }}>
         <thead>
           {/* Linha de totais */}
           <tr className="bg-gray-100">
@@ -129,15 +126,7 @@ export function LancamentosTable({
                 <div className="text-gray-400 font-normal">{p.unidade}</div>
               </th>
             ))}
-            {/* AÇÕES is sticky to the right edge so the Imprimir/Enviar buttons
-                are always reachable even when the table has many product
-                columns and overflows horizontally. */}
-            <th
-              className="border px-2 py-1 text-xs text-gray-600 sticky right-0 bg-gray-50 z-10"
-              style={{ boxShadow: '-6px 0 6px -4px rgb(0 0 0 / 0.08)' }}
-            >
-              AÇÕES
-            </th>
+            <th className="border px-2 py-1 text-xs text-gray-600">AÇÕES</th>
           </tr>
         </thead>
         <tbody>
@@ -261,13 +250,8 @@ export function LancamentosTable({
                 )
               })}
 
-              {/* Ações — sticky right so Imprimir/Enviar never get clipped by
-                  horizontal overflow. Row-level bg (hover-aware) keeps the
-                  underlying product columns from showing through. */}
-              <td
-                className="border px-1 py-0.5 sticky right-0 bg-white group-hover:bg-gray-50 z-10"
-                style={{ boxShadow: '-6px 0 6px -4px rgb(0 0 0 / 0.08)' }}
-              >
+              {/* Ações — reached by horizontal-scrolling the content column. */}
+              <td className="border px-1 py-0.5">
                 <div className="flex items-center gap-1">
                   {editMode && (
                     <>

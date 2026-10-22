@@ -459,13 +459,14 @@ export function Lancamentos() {
           </nav>
         </aside>
 
-        {/* Main content area owns BOTH scrollbars. Previously we tried to let
-            the inner table container handle horizontal scroll, but its height
-            equals the table's height — so when the table was tall, the
-            horizontal scrollbar sat way below the fold and was unreachable.
-            Scrolling here means the horizontal scrollbar lands at the bottom
-            of the visible content column (always on screen). */}
-        <div className="flex-1 min-w-0 overflow-auto content-h-scroll">
+        {/* Main content area — owns both scrollbars. overflow-x: scroll (not
+            auto) forces the horizontal scrollbar to always render as a solid
+            visible gutter, so the user can see at a glance that side-scroll
+            is available. */}
+        <div
+          className="flex-1 min-w-0 content-h-scroll"
+          style={{ overflowX: 'scroll', overflowY: 'auto' }}
+        >
 
       {/* Per-row product picker */}
       {showRowProdMenu !== null && rowProdMenuPos && (
