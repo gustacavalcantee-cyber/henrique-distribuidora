@@ -35,27 +35,44 @@ html, body, #root {
   background: #94a3b8;
 }
 
-/* Horizontal scrollbar for the Lançamentos table container — bigger than the
-   default so the user clearly sees side-scroll is available when the table
-   has many product columns. Always rendered (overflow-x: auto behavior
-   still, but the webkit scrollbar is prominent even when hovered). */
-.table-h-scroll::-webkit-scrollbar {
+/* Lançamentos content column: chunky, always-visible HORIZONTAL scrollbar at
+   the bottom (visible at viewport bottom because the column has a fixed
+   height), and a discreet thin VERTICAL scrollbar on the right.
+   -webkit-appearance:none disables macOS overlay-scrollbars behavior so the
+   bar is drawn as a classic, always-on gutter. */
+.content-h-scroll::-webkit-scrollbar {
+  -webkit-appearance: none;
+  background: #f1f5f9;
+}
+.content-h-scroll::-webkit-scrollbar:horizontal {
   height: 14px;
 }
-.table-h-scroll::-webkit-scrollbar-track {
-  background: #f1f5f9;
-  border-radius: 7px;
+.content-h-scroll::-webkit-scrollbar:vertical {
+  width: 8px;
 }
-.table-h-scroll::-webkit-scrollbar-thumb {
+.content-h-scroll::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+.content-h-scroll::-webkit-scrollbar-thumb {
   background: #94a3b8;
   border-radius: 7px;
+  min-width: 40px;
+  min-height: 40px;
+}
+.content-h-scroll::-webkit-scrollbar-thumb:horizontal {
   border: 2px solid #f1f5f9;
 }
-.table-h-scroll::-webkit-scrollbar-thumb:hover {
+.content-h-scroll::-webkit-scrollbar-thumb:vertical {
+  border: 1px solid #f1f5f9;
+}
+.content-h-scroll::-webkit-scrollbar-thumb:hover {
   background: #64748b;
 }
+.content-h-scroll::-webkit-scrollbar-corner {
+  background: #f1f5f9;
+}
 /* Firefox */
-.table-h-scroll {
+.content-h-scroll {
   scrollbar-width: auto;
   scrollbar-color: #94a3b8 #f1f5f9;
 }

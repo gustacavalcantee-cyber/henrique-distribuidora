@@ -459,10 +459,13 @@ export function Lancamentos() {
           </nav>
         </aside>
 
-        {/* Main content area — vertical scroll stays discreet here, horizontal
-            scroll is owned by the table container (`.table-h-scroll`) so it
-            lands right under the grid where it belongs. */}
-        <div className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden">
+        {/* Main content area owns BOTH scrollbars. Previously we tried to let
+            the inner table container handle horizontal scroll, but its height
+            equals the table's height — so when the table was tall, the
+            horizontal scrollbar sat way below the fold and was unreachable.
+            Scrolling here means the horizontal scrollbar lands at the bottom
+            of the visible content column (always on screen). */}
+        <div className="flex-1 min-w-0 overflow-auto content-h-scroll">
 
       {/* Per-row product picker */}
       {showRowProdMenu !== null && rowProdMenuPos && (

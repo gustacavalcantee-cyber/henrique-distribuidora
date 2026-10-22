@@ -47,15 +47,10 @@ export function LancamentosTable({
   const dragColRef = useRef<number | null>(null)
 
   return (
-    // overflow-x:auto on THIS div is what creates the horizontal scrollbar for
-    // the whole table — without it the overflow bubbles up to an ancestor that
-    // may clip it (or no scroll shows at all). The sticky AÇÕES column pins
-    // itself to the right edge of this scroll container.
-    <div
-      ref={tableRef}
-      className="table-h-scroll"
-      style={{ width: '100%', minWidth: 0, overflowX: 'auto' }}
-    >
+    // No overflow here — the enclosing content column handles horizontal
+    // scroll so the scrollbar lives at the bottom of the viewport, not at
+    // the bottom of the (potentially very tall) table.
+    <div ref={tableRef} style={{ width: '100%', minWidth: 0 }}>
       {/* border-separate (not border-collapse) is required for position:sticky
           cells to render reliably in Chromium — collapsed borders bleed through
           the sticky layer. border-spacing:0 keeps the collapsed look. */}
