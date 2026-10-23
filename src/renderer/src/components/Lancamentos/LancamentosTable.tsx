@@ -126,7 +126,7 @@ export function LancamentosTable({
                 <div className="text-gray-400 font-normal">{p.unidade}</div>
               </th>
             ))}
-            <th className="border px-2 py-1 text-xs text-gray-600">AÇÕES</th>
+            <th className="border px-2 py-1 text-xs text-gray-600 whitespace-nowrap">AÇÕES</th>
           </tr>
         </thead>
         <tbody>
@@ -250,8 +250,12 @@ export function LancamentosTable({
                 )
               })}
 
-              {/* Ações — reached by horizontal-scrolling the content column. */}
-              <td className="border px-1 py-0.5">
+              {/* Ações — whitespace-nowrap forces the column to be wide enough
+                  to hold Imprimir + Enviar side-by-side; otherwise table-auto
+                  layout compresses the column and the buttons overflow the
+                  cell visually without widening the table (hiding the fact
+                  that horizontal scroll is needed). */}
+              <td className="border px-1 py-0.5 whitespace-nowrap">
                 <div className="flex items-center gap-1">
                   {editMode && (
                     <>

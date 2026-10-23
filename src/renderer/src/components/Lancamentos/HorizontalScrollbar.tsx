@@ -17,15 +17,12 @@ export function HorizontalScrollbar({ targetRef }: HorizontalScrollbarProps) {
   const [thumbLeft, setThumbLeft] = useState(0)
   const [thumbWidth, setThumbWidth] = useState(40)
   const [visible, setVisible] = useState(false)
-  // Debug display — remove once we're sure the scrollbar works in all cases.
-  const [debug, setDebug] = useState({ sw: 0, cw: 0, sl: 0 })
 
   // Measure target vs track and recompute thumb geometry.
   const measure = () => {
     const el = targetRef.current
     const track = trackRef.current
     if (!el || !track) return
-    setDebug({ sw: el.scrollWidth, cw: el.clientWidth, sl: el.scrollLeft })
     const trackWidth = track.clientWidth
     const scrollable = el.scrollWidth > el.clientWidth + 1
     setVisible(scrollable)
@@ -112,13 +109,6 @@ export function HorizontalScrollbar({ targetRef }: HorizontalScrollbarProps) {
   }
 
   return (
-    <>
-    <div style={{
-      fontSize: 10, fontFamily: 'monospace', color: '#64748b',
-      padding: '2px 6px', background: '#fef3c7', textAlign: 'left'
-    }}>
-      DEBUG: scrollWidth={debug.sw} clientWidth={debug.cw} scrollLeft={debug.sl} visible={String(visible)} thumbW={thumbWidth.toFixed(0)}
-    </div>
     <div
       ref={trackRef}
       onPointerDown={onTrackPointerDown}
@@ -152,6 +142,5 @@ export function HorizontalScrollbar({ targetRef }: HorizontalScrollbarProps) {
         }}
       />
     </div>
-    </>
   )
 }
