@@ -35,34 +35,34 @@ html, body, #root {
   background: #94a3b8;
 }
 
-/* Lançamentos content column: ALWAYS-visible chunky horizontal scrollbar.
-   The global `*::-webkit-scrollbar` rule above sets width/height for every
-   scrollbar in the app, so we force-override here with !important and
-   explicit width/height on the base selector (not :horizontal pseudo-class,
-   which some Chromium builds in Electron render inconsistently). */
-.content-h-scroll::-webkit-scrollbar {
+/* Lançamentos content column: force-render a chunky, dark horizontal
+   scrollbar at the bottom. The global `*::-webkit-scrollbar { height: 8px }`
+   rule produces a near-invisible 8px overlay on macOS Chromium; this class
+   overrides it with !important at every level — size, background, thumb
+   color, radius — so the gutter is unmistakably visible. */
+.lanc-scroll::-webkit-scrollbar {
   width: 10px !important;
-  height: 14px !important;
-  background: #e2e8f0 !important;
+  height: 16px !important;
+  background: #cbd5e1 !important;
 }
-.content-h-scroll::-webkit-scrollbar-track {
-  background: #e2e8f0 !important;
-  border-radius: 7px !important;
+.lanc-scroll::-webkit-scrollbar-track {
+  background: #cbd5e1 !important;
+  border-radius: 8px !important;
 }
-.content-h-scroll::-webkit-scrollbar-thumb {
-  background: #64748b !important;
-  border-radius: 7px !important;
-  min-width: 40px !important;
+.lanc-scroll::-webkit-scrollbar-thumb {
+  background: #334155 !important;
+  border-radius: 8px !important;
+  min-width: 60px !important;
   min-height: 40px !important;
+  border: 2px solid #cbd5e1 !important;
 }
-.content-h-scroll::-webkit-scrollbar-thumb:hover {
-  background: #475569 !important;
+.lanc-scroll::-webkit-scrollbar-thumb:hover {
+  background: #0f172a !important;
 }
-.content-h-scroll::-webkit-scrollbar-corner {
-  background: #e2e8f0 !important;
+.lanc-scroll::-webkit-scrollbar-corner {
+  background: #cbd5e1 !important;
 }
-/* Firefox */
-.content-h-scroll {
+.lanc-scroll {
   scrollbar-width: auto !important;
-  scrollbar-color: #64748b #e2e8f0 !important;
+  scrollbar-color: #334155 #cbd5e1 !important;
 }

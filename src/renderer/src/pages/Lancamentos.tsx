@@ -459,11 +459,14 @@ export function Lancamentos() {
           </nav>
         </aside>
 
-        {/* Main content area — same native overflow pattern as the rede
-            sidebar (which the user confirmed works). Browser-managed
-            scrollbars appear automatically when the table is wider than
-            this column. */}
-        <div className="flex-1 min-w-0 overflow-auto">
+        {/* Main content area — overflow-x: scroll (not auto) forces the
+            scrollbar gutter to always render, dodging macOS overlay quirks.
+            `lanc-scroll` adds !important sizing + colors so the horizontal
+            scrollbar is clearly visible (not the subtle 8px overlay). */}
+        <div
+          className="flex-1 min-h-0 min-w-0 lanc-scroll"
+          style={{ overflowX: 'scroll', overflowY: 'auto' }}
+        >
 
       {/* Per-row product picker */}
       {showRowProdMenu !== null && rowProdMenuPos && (
