@@ -51,12 +51,11 @@ export function LancamentosTable({
     // scroll so the scrollbar lives at the bottom of the viewport, not at
     // the bottom of the (potentially very tall) table.
     <div ref={tableRef} style={{ width: '100%', minWidth: 0 }}>
-      {/* minWidth 1100px safety net: on narrow Mac windows the table would
-          otherwise compress to fit and the Imprimir/Enviar buttons would
-          overflow the AÇÕES cell visually without triggering horizontal
-          scroll. Explicit 1100 forces the table to actually overflow when
-          the content column is narrower, so the native scrollbar activates. */}
-      <table className="text-sm border-collapse" style={{ minWidth: 1100 }}>
+      {/* min-width: max-content keeps the table at its natural width (sum of
+          column max-contents, including the explicit 240px AÇÕES column) —
+          no artificial padding, columns stay compact. Overflow kicks in only
+          when the window is actually narrower than the table. */}
+      <table className="text-sm border-collapse" style={{ minWidth: 'max-content' }}>
         <thead>
           {/* Linha de totais */}
           <tr className="bg-gray-100">
