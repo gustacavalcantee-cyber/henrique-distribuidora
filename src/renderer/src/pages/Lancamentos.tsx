@@ -8,7 +8,6 @@ import { useOcNumbers } from '../hooks/useOcNumbers'
 import { ShareModal } from '../components/Lancamentos/ShareModal'
 import { ProdutoRowMenu } from '../components/Lancamentos/ProdutoRowMenu'
 import { LancamentosTable } from '../components/Lancamentos/LancamentosTable'
-import { HorizontalScrollbar } from '../components/Lancamentos/HorizontalScrollbar'
 import { LancamentosLista } from '../components/Lancamentos/LancamentosLista'
 import { LancamentosCards } from '../components/Lancamentos/LancamentosCards'
 import { LancamentosHeader, type LayoutMode } from '../components/Lancamentos/LancamentosHeader'
@@ -378,11 +377,6 @@ export function Lancamentos() {
 
   const closeAll = () => { setShowAddMenu(false); setShowGlobalProdMenu(false); setShowRowProdMenu(null) }
 
-  // Ref to the scrollable content column so the custom HorizontalScrollbar
-  // below can drive its scrollLeft directly — bypassing all the native
-  // scrollbar visibility quirks on macOS Chromium.
-  const scrollAreaRef = useRef<HTMLDivElement>(null)
-
   return (
     // min-w-0 + overflow-hidden on the page shell stops a wide header or table
     // from pushing the whole page past the viewport (which hid the horizontal
@@ -465,16 +459,11 @@ export function Lancamentos() {
           </nav>
         </aside>
 
-        {/* Main content area — split into a scroll region (top) and a custom
-            horizontal scrollbar strip (bottom). The custom scrollbar is a
-            plain React div so it renders reliably across macOS Chromium
-            overlay-scrollbar quirks that kept hiding the native one. */}
-        <div className="flex-1 min-w-0 flex flex-col">
-          <div
-            ref={scrollAreaRef}
-            className="flex-1 min-h-0 min-w-0 overflow-auto"
-            style={{ overflowX: 'auto', overflowY: 'auto' }}
-          >
+        {/* Main content area — same native overflow pattern as the rede
+            sidebar (which the user confirmed works). Browser-managed
+            scrollbars appear automatically when the table is wider than
+            this column. */}
+        <div className="flex-1 min-w-0 overflow-auto">
 
       {/* Per-row product picker */}
       {showRowProdMenu !== null && rowProdMenuPos && (
@@ -580,9 +569,6 @@ export function Lancamentos() {
           />
         )
       })())}
-          </div>
-          {/* Custom always-visible horizontal scrollbar — drives scrollAreaRef */}
-          <HorizontalScrollbar targetRef={scrollAreaRef} />
         </div>
       </div>
 

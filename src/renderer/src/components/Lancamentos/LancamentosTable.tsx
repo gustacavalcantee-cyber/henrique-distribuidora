@@ -51,7 +51,12 @@ export function LancamentosTable({
     // scroll so the scrollbar lives at the bottom of the viewport, not at
     // the bottom of the (potentially very tall) table.
     <div ref={tableRef} style={{ width: '100%', minWidth: 0 }}>
-      <table className="text-sm border-collapse" style={{ minWidth: 'max-content' }}>
+      {/* minWidth 1100px safety net: on narrow Mac windows the table would
+          otherwise compress to fit and the Imprimir/Enviar buttons would
+          overflow the AÇÕES cell visually without triggering horizontal
+          scroll. Explicit 1100 forces the table to actually overflow when
+          the content column is narrower, so the native scrollbar activates. */}
+      <table className="text-sm border-collapse" style={{ minWidth: 1100 }}>
         <thead>
           {/* Linha de totais */}
           <tr className="bg-gray-100">
@@ -126,7 +131,12 @@ export function LancamentosTable({
                 <div className="text-gray-400 font-normal">{p.unidade}</div>
               </th>
             ))}
-            <th className="border px-2 py-1 text-xs text-gray-600 whitespace-nowrap">AÇÕES</th>
+            <th
+              className="border px-2 py-1 text-xs text-gray-600 whitespace-nowrap"
+              style={{ width: 240, minWidth: 240 }}
+            >
+              AÇÕES
+            </th>
           </tr>
         </thead>
         <tbody>
