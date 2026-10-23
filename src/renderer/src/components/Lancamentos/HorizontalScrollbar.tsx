@@ -8,31 +8,26 @@ interface HorizontalScrollbarProps {
 /**
  * A custom horizontal scrollbar rendered as a plain React div.
  *
- * Why not just use the native browser scrollbar?
- *   - macOS Chromium hides overlay scrollbars until the user already scrolls,
- *     and `-webkit-appearance: none` toggles that unreliably across versions.
- *   - Users of this app repeatedly reported "no scrollbar visible" even with
- *     overflow-x: scroll and aggressive !important CSS.
- *
- * This component sidesteps browser scrollbar rendering entirely:
- *   - Always-visible 14px track + draggable thumb (plain divs with colors)
- *   - Thumb width is proportional to the viewport ratio
- *   - Dragging updates targetRef.scrollLeft; the target's own scroll events
- *     update the thumb position (so trackpad/wheel scrolling stays in sync)
+ * Window-level pointer listeners (not setPointerCapture on the thumb) are
+ * used for the drag — more reliable in Electron where pointer capture can
+ * silently fail and leave the thumb unresponsive after the first mousedown.
  */
 export function HorizontalScrollbar({ targetRef }: HorizontalScrollbarProps) {
   const trackRef = useRef<HTMLDivElement>(null)
   const [thumbLeft, setThumbLeft] = useState(0)
-  const [thumbWidth, setThumbWidth] = useState(0)
+  const [thumbWidth, setThumbWidth] = useState(40)
   const [visible, setVisible] = useState(false)
-  const dragStateRef = useRef<{ startX: number; startScrollLeft: number } | null>(null)
+  // Debug display — remove once we're sure the scrollbar works in all cases.
+  const [debug, setDebug] = useState({ sw: 0, cw: 0, sl: 0 })
 
+  // Measure target vs track and recompute thumb geometry.
   const measure = () => {
     const el = targetRef.current
     const track = trackRef.current
     if (!el || !track) return
+    setDebug({ sw: el.scrollWidth, cw: el.clientWidth, sl: el.scrollLeft })
     const trackWidth = track.clientWidth
-    const scrollable = el.scrollWidth > el.clientWidth
+    const scrollable = el.scrollWidth > el.clientWidth + 1
     setVisible(scrollable)
     if (!scrollable) { setThumbWidth(0); setThumbLeft(0); return }
     const ratio = el.clientWidth / el.scrollWidth
@@ -43,7 +38,8 @@ export function HorizontalScrollbar({ targetRef }: HorizontalScrollbarProps) {
     setThumbLeft(scrollRatio * (trackWidth - tw))
   }
 
-  // Keep the thumb synced whenever the target scrolls or resizes.
+  // Keep in sync with target scroll + resize. Also poll a few times at mount
+  // because tables render asynchronously and initial scrollWidth is wrong.
   useEffect(() => {
     const el = targetRef.current
     if (!el) return
@@ -52,43 +48,56 @@ export function HorizontalScrollbar({ targetRef }: HorizontalScrollbarProps) {
     el.addEventListener('scroll', onScroll, { passive: true })
     const ro = new ResizeObserver(measure)
     ro.observe(el)
-    // Table rows render async — remeasure a few times during startup
-    const t1 = setTimeout(measure, 200)
-    const t2 = setTimeout(measure, 800)
+    const timers = [100, 300, 600, 1200].map(d => setTimeout(measure, d))
+    const winResize = () => measure()
+    window.addEventListener('resize', winResize)
     return () => {
       el.removeEventListener('scroll', onScroll)
       ro.disconnect()
-      clearTimeout(t1); clearTimeout(t2)
+      timers.forEach(clearTimeout)
+      window.removeEventListener('resize', winResize)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [targetRef.current])
+  }, [])
+
+  // Begin drag. Attaches pointermove/pointerup to the WINDOW so the drag
+  // keeps working even if the cursor leaves the thumb mid-drag.
+  const beginDrag = (startX: number) => {
+    const el = targetRef.current
+    const track = trackRef.current
+    if (!el || !track) return
+    const startScrollLeft = el.scrollLeft
+    const trackWidth = track.clientWidth
+    const maxScroll = el.scrollWidth - el.clientWidth
+    const effectiveTrack = Math.max(1, trackWidth - thumbWidth)
+    const scrollPerPx = maxScroll / effectiveTrack
+
+    const onMove = (ev: PointerEvent) => {
+      const dx = ev.clientX - startX
+      el.scrollLeft = startScrollLeft + dx * scrollPerPx
+    }
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onUp)
+      document.body.style.userSelect = ''
+      document.body.style.cursor = ''
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onUp)
+    document.body.style.userSelect = 'none'
+    document.body.style.cursor = 'grabbing'
+  }
 
   const onThumbPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault()
-    const el = targetRef.current
-    if (!el) return
-    dragStateRef.current = { startX: e.clientX, startScrollLeft: el.scrollLeft }
-    e.currentTarget.setPointerCapture(e.pointerId)
+    e.stopPropagation()
+    beginDrag(e.clientX)
   }
 
-  const onThumbPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    const st = dragStateRef.current
-    const el = targetRef.current
-    const track = trackRef.current
-    if (!st || !el || !track) return
-    const dx = e.clientX - st.startX
-    const trackWidth = track.clientWidth
-    const maxScroll = el.scrollWidth - el.clientWidth
-    const scrollPerPx = maxScroll / (trackWidth - thumbWidth || 1)
-    el.scrollLeft = st.startScrollLeft + dx * scrollPerPx
-  }
-
-  const onThumbPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
-    dragStateRef.current = null
-    e.currentTarget.releasePointerCapture(e.pointerId)
-  }
-
-  // Clicking the empty track jumps the thumb to that spot.
+  // Clicking the empty track centers the thumb on the click position and
+  // immediately starts a drag (so the user can keep scrubbing).
   const onTrackPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     const el = targetRef.current
     const track = trackRef.current
@@ -96,11 +105,20 @@ export function HorizontalScrollbar({ targetRef }: HorizontalScrollbarProps) {
     const trackRect = track.getBoundingClientRect()
     const clickX = e.clientX - trackRect.left
     const maxScroll = el.scrollWidth - el.clientWidth
-    const targetScroll = ((clickX - thumbWidth / 2) / (trackRect.width - thumbWidth)) * maxScroll
+    const effectiveTrack = Math.max(1, trackRect.width - thumbWidth)
+    const targetScroll = ((clickX - thumbWidth / 2) / effectiveTrack) * maxScroll
     el.scrollLeft = Math.max(0, Math.min(maxScroll, targetScroll))
+    beginDrag(e.clientX)
   }
 
   return (
+    <>
+    <div style={{
+      fontSize: 10, fontFamily: 'monospace', color: '#64748b',
+      padding: '2px 6px', background: '#fef3c7', textAlign: 'left'
+    }}>
+      DEBUG: scrollWidth={debug.sw} clientWidth={debug.cw} scrollLeft={debug.sl} visible={String(visible)} thumbW={thumbWidth.toFixed(0)}
+    </div>
     <div
       ref={trackRef}
       onPointerDown={onTrackPointerDown}
@@ -111,15 +129,14 @@ export function HorizontalScrollbar({ targetRef }: HorizontalScrollbarProps) {
         borderRadius: 7,
         position: 'relative',
         cursor: visible ? 'pointer' : 'default',
-        opacity: visible ? 1 : 0.4,
+        opacity: visible ? 1 : 0.35,
         flexShrink: 0,
         marginTop: 4,
+        touchAction: 'none',
       }}
     >
       <div
         onPointerDown={onThumbPointerDown}
-        onPointerMove={onThumbPointerMove}
-        onPointerUp={onThumbPointerUp}
         style={{
           position: 'absolute',
           left: thumbLeft,
@@ -131,8 +148,10 @@ export function HorizontalScrollbar({ targetRef }: HorizontalScrollbarProps) {
           cursor: 'grab',
           touchAction: 'none',
           display: visible ? 'block' : 'none',
+          userSelect: 'none',
         }}
       />
     </div>
+    </>
   )
 }
