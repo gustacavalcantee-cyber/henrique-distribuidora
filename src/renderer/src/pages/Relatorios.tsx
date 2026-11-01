@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Printer, Share2 } from 'lucide-react'
+import { ChevronDown, ChevronRight, Printer, Share2 } from 'lucide-react'
 import type { Rede, Loja, Franqueado, QuinzenaSummary, FinanceiroSummary, CobrancaLojaResult, NotaPagamento, ProdutoRelatorioResult } from '../../../shared/types'
 import { IPC } from '../../../shared/ipc-channels'
 import { useIpc } from '../hooks/useIpc'
@@ -575,6 +575,25 @@ thead tr { border-bottom: 1px solid #555; }
   )
 }
 
+function SelectAllCheckbox({ ids, selectedIds, title, onToggle }: {
+  ids: number[]
+  selectedIds: Set<number>
+  title: string
+  onToggle: (ids: number[], selected: boolean) => void
+}) {
+  const selectedCount = ids.filter(id => selectedIds.has(id)).length
+  return (
+    <input
+      type="checkbox"
+      title={title}
+      ref={el => { if (el) el.indeterminate = selectedCount > 0 && selectedCount < ids.length }}
+      disabled={ids.length === 0}
+      checked={ids.length > 0 && selectedCount === ids.length}
+      onChange={e => onToggle(ids, e.target.checked)}
+    />
+  )
+}
+
 function FinanceiroTab() {
   const { data: redes } = useIpc<Rede[]>(IPC.REDES_LIST)
   const { data: franqueados } = useIpc<Franqueado[]>(IPC.FRANQUEADOS_LIST)
@@ -624,6 +643,13 @@ function FinanceiroTab() {
 
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [markingPaid, setMarkingPaid] = useState(false)
+  const [lojasMinimizadas, setLojasMinimizadas] = useState<Set<string>>(new Set())
+
+  const toggleLojaMinimizada = (lojaName: string) => setLojasMinimizadas(prev => {
+    const next = new Set(prev)
+    if (!next.delete(lojaName)) next.add(lojaName)
+    return next
+  })
   // Derived from the list so paid or filtered-out notas never stay selected.
   const notasSelecionadas = notas?.filter(n => selectedIds.has(n.pedido_id) && n.status_pagamento !== 'paga') ?? []
 
@@ -812,6 +838,10 @@ ${Object.values(byLoja).map(lojaNotas => {
     return acc
   }, {}) : {}
 
+  const nomesLojas = Object.keys(notasByLoja)
+  const todasMinimizadas = nomesLojas.length > 0 && nomesLojas.every(nome => lojasMinimizadas.has(nome))
+  const idsNaoPagos = (lista: NotaPagamento[]) => lista.filter(n => n.status_pagamento !== 'paga').map(n => n.pedido_id)
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap gap-2 items-end bg-white border rounded p-3">
@@ -860,8 +890,20 @@ ${Object.values(byLoja).map(lojaNotas => {
 
           {notas && notas.length > 0 && (
             <div>
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="font-semibold text-gray-700 text-sm">{mes === 0 ? `Notas de ${ano}` : 'Notas do Mês'}</h3>
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                <div className="flex flex-wrap items-center gap-4">
+                  <h3 className="font-semibold text-gray-700 text-sm">{mes === 0 ? `Notas de ${ano}` : 'Notas do Mês'}</h3>
+                  <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
+                    <SelectAllCheckbox ids={idsNaoPagos(notas)} selectedIds={selectedIds} title="Selecionar todas as notas não pagas" onToggle={toggleNotas} />
+                    Selecionar todas
+                  </label>
+                  <button
+                    onClick={() => setLojasMinimizadas(todasMinimizadas ? new Set() : new Set(nomesLojas))}
+                    className="text-xs text-gray-600 hover:text-gray-900 underline"
+                  >
+                    {todasMinimizadas ? 'Expandir todas' : 'Minimizar todas'}
+                  </button>
+                </div>
                 <div className="flex gap-2">
                   <button
                     onClick={() => handleCompartilhar('abertas')}
@@ -891,28 +933,32 @@ ${Object.values(byLoja).map(lojaNotas => {
               </div>
               <div className="flex flex-col gap-3">
                 {Object.entries(notasByLoja).map(([lojaName, lojaNotas]) => {
-                  const idsEmAberto = lojaNotas.filter(n => n.status_pagamento !== 'paga').map(n => n.pedido_id)
+                  const minimizada = lojasMinimizadas.has(lojaName)
                   return (
                   <div key={lojaName} className="border rounded bg-white overflow-hidden">
-                    <div className="bg-gray-100 px-3 py-1.5 font-semibold text-sm text-gray-700 flex justify-between items-center">
-                      <span>{lojaName}</span>
-                      <span className="text-xs font-normal text-gray-500">
-                        {lojaNotas.filter(n => n.status_pagamento === 'paga').length}/{lojaNotas.length} pagas &nbsp;|&nbsp;
-                        R$ {formatMoney(lojaNotas.reduce((s, n) => s + n.total_venda, 0))}
-                      </span>
+                    <div className="bg-gray-100 pl-3 font-semibold text-sm text-gray-700 flex items-center gap-2">
+                      <SelectAllCheckbox ids={idsNaoPagos(lojaNotas)} selectedIds={selectedIds} title={`Selecionar todas as notas não pagas de ${lojaName}`} onToggle={toggleNotas} />
+                      <button
+                        onClick={() => toggleLojaMinimizada(lojaName)}
+                        aria-expanded={!minimizada}
+                        title={minimizada ? 'Expandir loja' : 'Minimizar loja'}
+                        className="flex-1 flex justify-between items-center gap-2 pr-3 py-1.5 text-left hover:text-gray-900"
+                      >
+                        <span className="flex items-center gap-1">
+                          {minimizada ? <ChevronRight size={15} /> : <ChevronDown size={15} />}
+                          {lojaName}
+                        </span>
+                        <span className="text-xs font-normal text-gray-500">
+                          {lojaNotas.filter(n => n.status_pagamento === 'paga').length}/{lojaNotas.length} pagas &nbsp;|&nbsp;
+                          R$ {formatMoney(lojaNotas.reduce((s, n) => s + n.total_venda, 0))}
+                        </span>
+                      </button>
                     </div>
+                    {!minimizada && (
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="bg-gray-50 text-xs text-gray-500">
-                          <th className="pl-3 py-1 w-6">
-                            <input
-                              type="checkbox"
-                              title={`Selecionar todas as notas não pagas de ${lojaName}`}
-                              disabled={idsEmAberto.length === 0}
-                              checked={idsEmAberto.length > 0 && idsEmAberto.every(id => selectedIds.has(id))}
-                              onChange={e => toggleNotas(idsEmAberto, e.target.checked)}
-                            />
-                          </th>
+                          <th className="pl-3 py-1 w-6"></th>
                           <th className="text-left px-3 py-1 font-medium">Data</th>
                           <th className="text-left px-3 py-1 font-medium">OC</th>
                           <th className="text-right px-3 py-1 font-medium">Valor</th>
@@ -959,6 +1005,7 @@ ${Object.values(byLoja).map(lojaNotas => {
                         ))}
                       </tbody>
                     </table>
+                    )}
                   </div>
                   )
                 })}
