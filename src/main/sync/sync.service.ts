@@ -659,16 +659,19 @@ export function triggerSync(_win?: BrowserWindow): void {
     try {
       do {
         _pendingSync = false
+        // PUSH ONLY. Pulling here was blocking the main process on every save
+        // — pullFromSupabase runs a large synchronous SQLite transaction (per-
+        // row upserts + per-pedido item replace) that froze the UI whenever
+        // the user typed or clicked. Pulls still happen via the 8-second
+        // polling loop and via broadcasts from other devices.
         await pushPendingPedidos(supabase)
         await pushPendingOthers(supabase)
-        // Broadcast to other devices
+        // Broadcast to other devices so they pull soon.
         _broadcastChannel?.send({
           type: 'broadcast',
           event: 'updated',
           payload: { from: getDeviceId() },
         })
-        // Pull locally so our signature stays consistent — no notification sent
-        await pullFromSupabase(supabase)
       } while (_pendingSync) // another write arrived mid-sync — loop once more
     } catch (err: unknown) {
       console.warn('[sync] triggerSync error:', (err as Error).message)

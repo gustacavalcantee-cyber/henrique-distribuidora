@@ -193,10 +193,16 @@ export function Lancamentos() {
     }
 
     if (!row.numero_oc) return
-    await saveRow(enriched, activeRedeId, dataPedido)
-    // Silent reload: gets updated pedido_id from DB without showing loading spinner or scrolling to top
-    await load(true, true)
-  }, [activeRedeId, dataPedido, saveRow, load, enrichRow, setRows])
+    // saveRow now returns the pedido_id directly, so we just merge it into
+    // the row's state instead of refetching the whole grid (which triggered
+    // an N+1 SQLite round-trip per blur = main-process stall per keystroke).
+    const pedidoId = await saveRow(enriched, activeRedeId, dataPedido)
+    if (pedidoId != null && row.pedido_id !== pedidoId) {
+      setRows(prev => prev.map(r =>
+        r.loja_id === lojaId ? { ...r, pedido_id: pedidoId } : r
+      ))
+    }
+  }, [activeRedeId, dataPedido, saveRow, enrichRow, setRows])
 
   // Keep handleCellBlurRef current so auto-save timer always calls the latest version
   useEffect(() => { handleCellBlurRef.current = handleCellBlur }, [handleCellBlur])

@@ -40,18 +40,19 @@ export function useLancamentos(redeId: number | null, dataPedido: string) {
     }
   }, [redeId, dataPedido])
 
-  const saveRow = useCallback(async (row: LancamentoRow, redeId: number, dataPedido: string) => {
+  const saveRow = useCallback(async (row: LancamentoRow, redeId: number, dataPedido: string): Promise<number | null> => {
     // Build itens: positive quantities + active products with no qty saved as 0 (so they appear in print)
     const itens = Object.entries(row.quantidades)
       .map(([prodId, qty]) => ({ produto_id: Number(prodId), quantidade: qty ?? 0 }))
 
-    await window.electron.invoke(IPC.PEDIDOS_CREATE, {
+    const pedidoId = await window.electron.invoke<number>(IPC.PEDIDOS_CREATE, {
       rede_id: redeId,
       loja_id: row.loja_id,
       data_pedido: dataPedido,
       numero_oc: row.numero_oc,
       itens,
     })
+    return pedidoId ?? null
   }, [])
 
   return { rows, setRows, loading, load, saveRow }
