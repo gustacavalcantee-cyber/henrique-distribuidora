@@ -65,6 +65,7 @@ export const IPC = {
   DB_SYNCED: 'db:synced',
   DB_READY: 'db:ready',
   LAYOUT_GET: 'layout:get',
+  LAYOUT_GET_ALL: 'layout:getAll',
   LAYOUT_SET: 'layout:set',
   REDE_COL_ORDER_GET: 'redeColOrder:get',
   REDE_COL_ORDER_SET: 'redeColOrder:set',

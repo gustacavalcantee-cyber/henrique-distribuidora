@@ -244,43 +244,60 @@ function upsertLocal(
   const sample = rows[0]
   const cols = Object.keys(sample)
 
-  for (const row of rows) {
-    if (skipIfSyncedZero) {
-      // Don't overwrite offline-edited records
-      const existing = sqlite.prepare(`SELECT synced FROM ${table} WHERE ${idCol} = ?`).get(row[idCol]) as { synced: number } | undefined
-      if (existing?.synced === 0) continue
-    }
+  // Hoist bulk lookups and prepared statements out of the per-row loop.
+  // Previously this function ran:
+  //   - 1 SELECT synced per row (precheck)
+  //   - 1 sqlite.prepare() per row for the upsert (prepares are expensive)
+  // With N ~500+ rows per table and 14 tables synced on every 8s poll, this
+  // blocked the main process for seconds. Now we gather all 'synced=0' ids
+  // up-front with ONE query, then reuse ONE prepared statement for the whole
+  // table.
+  const unsyncedIds = skipIfSyncedZero
+    ? new Set(
+        (sqlite.prepare(`SELECT ${idCol} as id FROM ${table} WHERE synced = 0`).all() as { id: unknown }[])
+          .map(r => r.id)
+      )
+    : null
 
-    if (table === 'pedidos') {
-      // For pedidos, use UPDATE or INSERT without REPLACE to avoid cascading
-      const exists = sqlite.prepare('SELECT id FROM pedidos WHERE id = ?').get(row[idCol])
-      if (exists) {
-        const setCols = cols.filter(c => c !== 'id').map(c => `${c} = ?`).join(', ')
-        const vals = cols.filter(c => c !== 'id').map(c => row[c] ?? null)
+  if (table === 'pedidos') {
+    // Preserve the DELETE-free semantics: use UPDATE if row exists, INSERT OR IGNORE otherwise.
+    const existingIds = new Set(
+      (sqlite.prepare('SELECT id FROM pedidos').all() as { id: number }[]).map(r => r.id)
+    )
+    const nonIdCols = cols.filter(c => c !== 'id')
+    const setCols = nonIdCols.map(c => `${c} = ?`).join(', ')
+    const updateStmt = sqlite.prepare(`UPDATE pedidos SET ${setCols} WHERE id = ?`)
+    const placeholders = cols.map(() => '?').join(', ')
+    const insertStmt = sqlite.prepare(`INSERT OR IGNORE INTO pedidos (${cols.join(', ')}) VALUES (${placeholders})`)
+
+    for (const row of rows) {
+      if (unsyncedIds?.has(row[idCol])) continue
+      if (existingIds.has(row[idCol])) {
+        const vals = nonIdCols.map(c => row[c] ?? null)
         vals.push(row[idCol])
-        sqlite.prepare(`UPDATE pedidos SET ${setCols} WHERE id = ?`).run(...vals)
+        updateStmt.run(...vals)
       } else {
-        const placeholders = cols.map(() => '?').join(', ')
-        sqlite.prepare(`INSERT OR IGNORE INTO pedidos (${cols.join(', ')}) VALUES (${placeholders})`).run(cols.map(c => row[c] ?? null))
-      }
-    } else {
-      // Use INSERT ... ON CONFLICT DO UPDATE SET instead of INSERT OR REPLACE.
-      // INSERT OR REPLACE does DELETE+INSERT which sets any unspecified column to NULL,
-      // destroying locally-saved data for columns not present in the remote schema
-      // (e.g. fiscal columns on lojas that Supabase doesn't yet have).
-      const placeholders = cols.map(() => '?').join(', ')
-      const vals = cols.map(c => row[c] ?? null)
-      const updateCols = cols.filter(c => c !== idCol)
-      if (updateCols.length > 0) {
-        const setClause = updateCols.map(c => `${c} = excluded.${c}`).join(', ')
-        sqlite.prepare(
-          `INSERT INTO ${table} (${cols.join(', ')}) VALUES (${placeholders})
-           ON CONFLICT(${idCol}) DO UPDATE SET ${setClause}`
-        ).run(...vals)
-      } else {
-        sqlite.prepare(`INSERT OR IGNORE INTO ${table} (${cols.join(', ')}) VALUES (${placeholders})`).run(...vals)
+        insertStmt.run(cols.map(c => row[c] ?? null))
       }
     }
+    return
+  }
+
+  // Use INSERT ... ON CONFLICT DO UPDATE SET instead of INSERT OR REPLACE.
+  // INSERT OR REPLACE does DELETE+INSERT which would NULL any column not sent
+  // (e.g. local fiscal columns on lojas).
+  const placeholders = cols.map(() => '?').join(', ')
+  const updateCols = cols.filter(c => c !== idCol)
+  const stmt = updateCols.length > 0
+    ? sqlite.prepare(
+        `INSERT INTO ${table} (${cols.join(', ')}) VALUES (${placeholders})
+         ON CONFLICT(${idCol}) DO UPDATE SET ${updateCols.map(c => `${c} = excluded.${c}`).join(', ')}`
+      )
+    : sqlite.prepare(`INSERT OR IGNORE INTO ${table} (${cols.join(', ')}) VALUES (${placeholders})`)
+
+  for (const row of rows) {
+    if (unsyncedIds?.has(row[idCol])) continue
+    stmt.run(...cols.map(c => row[c] ?? null))
   }
 }
 
@@ -365,99 +382,119 @@ async function pullFromSupabase(supabase: any): Promise<number> {
       if (!supabaseItemsByPedido.has(pid)) supabaseItemsByPedido.set(pid, [])
       supabaseItemsByPedido.get(pid)!.push(item)
     }
+    // Bulk lookup: pedido.synced AND local item counts, avoiding 2 queries per remote pedido.
+    const pedidoSyncedMap = new Map<number, number>(
+      (sqlite.prepare('SELECT id, synced FROM pedidos').all() as { id: number; synced: number }[])
+        .map(r => [r.id, r.synced])
+    )
+    const localItemCountMap = new Map<number, number>(
+      (sqlite.prepare('SELECT pedido_id, COUNT(*) as c FROM itens_pedido GROUP BY pedido_id').all() as { pedido_id: number; c: number }[])
+        .map(r => [r.pedido_id, r.c])
+    )
+    const flagPedidoStmt = sqlite.prepare('UPDATE pedidos SET synced = 0 WHERE id = ?')
+    const flagItensStmt = sqlite.prepare('UPDATE itens_pedido SET synced = 0 WHERE pedido_id = ?')
+    const deleteItensStmt = sqlite.prepare('DELETE FROM itens_pedido WHERE pedido_id = ?')
+    // Prepare the item insert from the first available item's column shape.
+    // Supabase schema is stable so all rows share the same columns.
+    const firstItem = itensPedido.find(_ => true)
+    const itemCols = firstItem ? Object.keys(firstItem).filter(c => c !== 'id') : []
+    const insertItemStmt = itemCols.length > 0
+      ? sqlite.prepare(`INSERT INTO itens_pedido (${itemCols.join(', ')}) VALUES (${itemCols.map(() => '?').join(', ')})`)
+      : null
+
     for (const remotePedido of pedidosRemote) {
-      const local = sqlite.prepare('SELECT synced FROM pedidos WHERE id = ?').get(remotePedido['id']) as { synced: number } | undefined
-      if (!local || local.synced === 0) continue
+      const synced = pedidoSyncedMap.get(remotePedido['id'])
+      if (synced === undefined || synced === 0) continue
       const items = supabaseItemsByPedido.get(remotePedido['id'])
-      // Guard: only replace if Supabase actually has items for this pedido.
-      // If Supabase has 0 items (push failed / status-change push with empty local DB),
-      // keep the existing local items rather than wiping them.
       if (!items || items.length === 0) {
-        // AUTO-HEAL: if local has items but Supabase doesn't, flag the pedido for
-        // re-push. The next push cycle will send our local items back to Supabase,
-        // restoring data without any manual intervention.
-        const localItemCount = (sqlite.prepare(
-          'SELECT COUNT(*) as c FROM itens_pedido WHERE pedido_id = ?'
-        ).get(remotePedido['id']) as { c: number }).c
+        const localItemCount = localItemCountMap.get(remotePedido['id']) ?? 0
         if (localItemCount > 0) {
           console.log(`[sync] auto-heal: pedido ${remotePedido['id']} has ${localItemCount} local items but 0 in Supabase — re-push scheduled`)
-          sqlite.prepare('UPDATE pedidos SET synced = 0 WHERE id = ?').run(remotePedido['id'])
-          sqlite.prepare('UPDATE itens_pedido SET synced = 0 WHERE pedido_id = ?').run(remotePedido['id'])
+          flagPedidoStmt.run(remotePedido['id'])
+          flagItensStmt.run(remotePedido['id'])
           autoHealCount++
         }
         continue
       }
-      sqlite.prepare('DELETE FROM itens_pedido WHERE pedido_id = ?').run(remotePedido['id'])
-      for (const item of items) {
-        // Exclude 'id' — Supabase SERIAL ids conflict with SQLite local auto-increment ids.
-        const cols = Object.keys(item).filter(c => c !== 'id')
-        sqlite.prepare(`INSERT INTO itens_pedido (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`).run(cols.map(c => item[c] ?? null))
+      deleteItensStmt.run(remotePedido['id'])
+      if (insertItemStmt) {
+        for (const item of items) {
+          insertItemStmt.run(itemCols.map(c => item[c] ?? null))
+        }
       }
     }
 
     upsertLocal(sqlite, 'despesas', despesas, 'id')
     upsertLocal(sqlite, 'configuracoes', configuracoes, 'chave', true)
 
-    // layout_config: upsert by (rede_id, loja_id), skip if local synced=0
+    // layout_config: upsert by (rede_id, loja_id), skip if local synced=0.
+    // Bulk the synced precheck + hoist the prepared statement.
+    const layoutUnsynced = new Set(
+      (sqlite.prepare('SELECT rede_id, loja_id FROM layout_config WHERE synced = 0').all() as { rede_id: number; loja_id: number }[])
+        .map(r => `${r.rede_id}:${r.loja_id}`)
+    )
+    const layoutInsertStmt = sqlite.prepare(
+      `INSERT INTO layout_config (id, rede_id, loja_id, produto_ids, synced, updated_at)
+       VALUES (?, ?, ?, ?, 1, ?)
+       ON CONFLICT(rede_id, loja_id) DO UPDATE SET
+         id = excluded.id,
+         produto_ids = excluded.produto_ids,
+         synced = 1,
+         updated_at = excluded.updated_at`
+    )
     for (const row of layoutConfigs) {
-      const existing = sqlite
-        .prepare('SELECT synced FROM layout_config WHERE rede_id = ? AND loja_id = ?')
-        .get(row['rede_id'], row['loja_id']) as { synced: number } | undefined
-      if (existing?.synced === 0) continue
-      sqlite.prepare(
-        `INSERT INTO layout_config (id, rede_id, loja_id, produto_ids, synced, updated_at)
-         VALUES (?, ?, ?, ?, 1, ?)
-         ON CONFLICT(rede_id, loja_id) DO UPDATE SET
-           id = excluded.id,
-           produto_ids = excluded.produto_ids,
-           synced = 1,
-           updated_at = excluded.updated_at`
-      ).run(row['id'] ?? null, row['rede_id'], row['loja_id'], row['produto_ids'] ?? '[]', row['updated_at'] ?? null)
+      if (layoutUnsynced.has(`${row['rede_id']}:${row['loja_id']}`)) continue
+      layoutInsertStmt.run(row['id'] ?? null, row['rede_id'], row['loja_id'], row['produto_ids'] ?? '[]', row['updated_at'] ?? null)
     }
 
     // rede_col_order: upsert by rede_id, skip if local synced=0 (unsynced local changes win)
+    const colOrderUnsynced = new Set(
+      (sqlite.prepare('SELECT rede_id FROM rede_col_order WHERE synced = 0').all() as { rede_id: number }[])
+        .map(r => r.rede_id)
+    )
+    const colOrderInsertStmt = sqlite.prepare(
+      `INSERT INTO rede_col_order (rede_id, produto_ids, synced, updated_at)
+       VALUES (?, ?, 1, ?)
+       ON CONFLICT(rede_id) DO UPDATE SET
+         produto_ids = excluded.produto_ids,
+         synced = 1,
+         updated_at = excluded.updated_at`
+    )
     for (const row of redeColOrders) {
-      const existing = sqlite
-        .prepare('SELECT synced FROM rede_col_order WHERE rede_id = ?')
-        .get(row['rede_id']) as { synced: number } | undefined
-      if (existing?.synced === 0) continue
-      sqlite.prepare(
-        `INSERT INTO rede_col_order (rede_id, produto_ids, synced, updated_at)
-         VALUES (?, ?, 1, ?)
-         ON CONFLICT(rede_id) DO UPDATE SET
-           produto_ids = excluded.produto_ids,
-           synced = 1,
-           updated_at = excluded.updated_at`
-      ).run(row['rede_id'], row['produto_ids'] ?? '[]', row['updated_at'] ?? null)
+      if (colOrderUnsynced.has(row['rede_id'])) continue
+      colOrderInsertStmt.run(row['rede_id'], row['produto_ids'] ?? '[]', row['updated_at'] ?? null)
     }
 
     // print_order: upsert by (rede_id, loja_id) — always overwrite (no local synced tracking)
+    const printOrderInsertStmt = sqlite.prepare(
+      `INSERT INTO print_order (rede_id, loja_id, produto_ids, updated_at)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(rede_id, loja_id) DO UPDATE SET
+         produto_ids = excluded.produto_ids,
+         updated_at = excluded.updated_at`
+    )
     for (const row of printOrders) {
-      sqlite.prepare(
-        `INSERT INTO print_order (rede_id, loja_id, produto_ids, updated_at)
-         VALUES (?, ?, ?, ?)
-         ON CONFLICT(rede_id, loja_id) DO UPDATE SET
-           produto_ids = excluded.produto_ids,
-           updated_at = excluded.updated_at`
-      ).run(row['rede_id'], row['loja_id'], row['produto_ids'] ?? '[]', row['updated_at'] ?? null)
+      printOrderInsertStmt.run(row['rede_id'], row['loja_id'], row['produto_ids'] ?? '[]', row['updated_at'] ?? null)
     }
 
     // estoque_entradas: upsert por (produto_id, data), skip se local synced=0
+    const entradasUnsynced = new Set(
+      (sqlite.prepare('SELECT produto_id, data FROM estoque_entradas WHERE synced = 0').all() as { produto_id: number; data: string }[])
+        .map(r => `${r.produto_id}:${r.data}`)
+    )
+    const entradasInsertStmt = sqlite.prepare(`
+      INSERT INTO estoque_entradas (id, produto_id, data, quantidade, synced, device_id, updated_at)
+      VALUES (?, ?, ?, ?, 1, ?, ?)
+      ON CONFLICT(produto_id, data) DO UPDATE SET
+        id = excluded.id,
+        quantidade = excluded.quantidade,
+        synced = 1,
+        device_id = excluded.device_id,
+        updated_at = excluded.updated_at
+    `)
     for (const row of estoqueEntradas) {
-      const existing = sqlite
-        .prepare('SELECT synced FROM estoque_entradas WHERE produto_id = ? AND data = ?')
-        .get(row['produto_id'], row['data']) as { synced: number } | undefined
-      if (existing?.synced === 0) continue
-      sqlite.prepare(`
-        INSERT INTO estoque_entradas (id, produto_id, data, quantidade, synced, device_id, updated_at)
-        VALUES (?, ?, ?, ?, 1, ?, ?)
-        ON CONFLICT(produto_id, data) DO UPDATE SET
-          id = excluded.id,
-          quantidade = excluded.quantidade,
-          synced = 1,
-          device_id = excluded.device_id,
-          updated_at = excluded.updated_at
-      `).run(
+      if (entradasUnsynced.has(`${row['produto_id']}:${row['data']}`)) continue
+      entradasInsertStmt.run(
         row['id'] ?? null,
         row['produto_id'],
         row['data'],

@@ -11,6 +11,17 @@ export function registerLayoutConfigHandlers() {
     return row?.produto_ids ?? null
   })
 
+  // Bulk fetch for Lançamentos grid init: one IPC call instead of N (one per loja).
+  // Returns an object { [loja_id]: produto_ids_json_string }.
+  ipcMain.handle(IPC.LAYOUT_GET_ALL, (_event, redeId: number) => {
+    const rows = getRawSqlite()
+      .prepare('SELECT loja_id, produto_ids FROM layout_config WHERE rede_id = ?')
+      .all(redeId) as { loja_id: number; produto_ids: string }[]
+    const result: Record<number, string> = {}
+    for (const r of rows) result[r.loja_id] = r.produto_ids
+    return result
+  })
+
   ipcMain.handle(IPC.LAYOUT_SET, (_event, redeId: number, lojaId: number, produtoIds: number[]) => {
     getRawSqlite().prepare(
       `INSERT INTO layout_config (rede_id, loja_id, produto_ids, synced, updated_at)

@@ -1,5 +1,5 @@
 import { eq, and, gte, lte, like, isNull, desc, type SQL } from 'drizzle-orm'
-import { getDb } from '../db/client-local'
+import { getDb, getRawSqlite } from '../db/client-local'
 import { pedidos, itensPedido, precos, custos, lojas } from '../db/schema-local'
 import type { SalvarPedidoInput, LancamentoRow } from '../../shared/types'
 
@@ -144,26 +144,60 @@ export function deletePedido(id: number): void {
 }
 
 export function getLancamentosParaData(rede_id: number, data_pedido: string): LancamentoRow[] {
-  const db = getDb()
-  const todasLojas = db.select().from(lojas)
-    .where(and(eq(lojas.rede_id, rede_id), eq(lojas.ativo, 1)))
-    .all()
+  // Rewritten from N+1 (1 lojas + N pedidos + N itens) to 3 queries total:
+  //   1) lojas for the rede
+  //   2) latest pedido per loja for this date (one query, MAX(id) subquery)
+  //   3) all itens for those pedido ids (one query, IN clause)
+  // On 27 lojas this cuts 55 synchronous SQLite calls down to 3.
+  const sqlite = getRawSqlite()
+
+  const todasLojas = sqlite.prepare(
+    'SELECT id, nome FROM lojas WHERE rede_id = ? AND ativo = 1'
+  ).all(rede_id) as { id: number; nome: string }[]
+
+  if (todasLojas.length === 0) return []
+
+  // Latest pedido per (loja, data, rede) in one shot.
+  const pedidosRows = sqlite.prepare(
+    `SELECT p.id, p.loja_id, p.numero_oc
+     FROM pedidos p
+     WHERE p.rede_id = ? AND p.data_pedido = ?
+       AND p.id = (
+         SELECT MAX(p2.id) FROM pedidos p2
+         WHERE p2.loja_id = p.loja_id AND p2.data_pedido = p.data_pedido AND p2.rede_id = p.rede_id
+       )`
+  ).all(rede_id, data_pedido) as { id: number; loja_id: number; numero_oc: string | null }[]
+
+  const pedidoByLoja = new Map<number, { id: number; numero_oc: string | null }>()
+  const pedidoIds: number[] = []
+  for (const p of pedidosRows) {
+    pedidoByLoja.set(p.loja_id, { id: p.id, numero_oc: p.numero_oc })
+    pedidoIds.push(p.id)
+  }
+
+  const itensByPedido = new Map<number, { produto_id: number | null; quantidade: number }[]>()
+  if (pedidoIds.length > 0) {
+    const placeholders = pedidoIds.map(() => '?').join(',')
+    const itensRows = sqlite.prepare(
+      `SELECT pedido_id, produto_id, quantidade FROM itens_pedido WHERE pedido_id IN (${placeholders})`
+    ).all(...pedidoIds) as { pedido_id: number; produto_id: number | null; quantidade: number }[]
+    for (const it of itensRows) {
+      if (!itensByPedido.has(it.pedido_id)) itensByPedido.set(it.pedido_id, [])
+      itensByPedido.get(it.pedido_id)!.push({ produto_id: it.produto_id, quantidade: it.quantidade })
+    }
+  }
 
   return todasLojas.map(loja => {
-    const pedido = db.select().from(pedidos)
-      .where(and(eq(pedidos.loja_id, loja.id), eq(pedidos.data_pedido, data_pedido), eq(pedidos.rede_id, rede_id)))
-      .orderBy(desc(pedidos.id))
-      .limit(1)
-      .all()[0]
-
+    const pedido = pedidoByLoja.get(loja.id)
     const quantidades: Record<number, number | null> = {}
     if (pedido) {
-      const itens = db.select().from(itensPedido).where(eq(itensPedido.pedido_id, pedido.id)).all()
+      const itens = itensByPedido.get(pedido.id) ?? []
       for (const item of itens) {
-        if (item.produto_id !== null) quantidades[item.produto_id] = item.quantidade === 0 ? null : item.quantidade
+        if (item.produto_id !== null) {
+          quantidades[item.produto_id] = item.quantidade === 0 ? null : item.quantidade
+        }
       }
     }
-
     return {
       loja_id: loja.id,
       loja_nome: loja.nome,

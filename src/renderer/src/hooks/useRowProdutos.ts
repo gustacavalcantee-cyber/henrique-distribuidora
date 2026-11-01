@@ -89,9 +89,11 @@ export function useRowProdutos({ activeRedeId, rows, produtos, historicProdIds }
       if (initRunningRef.current) return
       initRunningRef.current = true
       const additions: Record<number, Set<number>> = {}
+      // ONE bulk IPC up-front instead of one LAYOUT_GET per loja.
+      // On rede switch with 27 lojas this collapses 27 IPC round-trips into 1.
+      const allSaved: Record<number, string> = await window.electron.invoke(IPC.LAYOUT_GET_ALL, activeRedeId!)
       for (const row of pending) {
-        // Try layout_config table (per-franchise, isolated)
-        const saved: string | null = await window.electron.invoke(IPC.LAYOUT_GET, activeRedeId!, row.loja_id)
+        const saved: string | null = allSaved[row.loja_id] ?? null
         if (saved) {
           // Load saved config as-is — trust the saved order. Manual reorders and
           // deletions are persisted; re-sorting here would override the user's choices.
