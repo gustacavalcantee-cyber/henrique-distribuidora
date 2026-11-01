@@ -29,6 +29,7 @@ export function Lancamentos() {
   const [historicProdIds, setHistoricProdIds] = useState<Set<number>>(new Set())
   const { rows, setRows, loading, load, saveRow, isRowUnsaved, markRowDeleted } = useLancamentos(activeRedeId, dataPedido)
   const allRowsRef = useRef<LancamentoRow[]>([])
+  const scrollAreaRef = useRef<HTMLDivElement>(null)
   // Always-current snapshot of rows — used by handleCellBlur to avoid stale closures
   const latestRowsRef = useRef<LancamentoRow[]>(rows)
   // Always-current column order — used by print/share to pass the exact visible order
@@ -97,6 +98,21 @@ export function Lancamentos() {
   useEffect(() => {
     load()
   }, [load])
+
+  // Mouse wheel scrolls sideways when the grid has nothing to scroll vertically.
+  // Native listener: React's onWheel is passive and cannot call preventDefault.
+  useEffect(() => {
+    const area = scrollAreaRef.current
+    if (!area) return
+    const onWheel = (e: WheelEvent) => {
+      if (e.shiftKey || Math.abs(e.deltaX) >= Math.abs(e.deltaY)) return
+      if (area.scrollHeight > area.clientHeight || area.scrollWidth <= area.clientWidth) return
+      e.preventDefault()
+      area.scrollLeft += e.deltaY
+    }
+    area.addEventListener('wheel', onWheel, { passive: false })
+    return () => area.removeEventListener('wheel', onWheel)
+  }, [])
 
   // Ref-stable wrappers so the DB_SYNCED listener (registered once) always calls latest values
   const activeRedeIdRef = useRef(activeRedeId)
@@ -473,6 +489,7 @@ export function Lancamentos() {
             `lanc-scroll` adds !important sizing + colors so the horizontal
             scrollbar is clearly visible (not the subtle 8px overlay). */}
         <div
+          ref={scrollAreaRef}
           className="flex-1 min-h-0 min-w-0 lanc-scroll"
           style={{ overflowX: 'scroll', overflowY: 'auto' }}
         >
