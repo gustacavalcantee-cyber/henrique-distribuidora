@@ -232,6 +232,8 @@ function initSchema(sqlite: Database.Database): void {
     );
   `)
 
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_itens_pedido_pedido_id ON itens_pedido(pedido_id)`)
+
   // Idempotent migrations for existing databases
   try { sqlite.exec(`ALTER TABLE configuracoes ADD COLUMN synced INTEGER DEFAULT 1`) } catch { /* already exists */ }
   try { sqlite.exec(`ALTER TABLE configuracoes ADD COLUMN updated_at TEXT`) } catch { /* already exists */ }

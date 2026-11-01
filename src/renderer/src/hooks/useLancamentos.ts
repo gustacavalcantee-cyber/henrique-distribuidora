@@ -1,27 +1,23 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import type { LancamentoRow } from '../../../shared/types'
 import { IPC } from '../../../shared/ipc-channels'
+import { isRowEdited, mergeSilentRefresh } from '../utils/lancamentoMerge'
 
 export function useLancamentos(redeId: number | null, dataPedido: string) {
   const [rows, setRows] = useState<LancamentoRow[]>([])
   const [loading, setLoading] = useState(false)
+  // Last known database state per loja; a row that differs from it has unsaved edits.
+  const savedRowsRef = useRef(new Map<number, LancamentoRow>())
 
   const load = useCallback(async (preserveOrder?: boolean, silent?: boolean) => {
     if (!redeId || !dataPedido) return
     if (!silent) setLoading(true)
     try {
       const data = await window.electron.invoke<LancamentoRow[]>(IPC.PEDIDOS_BY_DATE_REDE, redeId, dataPedido)
+      const previouslySaved = savedRowsRef.current
+      savedRowsRef.current = new Map(data.map(r => [r.loja_id, r]))
       if (preserveOrder) {
-        setRows(prev => {
-          const map = new Map(data.map(r => [r.loja_id, r]))
-          // Keep current order, update data; append any new rows at end
-          const updated = prev
-            .filter(r => map.has(r.loja_id))
-            .map(r => ({ ...map.get(r.loja_id)!, quantidades: r.quantidades, numero_oc: r.numero_oc }))
-          const existingIds = new Set(prev.map(r => r.loja_id))
-          const newRows = data.filter(r => !existingIds.has(r.loja_id))
-          return [...updated, ...newRows]
-        })
+        setRows(prev => mergeSilentRefresh(prev, data, previouslySaved))
       } else {
         // Apply saved order from localStorage if available
         const saved = localStorage.getItem(`row_order_${redeId}`)
@@ -52,8 +48,17 @@ export function useLancamentos(redeId: number | null, dataPedido: string) {
       numero_oc: row.numero_oc,
       itens,
     })
+    savedRowsRef.current.set(row.loja_id, { ...row, pedido_id: pedidoId ?? null })
     return pedidoId ?? null
   }, [])
 
-  return { rows, setRows, loading, load, saveRow }
+  const isRowUnsaved = useCallback((row: LancamentoRow) => (
+    isRowEdited(row, savedRowsRef.current.get(row.loja_id))
+  ), [])
+
+  const markRowDeleted = useCallback((row: LancamentoRow) => {
+    savedRowsRef.current.set(row.loja_id, { ...row, numero_oc: '', pedido_id: null, quantidades: {} })
+  }, [])
+
+  return { rows, setRows, loading, load, saveRow, isRowUnsaved, markRowDeleted }
 }

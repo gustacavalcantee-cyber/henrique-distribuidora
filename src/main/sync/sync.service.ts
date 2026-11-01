@@ -6,6 +6,7 @@
 //   on write → tryPush() called in background (fire-and-forget)
 //   realtime → remote change detected → pull fresh → notify renderer to reload
 
+import { createHash } from 'crypto'
 import { createClient } from '@supabase/supabase-js'
 import type { BrowserWindow } from 'electron'
 import { getRawSqlite, getDeviceId } from '../db/client-local'
@@ -224,7 +225,8 @@ async function fetchAllSupabase(supabase: any, table: string): Promise<AnyRow[]>
   const all: AnyRow[] = []
   while (true) {
     const { data, error } = await supabase.from(table).select('*').range(offset, offset + PAGE - 1)
-    if (error) { console.warn(`[sync] fetch ${table}:`, error.message); break }
+    // A partial table must never be applied: absent rows are treated as remote deletions.
+    if (error) throw new Error(`Falha ao baixar ${table}: ${error.message}`)
     if (!data || data.length === 0) break
     all.push(...data)
     if (data.length < PAGE) break
@@ -239,19 +241,12 @@ function upsertLocal(
   rows: AnyRow[],
   idCol: string,
   skipIfSyncedZero = true
-): void {
-  if (rows.length === 0) return
+): number {
+  if (rows.length === 0) return 0
   const sample = rows[0]
   const cols = Object.keys(sample)
 
-  // Hoist bulk lookups and prepared statements out of the per-row loop.
-  // Previously this function ran:
-  //   - 1 SELECT synced per row (precheck)
-  //   - 1 sqlite.prepare() per row for the upsert (prepares are expensive)
-  // With N ~500+ rows per table and 14 tables synced on every 8s poll, this
-  // blocked the main process for seconds. Now we gather all 'synced=0' ids
-  // up-front with ONE query, then reuse ONE prepared statement for the whole
-  // table.
+  let changes = 0
   const unsyncedIds = skipIfSyncedZero
     ? new Set(
         (sqlite.prepare(`SELECT ${idCol} as id FROM ${table} WHERE synced = 0`).all() as { id: unknown }[])
@@ -261,8 +256,8 @@ function upsertLocal(
 
   if (table === 'pedidos') {
     // Preserve the DELETE-free semantics: use UPDATE if row exists, INSERT OR IGNORE otherwise.
-    const existingIds = new Set(
-      (sqlite.prepare('SELECT id FROM pedidos').all() as { id: number }[]).map(r => r.id)
+    const localById = new Map(
+      (sqlite.prepare('SELECT * FROM pedidos').all() as AnyRow[]).map(r => [r['id'], r])
     )
     const nonIdCols = cols.filter(c => c !== 'id')
     const setCols = nonIdCols.map(c => `${c} = ?`).join(', ')
@@ -272,15 +267,17 @@ function upsertLocal(
 
     for (const row of rows) {
       if (unsyncedIds?.has(row[idCol])) continue
-      if (existingIds.has(row[idCol])) {
+      const local = localById.get(row[idCol])
+      if (local) {
+        if (nonIdCols.every(c => (local[c] ?? null) === (row[c] ?? null))) continue
         const vals = nonIdCols.map(c => row[c] ?? null)
         vals.push(row[idCol])
-        updateStmt.run(...vals)
+        changes += updateStmt.run(...vals).changes
       } else {
-        insertStmt.run(cols.map(c => row[c] ?? null))
+        changes += insertStmt.run(cols.map(c => row[c] ?? null)).changes
       }
     }
-    return
+    return changes
   }
 
   // Use INSERT ... ON CONFLICT DO UPDATE SET instead of INSERT OR REPLACE.
@@ -291,22 +288,45 @@ function upsertLocal(
   const stmt = updateCols.length > 0
     ? sqlite.prepare(
         `INSERT INTO ${table} (${cols.join(', ')}) VALUES (${placeholders})
-         ON CONFLICT(${idCol}) DO UPDATE SET ${updateCols.map(c => `${c} = excluded.${c}`).join(', ')}`
+         ON CONFLICT(${idCol}) DO UPDATE SET ${updateCols.map(c => `${c} = excluded.${c}`).join(', ')}
+         WHERE ${updateCols.map(c => `${c} IS NOT excluded.${c}`).join(' OR ')}`
       )
     : sqlite.prepare(`INSERT OR IGNORE INTO ${table} (${cols.join(', ')}) VALUES (${placeholders})`)
 
   for (const row of rows) {
     if (unsyncedIds?.has(row[idCol])) continue
-    stmt.run(...cols.map(c => row[c] ?? null))
+    changes += stmt.run(...cols.map(c => row[c] ?? null)).changes
   }
+  return changes
 }
 
-async function pullFromSupabase(supabase: any): Promise<number> {
+function groupByPedido(items: AnyRow[]): Map<number, AnyRow[]> {
+  const grouped = new Map<number, AnyRow[]>()
+  for (const item of items) {
+    const pid: number = item['pedido_id']
+    if (!grouped.has(pid)) grouped.set(pid, [])
+    grouped.get(pid)!.push(item)
+  }
+  return grouped
+}
+
+function itemsFingerprint(items: AnyRow[]): string {
+  return items
+    .map(i => `${i['produto_id']}|${i['quantidade']}|${i['preco_unit']}|${i['custo_unit']}`)
+    .sort()
+    .join(',')
+}
+
+// Lets an unchanged download skip the row-by-row comparison, which runs on the main process.
+let _lastAppliedSnapshot: string | null = null
+
+export async function pullFromSupabase(supabase: any, opts: { force?: boolean } = {}): Promise<{ healed: number; changed: boolean }> {
   const sqlite = getRawSqlite()
   // Counter for auto-heal: pedidos detected as "local has items, Supabase has zero"
   // are silently re-flagged for push. Returning the count lets the caller trigger
   // an immediate push instead of waiting for the next 8s polling cycle.
   let autoHealCount = 0
+  let changes = 0
 
   console.log('[sync] Pulling from Supabase...')
 
@@ -328,21 +348,26 @@ async function pullFromSupabase(supabase: any): Promise<number> {
       fetchAllSupabase(supabase, 'print_order'),
     ])
 
+  const snapshot = createHash('sha1')
+    .update(JSON.stringify([redes, franqueados, lojas, produtos, custos, precos, pedidosRemote, itensPedido, despesas, configuracoes, layoutConfigs, estoqueEntradas, redeColOrders, printOrders]))
+    .digest('hex')
+  if (!opts.force && snapshot === _lastAppliedSnapshot) return { healed: 0, changed: false }
+
   // Disable FK constraints during pull: INSERT OR REPLACE does DELETE+INSERT which
   // would fail with "FOREIGN KEY constraint failed" because parent rows (lojas, redes)
   // have NO ACTION children (pedidos, precos). Supabase data is already consistent.
   sqlite.pragma('foreign_keys = OFF')
   try {
   sqlite.transaction(() => {
-    upsertLocal(sqlite, 'redes', redes, 'id')
-    upsertLocal(sqlite, 'franqueados', franqueados, 'id')
+    changes += upsertLocal(sqlite, 'redes', redes, 'id')
+    changes += upsertLocal(sqlite, 'franqueados', franqueados, 'id')
     // Lojas: active → upsert; ativo=0 (soft-deleted in Supabase) → hard-delete locally.
     // This propagates soft-deletes to all devices without FK constraint issues.
     const activeLojas = lojas.filter((l: AnyRow) => l['ativo'] !== 0)
     const inactiveLojas = lojas.filter((l: AnyRow) => l['ativo'] === 0)
-    upsertLocal(sqlite, 'lojas', activeLojas, 'id')
+    changes += upsertLocal(sqlite, 'lojas', activeLojas, 'id')
     for (const loja of inactiveLojas) {
-      sqlite.prepare('DELETE FROM lojas WHERE id = ?').run(loja['id'])
+      changes += sqlite.prepare('DELETE FROM lojas WHERE id = ?').run(loja['id']).changes
     }
     // Propagate: delete local synced=1 lojas completely absent from Supabase
     // Guard: only run if Supabase returned data — prevents wiping lojas on network error
@@ -351,15 +376,15 @@ async function pullFromSupabase(supabase: any): Promise<number> {
       const localSyncedLojas = sqlite.prepare('SELECT id FROM lojas WHERE synced = 1').all() as { id: number }[]
       for (const { id } of localSyncedLojas) {
         if (!remoteAllLojaIds.has(id)) {
-          sqlite.prepare('DELETE FROM lojas WHERE id = ?').run(id)
+          changes += sqlite.prepare('DELETE FROM lojas WHERE id = ?').run(id).changes
         }
       }
     }
 
-    upsertLocal(sqlite, 'produtos', produtos, 'id')
-    upsertLocal(sqlite, 'custos', custos, 'id')
-    upsertLocal(sqlite, 'precos', precos, 'id')
-    upsertLocal(sqlite, 'pedidos', pedidosRemote, 'id')
+    changes += upsertLocal(sqlite, 'produtos', produtos, 'id')
+    changes += upsertLocal(sqlite, 'custos', custos, 'id')
+    changes += upsertLocal(sqlite, 'precos', precos, 'id')
+    changes += upsertLocal(sqlite, 'pedidos', pedidosRemote, 'id')
 
     // Propagate remote deletions: delete local synced=1 pedidos absent from Supabase
     if (pedidosRemote.length > 0) {
@@ -368,7 +393,7 @@ async function pullFromSupabase(supabase: any): Promise<number> {
       for (const { id } of localSynced) {
         if (!remoteIds.has(id)) {
           sqlite.prepare('DELETE FROM itens_pedido WHERE pedido_id = ?').run(id)
-          sqlite.prepare('DELETE FROM pedidos WHERE id = ?').run(id)
+          changes += sqlite.prepare('DELETE FROM pedidos WHERE id = ?').run(id).changes
         }
       }
     }
@@ -376,28 +401,18 @@ async function pullFromSupabase(supabase: any): Promise<number> {
     // For itens_pedido: per-pedido replace — only swap local items for Supabase items when
     // Supabase actually HAS items for that pedido.  If Supabase has zero items (push never
     // happened or was wiped by a race) we keep the local items as-is to avoid data loss.
-    const supabaseItemsByPedido = new Map<number, AnyRow[]>()
-    for (const item of itensPedido) {
-      const pid: number = item['pedido_id']
-      if (!supabaseItemsByPedido.has(pid)) supabaseItemsByPedido.set(pid, [])
-      supabaseItemsByPedido.get(pid)!.push(item)
-    }
-    // Bulk lookup: pedido.synced AND local item counts, avoiding 2 queries per remote pedido.
+    const supabaseItemsByPedido = groupByPedido(itensPedido)
+    const localItemsByPedido = groupByPedido(
+      sqlite.prepare('SELECT pedido_id, produto_id, quantidade, preco_unit, custo_unit FROM itens_pedido').all() as AnyRow[]
+    )
     const pedidoSyncedMap = new Map<number, number>(
       (sqlite.prepare('SELECT id, synced FROM pedidos').all() as { id: number; synced: number }[])
         .map(r => [r.id, r.synced])
     )
-    const localItemCountMap = new Map<number, number>(
-      (sqlite.prepare('SELECT pedido_id, COUNT(*) as c FROM itens_pedido GROUP BY pedido_id').all() as { pedido_id: number; c: number }[])
-        .map(r => [r.pedido_id, r.c])
-    )
     const flagPedidoStmt = sqlite.prepare('UPDATE pedidos SET synced = 0 WHERE id = ?')
     const flagItensStmt = sqlite.prepare('UPDATE itens_pedido SET synced = 0 WHERE pedido_id = ?')
     const deleteItensStmt = sqlite.prepare('DELETE FROM itens_pedido WHERE pedido_id = ?')
-    // Prepare the item insert from the first available item's column shape.
-    // Supabase schema is stable so all rows share the same columns.
-    const firstItem = itensPedido.find(_ => true)
-    const itemCols = firstItem ? Object.keys(firstItem).filter(c => c !== 'id') : []
+    const itemCols = itensPedido.length > 0 ? Object.keys(itensPedido[0]).filter(c => c !== 'id') : []
     const insertItemStmt = itemCols.length > 0
       ? sqlite.prepare(`INSERT INTO itens_pedido (${itemCols.join(', ')}) VALUES (${itemCols.map(() => '?').join(', ')})`)
       : null
@@ -406,8 +421,9 @@ async function pullFromSupabase(supabase: any): Promise<number> {
       const synced = pedidoSyncedMap.get(remotePedido['id'])
       if (synced === undefined || synced === 0) continue
       const items = supabaseItemsByPedido.get(remotePedido['id'])
+      const localItems = localItemsByPedido.get(remotePedido['id']) ?? []
       if (!items || items.length === 0) {
-        const localItemCount = localItemCountMap.get(remotePedido['id']) ?? 0
+        const localItemCount = localItems.length
         if (localItemCount > 0) {
           console.log(`[sync] auto-heal: pedido ${remotePedido['id']} has ${localItemCount} local items but 0 in Supabase — re-push scheduled`)
           flagPedidoStmt.run(remotePedido['id'])
@@ -416,6 +432,9 @@ async function pullFromSupabase(supabase: any): Promise<number> {
         }
         continue
       }
+      // Rewriting unchanged items blocks the main process for seconds on every poll.
+      if (itemsFingerprint(localItems) === itemsFingerprint(items)) continue
+      changes++
       deleteItensStmt.run(remotePedido['id'])
       if (insertItemStmt) {
         for (const item of items) {
@@ -424,8 +443,8 @@ async function pullFromSupabase(supabase: any): Promise<number> {
       }
     }
 
-    upsertLocal(sqlite, 'despesas', despesas, 'id')
-    upsertLocal(sqlite, 'configuracoes', configuracoes, 'chave', true)
+    changes += upsertLocal(sqlite, 'despesas', despesas, 'id')
+    changes += upsertLocal(sqlite, 'configuracoes', configuracoes, 'chave', true)
 
     // layout_config: upsert by (rede_id, loja_id), skip if local synced=0.
     // Bulk the synced precheck + hoist the prepared statement.
@@ -440,7 +459,8 @@ async function pullFromSupabase(supabase: any): Promise<number> {
          id = excluded.id,
          produto_ids = excluded.produto_ids,
          synced = 1,
-         updated_at = excluded.updated_at`
+         updated_at = excluded.updated_at
+       WHERE produto_ids IS NOT excluded.produto_ids`
     )
     for (const row of layoutConfigs) {
       if (layoutUnsynced.has(`${row['rede_id']}:${row['loja_id']}`)) continue
@@ -458,7 +478,8 @@ async function pullFromSupabase(supabase: any): Promise<number> {
        ON CONFLICT(rede_id) DO UPDATE SET
          produto_ids = excluded.produto_ids,
          synced = 1,
-         updated_at = excluded.updated_at`
+         updated_at = excluded.updated_at
+       WHERE produto_ids IS NOT excluded.produto_ids`
     )
     for (const row of redeColOrders) {
       if (colOrderUnsynced.has(row['rede_id'])) continue
@@ -471,7 +492,8 @@ async function pullFromSupabase(supabase: any): Promise<number> {
        VALUES (?, ?, ?, ?)
        ON CONFLICT(rede_id, loja_id) DO UPDATE SET
          produto_ids = excluded.produto_ids,
-         updated_at = excluded.updated_at`
+         updated_at = excluded.updated_at
+       WHERE produto_ids IS NOT excluded.produto_ids`
     )
     for (const row of printOrders) {
       printOrderInsertStmt.run(row['rede_id'], row['loja_id'], row['produto_ids'] ?? '[]', row['updated_at'] ?? null)
@@ -491,28 +513,31 @@ async function pullFromSupabase(supabase: any): Promise<number> {
         synced = 1,
         device_id = excluded.device_id,
         updated_at = excluded.updated_at
+      WHERE quantidade IS NOT excluded.quantidade
     `)
     for (const row of estoqueEntradas) {
       if (entradasUnsynced.has(`${row['produto_id']}:${row['data']}`)) continue
-      entradasInsertStmt.run(
+      changes += entradasInsertStmt.run(
         row['id'] ?? null,
         row['produto_id'],
         row['data'],
         row['quantidade'],
         row['device_id'] ?? null,
         row['updated_at'] ?? null
-      )
+      ).changes
     }
   })()
   } finally {
     sqlite.pragma('foreign_keys = ON')
   }
 
+  _lastAppliedSnapshot = autoHealCount > 0 ? null : snapshot
+
   if (autoHealCount > 0) {
     console.log(`[sync] auto-heal: flagged ${autoHealCount} pedido(s) for re-push`)
   }
   console.log('[sync] Pull complete.')
-  return autoHealCount
+  return { healed: autoHealCount, changed: changes > 0 || autoHealCount > 0 }
 }
 
 // --------------------------------------------------------------------------
@@ -528,32 +553,25 @@ let _pendingBroadcast = false
 // Debounce timer for broadcast handler: collapses bursts of remote-change notifications
 // into a single sync, preventing UI flicker when another device saves rapidly.
 let _broadcastDebounce: ReturnType<typeof setTimeout> | null = null
+// SyncIndicator clears its error state on DB_SYNCED, so a recovery must notify even with no new data.
+let _lastSyncFailed = false
 
-function dataSignature(sqlite: ReturnType<typeof getRawSqlite>): string {
-  const p = (sqlite.prepare('SELECT COUNT(*) as c FROM pedidos').get() as { c: number }).c
-  const i = (sqlite.prepare('SELECT COALESCE(MAX(id),0) as m FROM itens_pedido').get() as { m: number }).m
-  return `${p}-${i}`
-}
-
-// alwaysNotify=true  → broadcast path (another device changed data, always show orange)
-// alwaysNotify=false → polling path (only show orange if local data actually changed)
-async function runSync(supabase: any, win: BrowserWindow, alwaysNotify: boolean): Promise<void> {
+async function runSync(supabase: any, win: BrowserWindow, fromBroadcast: boolean): Promise<void> {
   if (_isSyncing) {
     // Don't drop remote broadcasts — queue them so we process after current sync
-    if (alwaysNotify) _pendingBroadcast = true
+    if (fromBroadcast) _pendingBroadcast = true
     return
   }
   _isSyncing = true
   try {
-    const sqlite = getRawSqlite()
-    const before = alwaysNotify ? '' : dataSignature(sqlite)
     await pushPendingPedidos(supabase)
     await pushPendingOthers(supabase)
-    const healed = await pullFromSupabase(supabase)
+    const pulled = await pullFromSupabase(supabase)
+    let changed = pulled.changed
     // Auto-heal detected pedidos with local items but no remote items — re-push now
     // instead of waiting for the next polling cycle. Also broadcasts so other devices
     // pull the recovered data immediately.
-    if (healed > 0) {
+    if (pulled.healed > 0) {
       await pushPendingPedidos(supabase)
       _broadcastChannel?.send({
         type: 'broadcast',
@@ -561,15 +579,15 @@ async function runSync(supabase: any, win: BrowserWindow, alwaysNotify: boolean)
         payload: { from: getDeviceId() },
       })
     }
-    const changed = alwaysNotify || healed > 0 || dataSignature(sqlite) !== before
-    if (!win.isDestroyed() && changed) win.webContents.send(IPC.DB_SYNCED)
-    // A broadcast arrived while we were syncing — pull once more and notify
-    if (_pendingBroadcast && !win.isDestroyed()) {
+    // A broadcast arrived while we were syncing — pull once more
+    if (_pendingBroadcast) {
       _pendingBroadcast = false
-      await pullFromSupabase(supabase)
-      win.webContents.send(IPC.DB_SYNCED)
+      changed = (await pullFromSupabase(supabase)).changed || changed
     }
+    if (!win.isDestroyed() && (changed || _lastSyncFailed)) win.webContents.send(IPC.DB_SYNCED)
+    _lastSyncFailed = false
   } catch (err: unknown) {
+    _lastSyncFailed = true
     const msg = (err as Error).message
     console.warn('[sync] Sync failed:', msg)
     if (!win.isDestroyed()) win.webContents.send(IPC.SYNC_ERROR, msg)
@@ -591,7 +609,7 @@ export async function startSync(win: BrowserWindow): Promise<void> {
   try {
     await pushPendingPedidos(supabase)
     await pushPendingOthers(supabase)
-    const healed = await pullFromSupabase(supabase)
+    const { healed } = await pullFromSupabase(supabase)
     // Auto-heal on startup: if local has items that Supabase lost, re-push them now
     // so the recovered data is in the cloud before the UI starts querying.
     if (healed > 0) {
@@ -605,6 +623,7 @@ export async function startSync(win: BrowserWindow): Promise<void> {
     // Notify renderer that fresh data (including configs) is in SQLite
     if (!win.isDestroyed()) win.webContents.send(IPC.DB_READY)
   } catch (err: unknown) {
+    _lastSyncFailed = true
     const startMsg = (err as Error).message
     console.warn('[sync] Startup sync failed:', startMsg)
     if (!win.isDestroyed()) win.webContents.send(IPC.SYNC_ERROR, startMsg)
@@ -681,7 +700,7 @@ export async function pushDeletePedido(supabaseId: number): Promise<void> {
   await supabase.from('pedidos').delete().eq('id', supabaseId)
 }
 
-/** Call after any write — push, broadcast, then pull locally (syncs Supabase-assigned IDs silently).
+/** Call after any write — push, then broadcast so other devices pull.
  *  If a sync is already running, marks _pendingSync so it retries after the current one finishes,
  *  ensuring every write eventually reaches Supabase even during rapid saves/deletes. */
 export function triggerSync(_win?: BrowserWindow): void {
@@ -732,6 +751,6 @@ export function notifySyncError(win: BrowserWindow, message: string): void {
 export async function forcePullAndNotify(win: BrowserWindow): Promise<void> {
   const supabase = getSupabase()
   if (!supabase) throw new Error('Supabase não configurado')
-  await pullFromSupabase(supabase)
+  await pullFromSupabase(supabase, { force: true })
   if (!win.isDestroyed()) win.webContents.send(IPC.DB_READY)
 }

@@ -27,7 +27,7 @@ export function Lancamentos() {
   const [layoutMode, setLayoutMode] = useState<LayoutMode>('tabela')
   const [prodSearch, setProdSearch] = useState('')
   const [historicProdIds, setHistoricProdIds] = useState<Set<number>>(new Set())
-  const { rows, setRows, loading, load, saveRow } = useLancamentos(activeRedeId, dataPedido)
+  const { rows, setRows, loading, load, saveRow, isRowUnsaved, markRowDeleted } = useLancamentos(activeRedeId, dataPedido)
   const allRowsRef = useRef<LancamentoRow[]>([])
   // Always-current snapshot of rows — used by handleCellBlur to avoid stale closures
   const latestRowsRef = useRef<LancamentoRow[]>(rows)
@@ -176,7 +176,9 @@ export function Lancamentos() {
     // Read the LATEST row state via ref — avoids stale closure when onChange and
     // onBlur fire in quick succession (e.g. typing a qty then pressing TAB)
     const row = latestRowsRef.current.find(r => r.loja_id === lojaId)
-    if (!row) return
+    // Leaving a cell without editing must never save or delete: this row may be
+    // behind a pedido another machine just created.
+    if (!row || !isRowUnsaved(row)) return
 
     // Check if all quantities are empty/null
     const enriched = enrichRow(row)
@@ -185,6 +187,7 @@ export function Lancamentos() {
     if (!hasAnyQty && row.pedido_id) {
       // All quantities cleared — cancel this store's order
       await window.electron.invoke(IPC.PEDIDOS_DELETE, row.pedido_id)
+      markRowDeleted(row)
       // Clear OC so placeholder reappears
       setRows(prev => prev.map(r =>
         r.loja_id === lojaId ? { ...r, numero_oc: '', pedido_id: null } : r
@@ -202,7 +205,7 @@ export function Lancamentos() {
         r.loja_id === lojaId ? { ...r, pedido_id: pedidoId } : r
       ))
     }
-  }, [activeRedeId, dataPedido, saveRow, enrichRow, setRows])
+  }, [activeRedeId, dataPedido, saveRow, enrichRow, setRows, isRowUnsaved, markRowDeleted])
 
   // Keep handleCellBlurRef current so auto-save timer always calls the latest version
   useEffect(() => { handleCellBlurRef.current = handleCellBlur }, [handleCellBlur])

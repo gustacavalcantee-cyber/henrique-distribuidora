@@ -4,7 +4,9 @@ import { SyncIndicator } from './SyncIndicator'
 
 export function Layout() {
   return (
-    <div className="flex h-screen bg-slate-50">
+    // #root is a flex row: without flex-1 + min-w-0 this grows to the widest page
+    // content, past the window, and no inner container ever overflows to scroll.
+    <div className="flex flex-1 min-w-0 h-screen bg-slate-50">
       <Sidebar />
       <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
         {/* Top bar: white area, holds sync indicator on the right */}
