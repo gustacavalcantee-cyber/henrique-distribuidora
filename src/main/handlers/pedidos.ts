@@ -11,6 +11,7 @@ import {
   checkDuplicate,
   getLancamentosParaData,
   getPedidoItens,
+  updateStatusLote,
 } from '../services/pedidos.service'
 import { triggerSync, getMainWindow, pushDeletePedido } from '../sync/sync.service'
 import type { SalvarPedidoInput } from '../../shared/types'
@@ -79,6 +80,12 @@ export function registerPedidosHandlers() {
     const result = getDb().update(pedidos).set({ status_pagamento: status, synced: 0 }).where(eq(pedidos.id, id)).returning().all()[0]
     triggerSync(getMainWindow() ?? undefined)
     return result
+  })
+
+  ipcMain.handle(IPC.PEDIDOS_UPDATE_STATUS_LOTE, (_event, ids: number[], status: string) => {
+    const changed = updateStatusLote(ids, status)
+    if (changed > 0) triggerSync(getMainWindow() ?? undefined)
+    return changed
   })
 
   ipcMain.handle(IPC.ITENS_UPDATE_PRECO, (

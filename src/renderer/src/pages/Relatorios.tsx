@@ -18,6 +18,9 @@ function formatDate(iso: string) {
   const [y,m,d] = iso.split('-'); return `${d}/${m}/${y}`
 }
 
+interface ExtraStore { key: number; redeId: number | ''; lojaId: number | '' }
+interface ExtraStoreResult { key: number; summary: QuinzenaSummary; redeName: string; lojaName: string; lojaCnpj: string }
+
 function QuinzenaTab() {
   const { data: redes } = useIpc<Rede[]>(IPC.REDES_LIST)
   const { data: lojas } = useIpc<Loja[]>(IPC.LOJAS_LIST)
@@ -33,24 +36,42 @@ function QuinzenaTab() {
   const [editingItemValue, setEditingItemValue] = useState('')
   const [shareImage, setShareImage] = useState<string | null>(null)
   const [shareLoading, setShareLoading] = useState(false)
-  const [showSecondStore, setShowSecondStore] = useState(false)
-  const [redeId2, setRedeId2] = useState<number | ''>('')
-  const [lojaId2, setLojaId2] = useState<number | ''>('')
-  const [summary2, setSummary2] = useState<QuinzenaSummary | null>(null)
+  const [extraStores, setExtraStores] = useState<ExtraStore[]>([])
+  const [extraResults, setExtraResults] = useState<ExtraStoreResult[]>([])
+  const nextExtraKey = useRef(0)
+
+  const getRedeName = (id: number | '') => redes?.find(r => r.id === Number(id))?.nome?.replace(/_/g, ' ')?.toUpperCase() ?? ''
+  const addExtraStore = () => setExtraStores(prev => [...prev, { key: nextExtraKey.current++, redeId: '', lojaId: '' }])
+  const updateExtraStore = (key: number, changes: Partial<ExtraStore>) =>
+    setExtraStores(prev => prev.map(store => store.key === key ? { ...store, ...changes } : store))
+  const removeExtraStore = (key: number) => {
+    setExtraStores(prev => prev.filter(store => store.key !== key))
+    setExtraResults(prev => prev.filter(result => result.key !== key))
+  }
 
   const handleBuscar = async () => {
     if (!redeId) { alert('Selecione uma rede'); return }
     setLoading(true)
-    const [data, data2] = await Promise.all([
+    const selectedStores = extraStores.filter(store => store.redeId !== '' && store.lojaId !== '')
+    const [data, ...extras] = await Promise.all([
       window.electron.invoke<QuinzenaSummary>(
         IPC.RELATORIO_QUINZENA, Number(redeId), lojaId !== '' ? Number(lojaId) : 0, mes, ano, quinzena
       ),
-      showSecondStore && lojaId2 !== '' && redeId2 !== ''
-        ? window.electron.invoke<QuinzenaSummary>(IPC.RELATORIO_QUINZENA, Number(redeId2), Number(lojaId2), mes, ano, quinzena)
-        : Promise.resolve(null),
+      ...selectedStores.map(store =>
+        window.electron.invoke<QuinzenaSummary>(IPC.RELATORIO_QUINZENA, Number(store.redeId), Number(store.lojaId), mes, ano, quinzena)
+      ),
     ])
     setSummary(data)
-    setSummary2(data2)
+    setExtraResults(selectedStores.map((store, i) => {
+      const loja = lojas?.find(l => l.id === Number(store.lojaId))
+      return {
+        key: store.key,
+        summary: extras[i],
+        redeName: getRedeName(store.redeId),
+        lojaName: loja?.nome.replace(/_/g, ' ').toUpperCase() ?? '',
+        lojaCnpj: loja?.cnpj ?? '',
+      }
+    }))
     setEditingItemId(null)
     setLoading(false)
   }
@@ -65,9 +86,7 @@ function QuinzenaTab() {
   }
 
   const filteredLojas = lojas?.filter(l => !redeId || l.rede_id === Number(redeId)) ?? []
-  const filteredLojas2 = lojas?.filter(l => !redeId2 || l.rede_id === Number(redeId2)) ?? []
-  const redeName = redes?.find(r => r.id === Number(redeId))?.nome?.replace(/_/g, ' ')?.toUpperCase() ?? ''
-  const redeName2 = redes?.find(r => r.id === Number(redeId2))?.nome?.replace(/_/g, ' ')?.toUpperCase() ?? ''
+  const redeName = getRedeName(redeId)
 
   const handleCompartilharQuinzena = async () => {
     if (!summary) return
@@ -77,6 +96,27 @@ function QuinzenaTab() {
     const lojaName = lojaObj ? lojaObj.nome.replace(/_/g,' ').toUpperCase() : 'TODAS AS LOJAS'
     const qLabel = quinzena === 1 ? '1ª Quinzena (1–15)' : '2ª Quinzena (16–fim)'
     const fmt = (v: number) => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    const lojasDoRelatorio = [
+      { summary, titulo: `${redeName} ${lojaName}` },
+      ...extraResults.map(store => ({ summary: store.summary, titulo: `${store.redeName} ${store.lojaName}` })),
+    ]
+    const temVariasLojas = lojasDoRelatorio.length > 1
+    const renderLoja = (s: QuinzenaSummary) => {
+      const grupos = new Map<string, typeof s.detalhe>()
+      for (const d of s.detalhe) {
+        if (!grupos.has(d.data_pedido)) grupos.set(d.data_pedido, [])
+        grupos.get(d.data_pedido)!.push(d)
+      }
+      const linhas = Array.from(grupos.entries()).map(([date, items]) => {
+        const [y,m,d] = date.split('-')
+        const dayTotal = items.reduce((acc, i) => acc + i.total_venda, 0)
+        return `<tr class="date-row"><td colspan="4">${d}/${m}/${y}</td></tr>` +
+          items.map(i => `<tr><td style="padding-left:14px">${i.produto_nome}</td><td class="right">${i.quantidade.toLocaleString('pt-BR',{maximumFractionDigits:2})} <span style="color:#6b7280;font-size:9.5px;font-weight:bold;">${i.unidade}</span></td><td class="right">R$ ${fmt(i.preco_unit)}</td><td class="right">R$ ${fmt(i.total_venda)}</td></tr>`).join('') +
+          `<tr class="total-row"><td>TOTAL</td><td colspan="2"></td><td class="right">R$ ${fmt(dayTotal)}</td></tr>`
+      }).join('')
+      return `<div class="cards"><div class="card card-green"><div class="card-label">Total de Vendas</div><div class="card-value">R$ ${fmt(s.total_venda)}</div></div></div>
+<table><thead><tr><th>Produto</th><th class="right">Qtd</th><th class="right">Preço</th><th class="right">Total</th></tr></thead><tbody>${linhas}</tbody></table>`
+    }
     const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
@@ -94,29 +134,14 @@ td { font-size: 11px; padding: 3px 6px; border-bottom: 1px solid #eee; }
 .right { text-align: right; }
 .date-row td { background: #dbeafe; font-weight: bold; color: #1e40af; padding: 4px 6px; }
 .total-row td { background: #1e40af; color: #fff; font-weight: bold; padding: 4px 6px; }
+h2 { font-size: 12px; font-weight: bold; margin: 16px 0 8px; padding-bottom: 3px; border-bottom: 1px solid #ccc; }
+.combined { margin-top: 16px; padding-top: 8px; border-top: 2px solid #555; font-size: 12px; line-height: 1.6; }
+.combined-total { margin-top: 4px; font-size: 14px; font-weight: bold; color: #166534; }
 </style></head><body>
 <h1>${nomeFornecedor.toUpperCase()}</h1>
-<div class="sub">${redeName} ${lojaName} — ${String(mes).padStart(2,'0')}/${ano} ${qLabel}</div>
-<div class="cards">
-  <div class="card card-green"><div class="card-label">Total de Vendas</div><div class="card-value">R$ ${fmt(summary.total_venda)}</div></div>
-</div>
-<table><thead><tr><th>Produto</th><th class="right">Qtd</th><th class="right">Preço</th><th class="right">Total</th></tr></thead>
-<tbody>
-${(() => {
-  const grupos = new Map<string, typeof summary.detalhe>()
-  for (const d of summary.detalhe) {
-    if (!grupos.has(d.data_pedido)) grupos.set(d.data_pedido, [])
-    grupos.get(d.data_pedido)!.push(d)
-  }
-  return Array.from(grupos.entries()).map(([date, items]) => {
-    const [y,m,d] = date.split('-')
-    const dayTotal = items.reduce((acc, i) => acc + i.total_venda, 0)
-    return `<tr class="date-row"><td colspan="4">${d}/${m}/${y}</td></tr>` +
-      items.map(i => `<tr><td style="padding-left:14px">${i.produto_nome}</td><td class="right">${i.quantidade.toLocaleString('pt-BR',{maximumFractionDigits:2})} <span style="color:#6b7280;font-size:9.5px;font-weight:bold;">${i.unidade}</span></td><td class="right">R$ ${fmt(i.preco_unit)}</td><td class="right">R$ ${fmt(i.total_venda)}</td></tr>`).join('') +
-      `<tr class="total-row"><td>TOTAL</td><td colspan="2"></td><td class="right">R$ ${fmt(dayTotal)}</td></tr>`
-  }).join('')
-})()}
-</tbody></table>
+<div class="sub">${temVariasLojas ? '' : `${lojasDoRelatorio[0].titulo} — `}${String(mes).padStart(2,'0')}/${ano} ${qLabel}</div>
+${lojasDoRelatorio.map(loja => `${temVariasLojas ? `<h2>${loja.titulo}</h2>` : ''}${renderLoja(loja.summary)}`).join('')}
+${temVariasLojas ? `<div class="combined">${lojasDoRelatorio.map(loja => `<div>${loja.titulo}: <b>R$ ${fmt(loja.summary.total_venda)}</b></div>`).join('')}<div class="combined-total">Total: R$ ${fmt(lojasDoRelatorio.reduce((acc, loja) => acc + loja.summary.total_venda, 0))}</div></div>` : ''}
 </body></html>`
     const image = await window.electron.invoke<string>(IPC.RENDER_HTML_IMAGE, html, 600)
     setShareImage(image)
@@ -195,22 +220,14 @@ ${(() => {
   </table>`
     }
 
-    const lojaObj2 = lojaId2 !== '' ? filteredLojas2.find(l => l.id === Number(lojaId2)) : null
-    const lojaName2 = lojaObj2 ? lojaObj2.nome.replace(/_/g, ' ').toUpperCase() : ''
-    const lojaCnpj2 = lojaObj2?.cnpj ?? ''
+    const printedStores = [{ summary, redeName, lojaName, lojaCnpj }, ...extraResults]
 
-    // Combined totals section (only when 2nd store)
-    const combinedSection = summary2 ? (() => {
-      const combinedVenda = summary.total_venda + summary2.total_venda
-      return `
+    const combinedSection = extraResults.length > 0 ? `
   <div class="combined-section">
-    <span class="store-label">${redeName} ${lojaName}</span> <span class="store-val">R$ ${fmtMoney(summary.total_venda)}</span>
-    <span class="plus"> + </span>
-    <span class="store-label">${redeName2} ${lojaName2}</span> <span class="store-val">R$ ${fmtMoney(summary2.total_venda)}</span>
+    ${printedStores.map(store => `<span class="store-label">${store.redeName} ${store.lojaName}</span> <span class="store-val">R$ ${fmtMoney(store.summary.total_venda)}</span>`).join('<span class="plus"> + </span>')}
     <span class="plus"> = </span>
-    <span class="total-val">R$ ${fmtMoney(combinedVenda)}</span>
-  </div>`
-    })() : ''
+    <span class="total-val">R$ ${fmtMoney(printedStores.reduce((acc, store) => acc + store.summary.total_venda, 0))}</span>
+  </div>` : ''
 
     const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
 <style>
@@ -222,6 +239,7 @@ body { font-family: Arial, sans-serif; font-size: 8pt; background: #fff; }
 .content { padding: 8mm 10mm; }
 .hdr1 { font-weight:bold; font-size:11pt; margin-bottom:1mm; }
 .hdr2 { font-size:9pt; font-weight:bold; margin-bottom:4mm; }
+.store-block { break-inside: avoid; }
 .store-sep { border-top: 2px solid #555; margin: 6mm 0 4mm; }
 table { border-collapse:collapse; width:100%; border: 1px solid #555; }
 th, td { border: none; padding:0.8mm 2mm; text-align:center; font-size:7.5pt; white-space:nowrap; }
@@ -246,13 +264,12 @@ thead tr { border-bottom: 1px solid #555; }
 </div>
 <div class="content">
   <div class="hdr1">${nomeFornecedor.toUpperCase()}</div>
-  ${buildMatrizSection(summary, redeName, lojaName, lojaCnpj)}
-  ${summary2 ? `<div class="store-sep"></div>${buildMatrizSection(summary2, redeName2, lojaName2, lojaCnpj2)}` : ''}
+  ${printedStores.map(store => `<div class="store-block">${buildMatrizSection(store.summary, store.redeName, store.lojaName, store.lojaCnpj)}</div>`).join('<div class="store-sep"></div>')}
   ${combinedSection}
 </div>
 </body></html>`
 
-    await window.electron.invoke(IPC.PRINT_HTML, html, `Relatório — ${redeName} ${lojaName}${summary2 ? ' + ' + lojaName2 : ''}`)
+    await window.electron.invoke(IPC.PRINT_HTML, html, `Relatório — ${redeName} ${lojaName}${extraResults.map(store => ' + ' + store.lojaName).join('')}`)
   }
 
   return (
@@ -273,33 +290,32 @@ thead tr { border-bottom: 1px solid #555; }
             {filteredLojas.map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}
           </select>
         </div>
-        {!showSecondStore ? (
-          <button
-            onClick={() => setShowSecondStore(true)}
-            className="self-end px-2 py-1.5 border border-dashed border-gray-400 rounded text-xs text-gray-500 hover:border-blue-400 hover:text-blue-600"
-            title="Adicionar segunda loja"
-          >+ Loja 2</button>
-        ) : (
-          <>
+        {extraStores.map((store, i) => (
+          <div key={store.key} className="flex gap-2">
             <div className="flex flex-col gap-1">
               <label className="text-xs text-gray-500">
-                Rede 2
-                <button onClick={() => { setShowSecondStore(false); setRedeId2(''); setLojaId2(''); setSummary2(null) }} className="ml-1 text-gray-400 hover:text-red-500 font-bold">×</button>
+                Rede {i + 2}
+                <button onClick={() => removeExtraStore(store.key)} title={`Remover loja ${i + 2}`} className="ml-1 text-gray-400 hover:text-red-500 font-bold">×</button>
               </label>
-              <select className="border rounded px-2 py-1 text-sm" value={redeId2} onChange={e => { setRedeId2(e.target.value === '' ? '' : Number(e.target.value)); setLojaId2('') }}>
+              <select className="border rounded px-2 py-1 text-sm" value={store.redeId} onChange={e => updateExtraStore(store.key, { redeId: e.target.value === '' ? '' : Number(e.target.value), lojaId: '' })}>
                 <option value="">Selecione</option>
                 {redes?.map(r => <option key={r.id} value={r.id}>{r.nome}</option>)}
               </select>
             </div>
             <div className="flex flex-col gap-1">
-              <label className="text-xs text-gray-500">Loja 2</label>
-              <select className="border rounded px-2 py-1 text-sm" value={lojaId2} onChange={e => setLojaId2(e.target.value === '' ? '' : Number(e.target.value))} disabled={!redeId2}>
+              <label className="text-xs text-gray-500">Loja {i + 2}</label>
+              <select className="border rounded px-2 py-1 text-sm" value={store.lojaId} onChange={e => updateExtraStore(store.key, { lojaId: e.target.value === '' ? '' : Number(e.target.value) })} disabled={!store.redeId}>
                 <option value="">Selecione</option>
-                {filteredLojas2.map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}
+                {lojas?.filter(l => l.rede_id === Number(store.redeId)).map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}
               </select>
             </div>
-          </>
-        )}
+          </div>
+        ))}
+        <button
+          onClick={addExtraStore}
+          className="self-end px-2 py-1.5 border border-dashed border-gray-400 rounded text-xs text-gray-500 hover:border-blue-400 hover:text-blue-600"
+          title="Adicionar outra loja"
+        >+ Loja {extraStores.length + 2}</button>
         <div className="flex flex-col gap-1">
           <label className="text-xs text-gray-500">Mês</label>
           <select className="border rounded px-2 py-1 text-sm" value={mes} onChange={e => setMes(Number(e.target.value))}>
@@ -501,62 +517,56 @@ thead tr { border-bottom: 1px solid #555; }
         }
 
         const loja1Name = [redeName, lojaId !== '' ? filteredLojas.find(l => l.id === Number(lojaId))?.nome : 'Todas as Lojas'].filter(Boolean).join(' ')
-        const loja2Name = [redeName2, lojaId2 !== '' ? filteredLojas2.find(l => l.id === Number(lojaId2))?.nome : ''].filter(Boolean).join(' ')
-        const combinedVenda = summary.total_venda + (summary2?.total_venda ?? 0)
+        const hasExtraStores = extraResults.length > 0
+        const storeTotals = [
+          { key: 'principal', name: loja1Name, total: summary.total_venda },
+          ...extraResults.map(store => ({ key: String(store.key), name: `${store.redeName} ${store.lojaName}`, total: store.summary.total_venda })),
+        ]
+        const renderSummaryCards = (s: QuinzenaSummary) => (
+          <div className="flex gap-4">
+            <div className="bg-green-50 border border-green-200 rounded p-3 flex-1">
+              <div className="text-xs text-gray-500">VENDAS</div>
+              <div className="text-lg font-bold text-green-700">R$ {formatMoney(s.total_venda)}</div>
+            </div>
+            <div className="bg-red-50 border border-red-200 rounded p-3 flex-1">
+              <div className="text-xs text-gray-500">CUSTO</div>
+              <div className="text-lg font-bold text-red-700">R$ {formatMoney(s.total_custo)}</div>
+            </div>
+            <div className="bg-blue-50 border border-blue-200 rounded p-3 flex-1">
+              <div className="text-xs text-gray-500">MARGEM</div>
+              <div className="text-lg font-bold text-blue-700">{s.margem.toFixed(1)}%</div>
+            </div>
+          </div>
+        )
 
         return (
           <>
-            {/* Store 1 */}
-            {summary2 && (
+            {hasExtraStores && (
               <div className="text-sm font-semibold text-gray-700 border-b pb-1">{loja1Name}</div>
             )}
-            <div className="flex gap-4">
-              <div className="bg-green-50 border border-green-200 rounded p-3 flex-1">
-                <div className="text-xs text-gray-500">VENDAS</div>
-                <div className="text-lg font-bold text-green-700">R$ {formatMoney(summary.total_venda)}</div>
-              </div>
-              <div className="bg-red-50 border border-red-200 rounded p-3 flex-1">
-                <div className="text-xs text-gray-500">CUSTO</div>
-                <div className="text-lg font-bold text-red-700">R$ {formatMoney(summary.total_custo)}</div>
-              </div>
-              <div className="bg-blue-50 border border-blue-200 rounded p-3 flex-1">
-                <div className="text-xs text-gray-500">MARGEM</div>
-                <div className="text-lg font-bold text-blue-700">{summary.margem.toFixed(1)}%</div>
-              </div>
-            </div>
+            {renderSummaryCards(summary)}
             {renderStoreBlock(summary, 's1')}
 
-            {/* Store 2 */}
-            {summary2 && (
-              <>
-                <div className="text-sm font-semibold text-gray-700 border-b pb-1 mt-2">{loja2Name}</div>
-                <div className="flex gap-4">
-                  <div className="bg-green-50 border border-green-200 rounded p-3 flex-1">
-                    <div className="text-xs text-gray-500">VENDAS</div>
-                    <div className="text-lg font-bold text-green-700">R$ {formatMoney(summary2.total_venda)}</div>
-                  </div>
-                  <div className="bg-red-50 border border-red-200 rounded p-3 flex-1">
-                    <div className="text-xs text-gray-500">CUSTO</div>
-                    <div className="text-lg font-bold text-red-700">R$ {formatMoney(summary2.total_custo)}</div>
-                  </div>
-                  <div className="bg-blue-50 border border-blue-200 rounded p-3 flex-1">
-                    <div className="text-xs text-gray-500">MARGEM</div>
-                    <div className="text-lg font-bold text-blue-700">{summary2.margem.toFixed(1)}%</div>
-                  </div>
-                </div>
-                {renderStoreBlock(summary2, 's2')}
+            {extraResults.map(store => (
+              <div key={store.key} className="flex flex-col gap-4">
+                <div className="text-sm font-semibold text-gray-700 border-b pb-1 mt-2">{store.redeName} {store.lojaName}</div>
+                {renderSummaryCards(store.summary)}
+                {renderStoreBlock(store.summary, `s${store.key + 2}`)}
+              </div>
+            ))}
 
-                {/* Combined total */}
-                <div className="border-t-2 border-gray-400 pt-3 mt-2 flex items-baseline gap-2 text-sm">
-                  <span className="text-gray-500">{loja1Name}</span>
-                  <span className="font-bold text-green-700">R$ {formatMoney(summary.total_venda)}</span>
-                  <span className="text-gray-400">+</span>
-                  <span className="text-gray-500">{loja2Name}</span>
-                  <span className="font-bold text-green-700">R$ {formatMoney(summary2.total_venda)}</span>
-                  <span className="text-gray-400">=</span>
-                  <span className="font-bold text-green-800 text-base">R$ {formatMoney(combinedVenda)}</span>
-                </div>
-              </>
+            {hasExtraStores && (
+              <div className="border-t-2 border-gray-400 pt-3 mt-2 flex flex-wrap items-baseline gap-2 text-sm">
+                {storeTotals.map((store, i) => (
+                  <span key={store.key} className="flex items-baseline gap-2">
+                    {i > 0 && <span className="text-gray-400">+</span>}
+                    <span className="text-gray-500">{store.name}</span>
+                    <span className="font-bold text-green-700">R$ {formatMoney(store.total)}</span>
+                  </span>
+                ))}
+                <span className="text-gray-400">=</span>
+                <span className="font-bold text-green-800 text-base">R$ {formatMoney(storeTotals.reduce((acc, store) => acc + store.total, 0))}</span>
+              </div>
             )}
           </>
         )
@@ -610,6 +620,32 @@ function FinanceiroTab() {
   const handleStatusChange = async (pedido_id: number, status: string) => {
     await window.electron.invoke(IPC.PEDIDOS_UPDATE_STATUS, pedido_id, status)
     setNotas(prev => prev ? prev.map(n => n.pedido_id === pedido_id ? { ...n, status_pagamento: status } : n) : prev)
+  }
+
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
+  const [markingPaid, setMarkingPaid] = useState(false)
+  // Derived from the list so paid or filtered-out notas never stay selected.
+  const notasSelecionadas = notas?.filter(n => selectedIds.has(n.pedido_id) && n.status_pagamento !== 'paga') ?? []
+
+  const toggleNotas = (ids: number[], selected: boolean) => setSelectedIds(prev => {
+    const next = new Set(prev)
+    for (const id of ids) {
+      if (selected) next.add(id)
+      else next.delete(id)
+    }
+    return next
+  })
+
+  const handleMarcarPagas = async () => {
+    const ids = notasSelecionadas.map(n => n.pedido_id)
+    setMarkingPaid(true)
+    try {
+      await window.electron.invoke(IPC.PEDIDOS_UPDATE_STATUS_LOTE, ids, 'paga')
+      setNotas(prev => prev ? prev.map(n => ids.includes(n.pedido_id) ? { ...n, status_pagamento: 'paga' } : n) : prev)
+      setSelectedIds(new Set())
+    } finally {
+      setMarkingPaid(false)
+    }
   }
 
   const handleCompartilhar = async (tipo: 'abertas' | 'pagas') => {
@@ -854,7 +890,9 @@ ${Object.values(byLoja).map(lojaNotas => {
                 </div>
               </div>
               <div className="flex flex-col gap-3">
-                {Object.entries(notasByLoja).map(([lojaName, lojaNotas]) => (
+                {Object.entries(notasByLoja).map(([lojaName, lojaNotas]) => {
+                  const idsEmAberto = lojaNotas.filter(n => n.status_pagamento !== 'paga').map(n => n.pedido_id)
+                  return (
                   <div key={lojaName} className="border rounded bg-white overflow-hidden">
                     <div className="bg-gray-100 px-3 py-1.5 font-semibold text-sm text-gray-700 flex justify-between items-center">
                       <span>{lojaName}</span>
@@ -866,6 +904,15 @@ ${Object.values(byLoja).map(lojaNotas => {
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="bg-gray-50 text-xs text-gray-500">
+                          <th className="pl-3 py-1 w-6">
+                            <input
+                              type="checkbox"
+                              title={`Selecionar todas as notas não pagas de ${lojaName}`}
+                              disabled={idsEmAberto.length === 0}
+                              checked={idsEmAberto.length > 0 && idsEmAberto.every(id => selectedIds.has(id))}
+                              onChange={e => toggleNotas(idsEmAberto, e.target.checked)}
+                            />
+                          </th>
                           <th className="text-left px-3 py-1 font-medium">Data</th>
                           <th className="text-left px-3 py-1 font-medium">OC</th>
                           <th className="text-right px-3 py-1 font-medium">Valor</th>
@@ -876,6 +923,15 @@ ${Object.values(byLoja).map(lojaNotas => {
                       <tbody>
                         {lojaNotas.map(nota => (
                           <tr key={nota.pedido_id} className="border-t hover:bg-gray-50">
+                            <td className="pl-3 py-1.5">
+                              <input
+                                type="checkbox"
+                                title={nota.status_pagamento === 'paga' ? 'Nota já paga' : `Selecionar ${nota.numero_oc}`}
+                                disabled={nota.status_pagamento === 'paga'}
+                                checked={selectedIds.has(nota.pedido_id) && nota.status_pagamento !== 'paga'}
+                                onChange={e => toggleNotas([nota.pedido_id], e.target.checked)}
+                              />
+                            </td>
                             <td className="px-3 py-1.5">{formatDate(nota.data_pedido)}</td>
                             <td className="px-3 py-1.5 text-gray-600">{nota.numero_oc}</td>
                             <td className="px-3 py-1.5 text-right">R$ {formatMoney(nota.total_venda)}</td>
@@ -904,8 +960,23 @@ ${Object.values(byLoja).map(lojaNotas => {
                       </tbody>
                     </table>
                   </div>
-                ))}
+                  )
+                })}
               </div>
+              {notasSelecionadas.length > 0 && (
+                <div className="sticky bottom-0 mt-3 flex items-center justify-between gap-3 border rounded bg-white shadow-md px-3 py-2">
+                  <span className="text-sm text-gray-700">
+                    {notasSelecionadas.length} nota(s) selecionada(s) &nbsp;|&nbsp; R$ {formatMoney(notasSelecionadas.reduce((s, n) => s + n.total_venda, 0))}
+                  </span>
+                  <button
+                    onClick={handleMarcarPagas}
+                    disabled={markingPaid}
+                    className="px-3 py-1.5 text-sm font-medium bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
+                  >
+                    {markingPaid ? 'Salvando...' : 'Marcar como pagas'}
+                  </button>
+                </div>
+              )}
             </div>
           )}
 

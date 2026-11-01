@@ -138,6 +138,12 @@ export function updatePedidoById(id: number, data: { numero_oc: string; data_ped
   return id
 }
 
+export function updateStatusLote(ids: number[], status: string): number {
+  const sqlite = getRawSqlite()
+  const update = sqlite.prepare('UPDATE pedidos SET status_pagamento = ?, synced = 0 WHERE id = ? AND status_pagamento IS NOT ?')
+  return sqlite.transaction(() => ids.reduce((changed, id) => changed + update.run(status, id, status).changes, 0))()
+}
+
 export function deletePedido(id: number): void {
   // CASCADE handles itens_pedido deletion
   getDb().delete(pedidos).where(eq(pedidos.id, id)).run()

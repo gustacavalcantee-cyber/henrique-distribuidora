@@ -45,6 +45,7 @@ export const IPC = {
   FRANQUEADOS_DELETE: 'franqueados:delete',
   LOJAS_SET_FRANQUEADO: 'lojas:setFranqueado',
   PEDIDOS_UPDATE_STATUS: 'pedidos:updateStatus',
+  PEDIDOS_UPDATE_STATUS_LOTE: 'pedidos:updateStatusLote',
   NOTAS_LIST: 'notas:list',
   SHARE_NOTA: 'share:nota',
   GET_NOTA_TEXT: 'nota:getText',
