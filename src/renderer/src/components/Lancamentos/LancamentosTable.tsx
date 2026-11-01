@@ -51,10 +51,8 @@ export function LancamentosTable({
     // scroll so the scrollbar lives at the bottom of the viewport, not at
     // the bottom of the (potentially very tall) table.
     <div ref={tableRef} style={{ width: '100%', minWidth: 0 }}>
-      {/* min-width: max-content keeps the table at its natural width (sum of
-          column max-contents, including the explicit 240px AÇÕES column) —
-          no artificial padding, columns stay compact. Overflow kicks in only
-          when the window is actually narrower than the table. */}
+      {/* min-width: max-content keeps the table at its natural width so columns
+          stay compact. Overflow kicks in only when the window is narrower. */}
       <table className="text-sm border-collapse" style={{ minWidth: 'max-content' }}>
         <thead>
           {/* Linha de totais */}
@@ -130,12 +128,7 @@ export function LancamentosTable({
                 <div className="text-gray-400 font-normal">{p.unidade}</div>
               </th>
             ))}
-            <th
-              className="border px-2 py-1 text-xs text-gray-600 whitespace-nowrap"
-              style={{ width: 240, minWidth: 240 }}
-            >
-              AÇÕES
-            </th>
+            <th className="border px-2 py-1 text-xs text-gray-600 whitespace-nowrap">AÇÕES</th>
           </tr>
         </thead>
         <tbody>
