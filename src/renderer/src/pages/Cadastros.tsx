@@ -5,6 +5,48 @@ import { useIpc } from '../hooks/useIpc'
 
 type Tab = 'redes' | 'lojas' | 'produtos' | 'precos' | 'custos' | 'franqueados'
 
+// Ignores case, accents and apostrophes, so "acafrao" finds "Açafrão" and "bobs" finds "Bob's"
+function normalizarBusca(texto: string): string {
+  return texto.normalize('NFD').replace(/[\u0300-\u036f'’]/g, '').toLowerCase()
+}
+
+function correspondeBusca(busca: string, ...campos: string[]): boolean {
+  const alvo = normalizarBusca(campos.join(' '))
+  return normalizarBusca(busca).split(/\s+/).every(termo => alvo.includes(termo))
+}
+
+function CampoBusca({ value, onChange, placeholder, total, encontrados }: {
+  value: string
+  onChange: (value: string) => void
+  placeholder: string
+  total: number
+  encontrados: number
+}) {
+  return (
+    <div className="flex items-center gap-3">
+      <div className="relative flex-1">
+        <input
+          className="border rounded px-2 py-1 pr-7 text-sm w-full"
+          placeholder={placeholder}
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Escape') onChange('') }}
+        />
+        {value && (
+          <button
+            onClick={() => onChange('')}
+            title="Limpar busca"
+            className="absolute right-1 top-1/2 -translate-y-1/2 px-1.5 text-gray-400 hover:text-gray-700"
+          >
+            ×
+          </button>
+        )}
+      </div>
+      {value.trim() && <span className="text-xs text-gray-500 whitespace-nowrap">{encontrados} de {total}</span>}
+    </div>
+  )
+}
+
 // ---- Redes Tab ----
 function RedesTab() {
   const { data: redes, loading, reload } = useIpc<Rede[]>(IPC.REDES_LIST)
@@ -130,6 +172,7 @@ function LojasTab() {
   const { data: redes } = useIpc<Rede[]>(IPC.REDES_LIST)
   const [newNome, setNewNome] = useState('')
   const [newRedeId, setNewRedeId] = useState<number | ''>('')
+  const [busca, setBusca] = useState('')
   const [editLoja, setEditLoja] = useState<Loja | null>(null)
   const [form, setForm] = useState<LojaForm>(EMPTY_LOJA_FORM)
   const [saveErr, setSaveErr] = useState('')
@@ -195,6 +238,8 @@ function LojasTab() {
 
   const getRedeName = (id: number) => redes?.find(r => r.id === id)?.nome ?? String(id)
 
+  const lojasFiltradas = (lojas ?? []).filter(l => correspondeBusca(busca, l.nome, getRedeName(l.rede_id)))
+
   return (
     <div className="flex flex-col gap-4 h-full">
       {/* Add row */}
@@ -215,6 +260,14 @@ function LojasTab() {
         </button>
       </div>
 
+      <CampoBusca
+        value={busca}
+        onChange={setBusca}
+        placeholder="Buscar por loja ou rede"
+        total={lojas?.length ?? 0}
+        encontrados={lojasFiltradas.length}
+      />
+
       {loading ? <div className="text-gray-500">Carregando...</div> : (
         <div className="overflow-auto flex-1">
           <table className="text-sm border-collapse w-full">
@@ -229,7 +282,10 @@ function LojasTab() {
               </tr>
             </thead>
             <tbody>
-              {(lojas ?? []).map(l => (
+              {lojasFiltradas.length === 0 && busca.trim() && (
+                <tr><td colSpan={6} className="border px-3 py-4 text-center text-gray-400">Nenhuma loja encontrada</td></tr>
+              )}
+              {lojasFiltradas.map(l => (
                 <tr key={l.id} className={`hover:bg-gray-50 ${l.ativo === 0 ? 'opacity-40' : ''}`}>
                   <td className="border px-3 py-1.5 text-gray-500 text-xs">{getRedeName(l.rede_id)}</td>
                   <td className="border px-3 py-1.5 font-medium">{l.nome}</td>
@@ -434,6 +490,7 @@ function ProdutosTab() {
   const [newUnidade, setNewUnidade] = useState<Unidade>('UN')
   const [newNcm, setNewNcm] = useState('')
   const [showSuggestions, setShowSuggestions] = useState(false)
+  const [busca, setBusca] = useState('')
   const [editId, setEditId] = useState<number | null>(null)
   const [editNome, setEditNome] = useState('')
   const [editUnidade, setEditUnidade] = useState<Unidade>('UN')
@@ -485,6 +542,8 @@ function ProdutosTab() {
     }
   }
 
+  const produtosFiltrados = (produtos ?? []).filter(p => correspondeBusca(busca, p.nome))
+
   return (
     <div className="flex flex-col gap-4 h-full">
       <div className="flex gap-2 flex-wrap">
@@ -532,6 +591,14 @@ function ProdutosTab() {
         </button>
       </div>
 
+      <CampoBusca
+        value={busca}
+        onChange={setBusca}
+        placeholder="Buscar produto pelo nome"
+        total={produtos?.length ?? 0}
+        encontrados={produtosFiltrados.length}
+      />
+
       {loading ? <div className="text-gray-500">Carregando...</div> : (
         <div className="overflow-auto flex-1">
           <table className="text-sm border-collapse w-full">
@@ -545,7 +612,10 @@ function ProdutosTab() {
               </tr>
             </thead>
             <tbody>
-              {[...(produtos ?? [])].sort((a, b) => {
+              {produtosFiltrados.length === 0 && busca.trim() && (
+                <tr><td colSpan={5} className="border px-3 py-4 text-center text-gray-400">Nenhum produto encontrado</td></tr>
+              )}
+              {[...produtosFiltrados].sort((a, b) => {
                 const ra = redes?.find(r => r.id === a.rede_id)?.nome ?? ''
                 const rb = redes?.find(r => r.id === b.rede_id)?.nome ?? ''
                 return ra.localeCompare(rb, 'pt-BR') || a.nome.localeCompare(b.nome, 'pt-BR')
