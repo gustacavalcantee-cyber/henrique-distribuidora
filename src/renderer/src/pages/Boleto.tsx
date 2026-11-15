@@ -793,6 +793,9 @@ function groupByFranquia(items: LoteItem[]): { key: string; nome: string; franqu
   return Array.from(map.entries()).map(([key, v]) => ({ key, ...v }))
 }
 
+// Same store name exists in more than one rede (e.g. Subway Amazonas and Bob's Amazonas)
+const nomeComRede = (item: LoteItem) => item.rede_nome ? `${item.rede_nome} ${item.loja_nome}` : item.loja_nome
+
 function LoteTab({ bancos }: { bancos: Banco[] }) {
   const now = new Date()
   const [mes, setMes] = useState(now.getMonth() + 1)
@@ -810,6 +813,9 @@ function LoteTab({ bancos }: { bancos: Banco[] }) {
   const [processing, setProcessing] = useState(false)
   const [results, setResults] = useState<LoteResultItem[]>([])
   const [printingId, setPrintingId] = useState<number | null>(null)
+  // Boletos from this emission run that are ticked for printing
+  const [paraImprimir, setParaImprimir] = useState<Set<number>>(new Set())
+  const [imprimindoLote, setImprimindoLote] = useState(false)
   const [histSearch, setHistSearch] = useState('')
   const [histBoletos, setHistBoletos] = useState<BoletoSalvo[]>([])
 
@@ -870,7 +876,7 @@ function LoteTab({ bancos }: { bancos: Banco[] }) {
   const handleEmitirBoletos = async () => {
     if (!bancoId) { alert('Selecione um banco'); return }
     if (selectedItems.length === 0) { alert('Nenhuma franquia selecionada'); return }
-    setProcessing(true); setResults([])
+    setProcessing(true); setResults([]); setParaImprimir(new Set())
     for (const item of selectedItems) {
       const valor = getFinal(item)
       const draft: BoletoDraft = {
@@ -891,9 +897,10 @@ function LoteTab({ bancos }: { bancos: Banco[] }) {
       }
       try {
         const saved = await window.electron.invoke(IPC.BOLETOS_EMITIR, draft) as BoletoSalvo
-        setResults(r => [...r, { loja_id: item.loja_id, loja_nome: item.loja_nome, tipo: 'boleto', status: 'ok', boleto_id: saved.id }])
+        setResults(r => [...r, { loja_id: item.loja_id, loja_nome: nomeComRede(item), tipo: 'boleto', status: 'ok', boleto_id: saved.id }])
+        setParaImprimir(prev => new Set(prev).add(saved.id))
       } catch (e: any) {
-        setResults(r => [...r, { loja_id: item.loja_id, loja_nome: item.loja_nome, tipo: 'boleto', status: 'erro', mensagem: e?.message ?? String(e) }])
+        setResults(r => [...r, { loja_id: item.loja_id, loja_nome: nomeComRede(item), tipo: 'boleto', status: 'erro', mensagem: e?.message ?? String(e) }])
       }
       await new Promise(res => setTimeout(res, 300))
     }
@@ -922,6 +929,25 @@ function LoteTab({ bancos }: { bancos: Banco[] }) {
       setBatchPrintLoading(false)
     }
   }
+
+  // Joins the chosen boletos into one PDF so they print in a single go
+  const imprimirBoletos = async (ids: number[]) => {
+    if (ids.length === 0) return
+    setImprimindoLote(true)
+    try {
+      await window.electron.invoke(IPC.BOLETOS_PDF_LOTE, ids)
+    } catch (e: any) {
+      alert('Erro ao gerar PDF dos boletos: ' + (e?.message ?? e))
+    } finally {
+      setImprimindoLote(false)
+    }
+  }
+
+  const togglePrint = (id: number) =>
+    setParaImprimir(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s })
+
+  const idsEmitidos = results.filter(r => r.status === 'ok' && r.boleto_id != null).map(r => r.boleto_id!)
+  const idsParaImprimir = idsEmitidos.filter(id => paraImprimir.has(id))
 
   const okCount = results.filter(r => r.status === 'ok').length
   const errCount = results.filter(r => r.status === 'erro').length
@@ -1055,7 +1081,10 @@ function LoteTab({ bancos }: { bancos: Banco[] }) {
                               <input type="checkbox" checked={isSelected} onChange={() => toggleItem(item.loja_id)} className="w-4 h-4 cursor-pointer" />
                             </td>
                             <td className="px-3 py-2">
-                              <div className="font-medium text-gray-800">{item.loja_nome}</div>
+                              <div className="font-medium text-gray-800">
+                                {item.rede_nome && <span className="text-gray-500">{item.rede_nome} </span>}
+                                {item.loja_nome}
+                              </div>
                               {item.cnpj && <div className="text-xs text-gray-400 font-mono">{item.cnpj}</div>}
                               {!item.cnpj && <div className="text-xs text-amber-500">⚠ CNPJ não cadastrado</div>}
                             </td>
@@ -1092,14 +1121,35 @@ function LoteTab({ bancos }: { bancos: Banco[] }) {
           {/* Results */}
           {results.length > 0 && (
             <div className="bg-white border rounded-lg overflow-hidden">
-              <div className="px-4 py-3 border-b bg-gray-50 flex items-center gap-3">
+              <div className="px-4 py-3 border-b bg-gray-50 flex flex-wrap items-center gap-3">
+                {idsEmitidos.length > 0 && (
+                  <input type="checkbox" title="Marcar todos para imprimir" className="w-4 h-4 cursor-pointer"
+                    checked={idsParaImprimir.length === idsEmitidos.length}
+                    ref={el => { if (el) el.indeterminate = idsParaImprimir.length > 0 && idsParaImprimir.length < idsEmitidos.length }}
+                    onChange={e => setParaImprimir(e.target.checked ? new Set(idsEmitidos) : new Set())} />
+                )}
                 <span className="text-sm font-semibold text-gray-700">Resultados</span>
                 {okCount > 0 && <span className="text-xs px-2 py-0.5 bg-green-100 text-green-700 rounded-full">{okCount} ✓ sucesso</span>}
                 {errCount > 0 && <span className="text-xs px-2 py-0.5 bg-red-100 text-red-700 rounded-full">{errCount} ✗ erro</span>}
+                {idsEmitidos.length > 0 && !processing && (
+                  <div className="ml-auto flex gap-2">
+                    <button onClick={() => imprimirBoletos(idsParaImprimir)} disabled={imprimindoLote || idsParaImprimir.length === 0}
+                      className="text-xs px-3 py-1.5 bg-white text-blue-700 border border-blue-300 rounded hover:bg-blue-50 disabled:opacity-50 whitespace-nowrap">
+                      📄 Imprimir selecionados ({idsParaImprimir.length})
+                    </button>
+                    <button onClick={() => imprimirBoletos(idsEmitidos)} disabled={imprimindoLote}
+                      className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 whitespace-nowrap">
+                      {imprimindoLote ? '⏳ Gerando...' : `📄 Imprimir todos (${idsEmitidos.length})`}
+                    </button>
+                  </div>
+                )}
               </div>
               <div className="divide-y max-h-64 overflow-auto">
                 {results.map((r, i) => (
                   <div key={i} className={`flex items-center gap-3 px-4 py-2.5 text-sm ${r.status === 'ok' ? '' : 'bg-red-50'}`}>
+                    {r.status === 'ok' && r.boleto_id != null
+                      ? <input type="checkbox" title="Marcar para imprimir" className="w-4 h-4 cursor-pointer" checked={paraImprimir.has(r.boleto_id)} onChange={() => togglePrint(r.boleto_id!)} />
+                      : <span className="w-4" />}
                     <span className={r.status === 'ok' ? 'text-green-600' : 'text-red-500'}>{r.status === 'ok' ? '✓' : '✗'}</span>
                     <div className="flex-1 min-w-0">
                       <div className="font-medium text-gray-800">{r.loja_nome}</div>

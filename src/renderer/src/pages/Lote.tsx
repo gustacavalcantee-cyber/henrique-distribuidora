@@ -38,9 +38,6 @@ function groupByFranquia(items: LoteItem[]): { key: string; nome: string; franqu
   return Array.from(map.entries()).map(([key, v]) => ({ key, ...v }))
 }
 
-// Same store name exists in more than one rede (e.g. Subway Amazonas and Bob's Amazonas)
-const nomeComRede = (item: LoteItem) => item.rede_nome ? `${item.rede_nome} ${item.loja_nome}` : item.loja_nome
-
 // ── Histórico ──────────────────────────────────────────────────────────────
 
 function HistoricoSection() {
@@ -387,9 +384,9 @@ export function Lote() {
       }
       try {
         const saved = await window.electron.invoke(IPC.BOLETOS_EMITIR, draft) as BoletoSalvo
-        setResults(r => [...r, { loja_id: item.loja_id, loja_nome: nomeComRede(item), tipo: 'boleto', status: 'ok', boleto_id: saved.id }])
+        setResults(r => [...r, { loja_id: item.loja_id, loja_nome: item.loja_nome, tipo: 'boleto', status: 'ok', boleto_id: saved.id }])
       } catch (e: any) {
-        setResults(r => [...r, { loja_id: item.loja_id, loja_nome: nomeComRede(item), tipo: 'boleto', status: 'erro', mensagem: e?.message ?? String(e) }])
+        setResults(r => [...r, { loja_id: item.loja_id, loja_nome: item.loja_nome, tipo: 'boleto', status: 'erro', mensagem: e?.message ?? String(e) }])
       }
       await new Promise(res => setTimeout(res, 300))
     }
@@ -417,9 +414,9 @@ export function Lote() {
           })),
         }
         const saved = await window.electron.invoke(IPC.NFE_SALVAR, adjustedDraft) as NotaFiscalSalva
-        setResults(r => [...r, { loja_id: item.loja_id, loja_nome: nomeComRede(item), tipo: 'nfe', status: 'ok', nfe_id: saved?.id }])
+        setResults(r => [...r, { loja_id: item.loja_id, loja_nome: item.loja_nome, tipo: 'nfe', status: 'ok', nfe_id: saved?.id }])
       } catch (e: any) {
-        setResults(r => [...r, { loja_id: item.loja_id, loja_nome: nomeComRede(item), tipo: 'nfe', status: 'erro', mensagem: e?.message ?? String(e) }])
+        setResults(r => [...r, { loja_id: item.loja_id, loja_nome: item.loja_nome, tipo: 'nfe', status: 'erro', mensagem: e?.message ?? String(e) }])
       }
     }
     setProcessing(false)
@@ -456,9 +453,9 @@ export function Lote() {
       }
       try {
         const saved = await window.electron.invoke(IPC.BOLETOS_EMITIR, draft) as BoletoSalvo
-        setResults(r => [...r, { loja_id: item.loja_id, loja_nome: nomeComRede(item), tipo: 'boleto', status: 'ok', boleto_id: saved.id }])
+        setResults(r => [...r, { loja_id: item.loja_id, loja_nome: item.loja_nome, tipo: 'boleto', status: 'ok', boleto_id: saved.id }])
       } catch (e: any) {
-        setResults(r => [...r, { loja_id: item.loja_id, loja_nome: nomeComRede(item), tipo: 'boleto', status: 'erro', mensagem: e?.message ?? String(e) }])
+        setResults(r => [...r, { loja_id: item.loja_id, loja_nome: item.loja_nome, tipo: 'boleto', status: 'erro', mensagem: e?.message ?? String(e) }])
       }
       await new Promise(res => setTimeout(res, 300))
       try {
@@ -475,9 +472,9 @@ export function Lote() {
           })),
         }
         const savedNfe = await window.electron.invoke(IPC.NFE_SALVAR, adjustedDraft) as NotaFiscalSalva
-        setResults(r => [...r, { loja_id: item.loja_id, loja_nome: nomeComRede(item), tipo: 'nfe', status: 'ok', nfe_id: savedNfe?.id }])
+        setResults(r => [...r, { loja_id: item.loja_id, loja_nome: item.loja_nome, tipo: 'nfe', status: 'ok', nfe_id: savedNfe?.id }])
       } catch (e: any) {
-        setResults(r => [...r, { loja_id: item.loja_id, loja_nome: nomeComRede(item), tipo: 'nfe', status: 'erro', mensagem: e?.message ?? String(e) }])
+        setResults(r => [...r, { loja_id: item.loja_id, loja_nome: item.loja_nome, tipo: 'nfe', status: 'erro', mensagem: e?.message ?? String(e) }])
       }
     }
     setProcessing(false)
@@ -713,10 +710,7 @@ export function Lote() {
                                   className="w-4 h-4 cursor-pointer" />
                               </td>
                               <td className="px-3 py-2">
-                                <div className="font-medium text-gray-800">
-                                  {item.rede_nome && <span className="text-gray-500">{item.rede_nome} </span>}
-                                  {item.loja_nome}
-                                </div>
+                                <div className="font-medium text-gray-800">{item.loja_nome}</div>
                                 {item.cnpj && <div className="text-xs text-gray-400 font-mono">{item.cnpj}</div>}
                                 {!item.cnpj && <div className="text-xs text-amber-500">⚠ CNPJ não cadastrado</div>}
                               </td>
