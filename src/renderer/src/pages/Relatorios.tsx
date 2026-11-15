@@ -256,17 +256,52 @@ thead tr { border-bottom: 1px solid #555; }
 .store-val { font-weight:bold; color:#16a34a; }
 .plus { color:#888; }
 .total-val { font-weight:bold; font-size:11pt; color:#166534; }
-@media print { @page { size: A4 portrait; margin: 10mm; } .toolbar { display:none; } }
-</style></head><body>
+.orient { display:flex; margin-left:12px; border-radius:4px; overflow:hidden; }
+.orient button { padding:6px 12px; background:#334155; color:#cbd5e1; border:none; font-size:13px; cursor:pointer; }
+.orient button.active { background:#2563eb; color:#fff; font-weight:bold; }
+@media print { .toolbar { display:none; } }
+</style><style id="page-orient"></style></head><body>
 <div class="toolbar">
   <button class="btn-print" onclick="window.print()">Imprimir</button>
   <button class="btn-close" onclick="window.close()">Fechar</button>
+  <div class="orient">
+    <button id="orient-portrait" onclick="setOrient('portrait')">Vertical</button>
+    <button id="orient-landscape" onclick="setOrient('landscape')">Horizontal</button>
+  </div>
 </div>
 <div class="content">
   <div class="hdr1">${nomeFornecedor.toUpperCase()}</div>
   ${printedStores.map(store => `<div class="store-block">${buildMatrizSection(store.summary, store.redeName, store.lojaName, store.lojaCnpj)}</div>`).join('<div class="store-sep"></div>')}
   ${combinedSection}
 </div>
+<script>
+// A4 minus the 10mm page margins and the 10mm content padding on each side
+var MM = 96 / 25.4
+var USABLE_MM = { portrait: 210 - 40, landscape: 297 - 40 }
+var orient = 'portrait'
+// Natural width of the widest table (tables stretch to 100% of the window, so measure them unstretched)
+function widestTable() {
+  return Math.max.apply(null, Array.prototype.map.call(document.querySelectorAll('table'), function (t) {
+    t.style.width = 'max-content'
+    var w = t.scrollWidth
+    t.style.width = ''
+    return w
+  }))
+}
+function setOrient(o) {
+  orient = o
+  document.getElementById('page-orient').textContent = '@media print { @page { size: A4 ' + o + '; margin: 10mm; } }'
+  document.getElementById('orient-portrait').classList.toggle('active', o === 'portrait')
+  document.getElementById('orient-landscape').classList.toggle('active', o === 'landscape')
+}
+// Shrinks the page when the table is still wider than the paper, so no column is cut off
+window.addEventListener('beforeprint', function () {
+  var zoom = Math.min(1, USABLE_MM[orient] * MM / widestTable())
+  document.querySelector('.content').style.zoom = String(zoom)
+})
+window.addEventListener('afterprint', function () { document.querySelector('.content').style.zoom = '' })
+setOrient(widestTable() > USABLE_MM.portrait * MM ? 'landscape' : 'portrait')
+</script>
 </body></html>`
 
     await window.electron.invoke(IPC.PRINT_HTML, html, `Relatório — ${redeName} ${lojaName}${extraResults.map(store => ' + ' + store.lojaName).join('')}`)
