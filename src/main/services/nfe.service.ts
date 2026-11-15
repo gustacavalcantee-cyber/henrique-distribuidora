@@ -1,15 +1,25 @@
-import { getDb } from '../db/client'
+import { getRawSqlite } from '../db/client-local'
+import { lerNfeConfigLegada } from '../db/client'
 import { getRelatorioQuinzena } from './relatorios.service'
+import { ORIENTACAO_CSS, ORIENTACAO_SELETOR, orientacaoScript } from '../../shared/print-orientacao'
 import type { NfeConfig, NfeDraft, NfeItem, NotaFiscalSalva, ProdutoFiscalRow } from '../../shared/types'
 
 function sqlite() {
-  return (getDb() as any).$client as import('better-sqlite3').Database
+  return getRawSqlite()
 }
 
 // ── Config ──────────────────────────────────────────────────────────────────
 
 export function getNfeConfig(): NfeConfig {
-  const row = sqlite().prepare("SELECT valor FROM configuracoes WHERE chave = 'nfe_config'").get() as { valor: string } | undefined
+  let row = sqlite().prepare("SELECT valor FROM configuracoes WHERE chave = 'nfe_config'").get() as { valor: string } | undefined
+  if (!row?.valor) {
+    // First run after the upgrade: bring over the config (and note numbering) from the old file
+    const legada = lerNfeConfigLegada()
+    if (legada) {
+      salvarConfigLocal(legada)
+      row = { valor: legada }
+    }
+  }
   if (!row?.valor) {
     return {
       nome: '', cnpj: '', ie: '', logradouro: '', numero_end: '', complemento: '',
@@ -20,8 +30,16 @@ export function getNfeConfig(): NfeConfig {
   return JSON.parse(row.valor) as NfeConfig
 }
 
+// synced = 0 sends it to Supabase, so every computer shares the same config and numbering
+function salvarConfigLocal(valor: string): void {
+  sqlite().prepare(
+    `INSERT INTO configuracoes (chave, valor, synced, updated_at) VALUES ('nfe_config', ?, 0, datetime('now'))
+     ON CONFLICT(chave) DO UPDATE SET valor = excluded.valor, synced = 0, updated_at = datetime('now')`
+  ).run(valor)
+}
+
 export function setNfeConfig(config: NfeConfig): void {
-  sqlite().prepare("INSERT OR REPLACE INTO configuracoes (chave, valor) VALUES ('nfe_config', ?)").run(JSON.stringify(config))
+  salvarConfigLocal(JSON.stringify(config))
 }
 
 // ── Loja fiscal data ─────────────────────────────────────────────────────────
@@ -166,7 +184,13 @@ export function deletarNfe(id: number): void {
 
 export function imprimirDanfe(id: number): string | null {
   const row = sqlite().prepare('SELECT danfe_html FROM notas_fiscais WHERE id = ?').get(id) as any
-  return row?.danfe_html ?? null
+  const html: string | null = row?.danfe_html ?? null
+  if (!html || html.includes('id="page-orient"')) return html
+  // DANFEs saved before the orientation picker existed get it added at print time
+  return html
+    .replace('</style>', `${ORIENTACAO_CSS}\n</style>`)
+    .replace('onclick="window.close()">Fechar</button>', `onclick="window.close()">Fechar</button>\n  ${ORIENTACAO_SELETOR}`)
+    .replace('</body>', `${orientacaoScript({ padrao: 'portrait', margem: '6mm' })}\n</body>`)
 }
 
 // ── DANFE HTML generation ─────────────────────────────────────────────────────
@@ -247,11 +271,13 @@ table.products tr.total-row td { font-weight:bold; background:#f0f0f0; border-to
 .imposto-cell { flex:1; border-right:1px solid #555; padding:1mm 2mm; }
 .imposto-cell:last-child { border-right:none; }
 .total-nf { font-size:10pt; font-weight:bold; color:#166534; }
-@media print { @page { size: A4 portrait; margin: 6mm; } .toolbar { display:none; } .watermark { position:fixed; } }
+@media print { .toolbar { display:none; } .watermark { position:fixed; } html[data-orient=landscape] .page { max-width: none; } }
+${ORIENTACAO_CSS}
 </style></head><body>
 <div class="toolbar">
   <button class="btn-print" onclick="window.print()">Imprimir</button>
   <button class="btn-close" onclick="window.close()">Fechar</button>
+  ${ORIENTACAO_SELETOR}
 </div>
 <div class="watermark">RASCUNHO</div>
 <div class="page">
@@ -432,5 +458,6 @@ table.products tr.total-row td { font-weight:bold; background:#f0f0f0; border-to
     DATA E HORA DA IMPRESSÃO: ${dataFmt} ${horaFmt}
   </div>
 </div>
+${orientacaoScript({ padrao: 'portrait', margem: '6mm' })}
 </body></html>`
 }
