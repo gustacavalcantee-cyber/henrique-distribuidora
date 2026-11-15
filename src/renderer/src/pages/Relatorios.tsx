@@ -256,17 +256,19 @@ thead tr { border-bottom: 1px solid #555; }
 .store-val { font-weight:bold; color:#16a34a; }
 .plus { color:#888; }
 .total-val { font-weight:bold; font-size:11pt; color:#166534; }
-.orient { display:flex; margin-left:12px; border-radius:4px; overflow:hidden; }
-.orient button { padding:6px 12px; background:#334155; color:#cbd5e1; border:none; font-size:13px; cursor:pointer; }
-.orient button.active { background:#2563eb; color:#fff; font-weight:bold; }
+.orient { display:flex; align-items:center; gap:4px; margin-left:12px; color:#cbd5e1; font-size:13px; }
+.orient span { margin-right:4px; }
+.orient button { display:flex; align-items:center; justify-content:center; width:36px; height:30px; background:#334155; color:#cbd5e1; border:none; border-radius:4px; cursor:pointer; }
+.orient button.active { background:#2563eb; color:#fff; }
 @media print { .toolbar { display:none; } }
 </style><style id="page-orient"></style></head><body>
 <div class="toolbar">
   <button class="btn-print" onclick="window.print()">Imprimir</button>
   <button class="btn-close" onclick="window.close()">Fechar</button>
   <div class="orient">
-    <button id="orient-portrait" onclick="setOrient('portrait')">Vertical</button>
-    <button id="orient-landscape" onclick="setOrient('landscape')">Horizontal</button>
+    <span>Selecione a orientação:</span>
+    <button id="orient-landscape" title="Horizontal" onclick="setOrient('landscape')"><svg width="22" height="16" viewBox="0 0 22 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="1" width="20" height="14" rx="1.5"/><path d="M5 5.5h12M5 8h12M5 10.5h8"/></svg></button>
+    <button id="orient-portrait" title="Vertical" onclick="setOrient('portrait')"><svg width="16" height="22" viewBox="0 0 16 22" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="1" width="14" height="20" rx="1.5"/><path d="M4 6h8M4 9h8M4 12h8M4 15h5"/></svg></button>
   </div>
 </div>
 <div class="content">
