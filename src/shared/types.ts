@@ -264,6 +264,7 @@ export interface BoletoSalvo {
 export interface LoteItem {
   loja_id: number
   loja_nome: string
+  rede_nome: string | null
   franqueado_id: number | null
   franqueado_nome: string | null
   total_venda: number

@@ -27,6 +27,7 @@ export function getLoteQuinzena(mes: number, ano: number, quinzena: 1 | 2): Lote
     SELECT
       l.id          AS loja_id,
       l.nome        AS loja_nome,
+      r.nome        AS rede_nome,
       l.cnpj,
       l.razao_social,
       l.endereco,
@@ -38,6 +39,7 @@ export function getLoteQuinzena(mes: number, ano: number, quinzena: 1 | 2): Lote
       COALESCE(SUM(ip.quantidade * ip.preco_unit), 0) AS total_venda
     FROM lojas l
     LEFT JOIN franqueados f ON f.id = l.franqueado_id
+    LEFT JOIN redes r ON r.id = l.rede_id
     LEFT JOIN pedidos p
       ON p.loja_id = l.id
       AND p.data_pedido >= ?
@@ -46,6 +48,6 @@ export function getLoteQuinzena(mes: number, ano: number, quinzena: 1 | 2): Lote
     WHERE l.ativo = 1
     GROUP BY l.id
     HAVING total_venda > 0
-    ORDER BY COALESCE(f.nome, 'ZZZZ'), l.nome
+    ORDER BY COALESCE(f.nome, 'ZZZZ'), l.nome, r.nome
   `).all(inicio, fim) as LoteItem[]
 }
