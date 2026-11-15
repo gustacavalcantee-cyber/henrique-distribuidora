@@ -1,4 +1,4 @@
-import { useState, useEffect, Fragment } from 'react'
+import { useState, useEffect, useRef, Fragment } from 'react'
 import type { Rede, Loja, Produto, Preco, Custo, Franqueado } from '../../../shared/types'
 import { IPC } from '../../../shared/ipc-channels'
 import { useIpc } from '../hooks/useIpc'
@@ -177,6 +177,9 @@ function LojasTab() {
   const [form, setForm] = useState<LojaForm>(EMPTY_LOJA_FORM)
   const [saveErr, setSaveErr] = useState('')
   const [saving, setSaving] = useState(false)
+  const [cnpjStatus, setCnpjStatus] = useState<{ tipo: 'buscando' | 'ok' | 'erro'; texto: string } | null>(null)
+  // Latest CNPJ asked for, so a slow answer for an older CNPJ is ignored
+  const cnpjPedidoRef = useRef('')
 
   const handleAdd = async () => {
     if (!newNome.trim() || newRedeId === '') return
@@ -187,6 +190,7 @@ function LojasTab() {
 
   const startEdit = (l: Loja) => {
     setEditLoja(l)
+    setCnpjStatus(null)
     setForm({
       nome: l.nome ?? '',
       cnpj: l.cnpj ?? '',
@@ -202,6 +206,31 @@ function LojasTab() {
   }
 
   const setF = (k: keyof LojaForm, v: string) => setForm(prev => ({ ...prev, [k]: v }))
+
+  // Fills every field except the store's own name from the Receita Federal record
+  const preencherPorCnpj = async (cnpj: string) => {
+    const digitos = cnpj.replace(/\D/g, '')
+    cnpjPedidoRef.current = digitos
+    setCnpjStatus({ tipo: 'buscando', texto: 'Buscando dados do CNPJ...' })
+    try {
+      const dados = await window.electron.invoke<Omit<LojaForm, 'nome'>>(IPC.LOJAS_CONSULTAR_CNPJ, cnpj)
+      if (cnpjPedidoRef.current !== digitos) return
+      setForm(prev => ({ ...prev, ...dados }))
+      setCnpjStatus(dados.ie
+        ? { tipo: 'ok', texto: 'Dados preenchidos. Confira e clique em Salvar.' }
+        : { tipo: 'ok', texto: 'Dados preenchidos, mas a Inscrição Estadual não foi encontrada. Preencha a IE à mão.' })
+    } catch (e: any) {
+      if (cnpjPedidoRef.current !== digitos) return
+      const msg = String(e?.message ?? '').replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
+      setCnpjStatus({ tipo: 'erro', texto: msg.startsWith('CNPJ') ? msg : 'Não foi possível buscar o CNPJ. Verifique a internet e tente de novo.' })
+    }
+  }
+
+  const handleCnpjChange = (valor: string) => {
+    setF('cnpj', valor)
+    const digitos = valor.replace(/\D/g, '')
+    if (digitos.length === 14 && digitos !== form.cnpj.replace(/\D/g, '')) preencherPorCnpj(valor)
+  }
 
   const handleSaveEdit = async () => {
     if (!editLoja) return
@@ -311,6 +340,11 @@ function LojasTab() {
           <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-lg space-y-4">
             <h3 className="text-base font-semibold text-gray-800">Editar Loja — {editLoja.nome}</h3>
             {saveErr && <div className="px-3 py-2 rounded text-sm bg-red-50 text-red-700">{saveErr}</div>}
+            {cnpjStatus && (
+              <div className={`px-3 py-2 rounded text-sm ${cnpjStatus.tipo === 'erro' ? 'bg-red-50 text-red-700' : cnpjStatus.tipo === 'ok' ? 'bg-green-50 text-green-700' : 'bg-blue-50 text-blue-700'}`}>
+                {cnpjStatus.texto}
+              </div>
+            )}
 
             <div className="grid grid-cols-2 gap-3">
               <div className="col-span-2">
@@ -322,8 +356,13 @@ function LojasTab() {
                 <input className="w-full border rounded px-2 py-1 text-sm" value={form.razao_social} onChange={e => setF('razao_social', e.target.value)} placeholder="Razão social completa" />
               </div>
               <div>
-                <label className="block text-xs text-gray-500 mb-0.5">CNPJ</label>
-                <input className="w-full border rounded px-2 py-1 text-sm font-mono" value={form.cnpj} onChange={e => setF('cnpj', e.target.value)} placeholder="00.000.000/0000-00" />
+                <label className="flex justify-between text-xs text-gray-500 mb-0.5">
+                  CNPJ
+                  {form.cnpj.replace(/\D/g, '').length === 14 && cnpjStatus?.tipo !== 'buscando' && (
+                    <button type="button" onClick={() => preencherPorCnpj(form.cnpj)} className="text-blue-600 hover:text-blue-800">Buscar dados</button>
+                  )}
+                </label>
+                <input className="w-full border rounded px-2 py-1 text-sm font-mono" value={form.cnpj} onChange={e => handleCnpjChange(e.target.value)} placeholder="00.000.000/0000-00" />
               </div>
               <div>
                 <label className="block text-xs text-gray-500 mb-0.5">IE (Inscrição Estadual)</label>

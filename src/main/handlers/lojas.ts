@@ -4,6 +4,7 @@ import { getDb, getRawSqlite } from '../db/client-local'
 import { lojas } from '../db/schema-local'
 import { IPC } from '../../shared/ipc-channels'
 import { triggerSync, getMainWindow } from '../sync/sync.service'
+import { consultarCnpj } from '../services/cnpj.service'
 
 export function registerLojasHandlers() {
   ipcMain.handle(IPC.LOJAS_LIST, (_event, rede_id?: number) => {
@@ -49,6 +50,8 @@ export function registerLojasHandlers() {
     triggerSync(getMainWindow() ?? undefined)
     return updated
   })
+
+  ipcMain.handle(IPC.LOJAS_CONSULTAR_CNPJ, (_event, cnpj: string) => consultarCnpj(cnpj))
 
   ipcMain.handle(IPC.LOJAS_DELETE, (_event, id: number) => {
     // Soft-delete locally (hidden from UI immediately) then push deletion to Supabase.

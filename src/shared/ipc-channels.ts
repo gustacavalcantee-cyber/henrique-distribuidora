@@ -7,6 +7,7 @@ export const IPC = {
   LOJAS_CREATE: 'lojas:create',
   LOJAS_UPDATE: 'lojas:update',
   LOJAS_DELETE: 'lojas:delete',
+  LOJAS_CONSULTAR_CNPJ: 'lojas:consultarCnpj',
   PRODUTOS_LIST: 'produtos:list',
   PRODUTOS_CREATE: 'produtos:create',
   PRODUTOS_UPDATE: 'produtos:update',
