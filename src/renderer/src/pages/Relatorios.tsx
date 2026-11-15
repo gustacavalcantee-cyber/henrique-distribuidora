@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { ChevronDown, ChevronRight, Printer, Share2 } from 'lucide-react'
 import type { Rede, Loja, Franqueado, QuinzenaSummary, FinanceiroSummary, CobrancaLojaResult, NotaPagamento, ProdutoRelatorioResult } from '../../../shared/types'
 import { IPC } from '../../../shared/ipc-channels'
+import { ORIENTACAO_CSS, ORIENTACAO_SELETOR, orientacaoScript } from '../../../shared/print-orientacao'
 import { useIpc } from '../hooks/useIpc'
 import { PrecoVsCustoTab } from '../components/Relatorios/PrecoVsCustoTab'
 import { RelatorioShareModal } from '../components/Relatorios/RelatorioShareModal'
@@ -256,54 +257,20 @@ thead tr { border-bottom: 1px solid #555; }
 .store-val { font-weight:bold; color:#16a34a; }
 .plus { color:#888; }
 .total-val { font-weight:bold; font-size:11pt; color:#166534; }
-.orient { display:flex; align-items:center; gap:4px; margin-left:12px; color:#cbd5e1; font-size:13px; }
-.orient span { margin-right:4px; }
-.orient button { display:flex; align-items:center; justify-content:center; width:36px; height:30px; background:#334155; color:#cbd5e1; border:none; border-radius:4px; cursor:pointer; }
-.orient button.active { background:#2563eb; color:#fff; }
+${ORIENTACAO_CSS}
 @media print { .toolbar { display:none; } }
-</style><style id="page-orient"></style></head><body>
+</style></head><body>
 <div class="toolbar">
   <button class="btn-print" onclick="window.print()">Imprimir</button>
   <button class="btn-close" onclick="window.close()">Fechar</button>
-  <div class="orient">
-    <span>Selecione a orientação:</span>
-    <button id="orient-landscape" title="Horizontal" onclick="setOrient('landscape')"><svg width="22" height="16" viewBox="0 0 22 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="1" width="20" height="14" rx="1.5"/><path d="M5 5.5h12M5 8h12M5 10.5h8"/></svg></button>
-    <button id="orient-portrait" title="Vertical" onclick="setOrient('portrait')"><svg width="16" height="22" viewBox="0 0 16 22" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="1" width="14" height="20" rx="1.5"/><path d="M4 6h8M4 9h8M4 12h8M4 15h5"/></svg></button>
-  </div>
+  ${ORIENTACAO_SELETOR}
 </div>
 <div class="content">
   <div class="hdr1">${nomeFornecedor.toUpperCase()}</div>
   ${printedStores.map(store => `<div class="store-block">${buildMatrizSection(store.summary, store.redeName, store.lojaName, store.lojaCnpj)}</div>`).join('<div class="store-sep"></div>')}
   ${combinedSection}
 </div>
-<script>
-// A4 minus the 10mm page margins and the 10mm content padding on each side
-var MM = 96 / 25.4
-var USABLE_MM = { portrait: 210 - 40, landscape: 297 - 40 }
-var orient = 'portrait'
-// Natural width of the widest table (tables stretch to 100% of the window, so measure them unstretched)
-function widestTable() {
-  return Math.max.apply(null, Array.prototype.map.call(document.querySelectorAll('table'), function (t) {
-    t.style.width = 'max-content'
-    var w = t.scrollWidth
-    t.style.width = ''
-    return w
-  }))
-}
-function setOrient(o) {
-  orient = o
-  document.getElementById('page-orient').textContent = '@media print { @page { size: A4 ' + o + '; margin: 10mm; } }'
-  document.getElementById('orient-portrait').classList.toggle('active', o === 'portrait')
-  document.getElementById('orient-landscape').classList.toggle('active', o === 'landscape')
-}
-// Shrinks the page when the table is still wider than the paper, so no column is cut off
-window.addEventListener('beforeprint', function () {
-  var zoom = Math.min(1, USABLE_MM[orient] * MM / widestTable())
-  document.querySelector('.content').style.zoom = String(zoom)
-})
-window.addEventListener('afterprint', function () { document.querySelector('.content').style.zoom = '' })
-setOrient(widestTable() > USABLE_MM.portrait * MM ? 'landscape' : 'portrait')
-</script>
+${orientacaoScript({ padrao: 'auto', margem: '10mm', ajustar: { seletor: '.content', util: { portrait: 210 - 40, landscape: 297 - 40 } } })}
 </body></html>`
 
     await window.electron.invoke(IPC.PRINT_HTML, html, `Relatório — ${redeName} ${lojaName}${extraResults.map(store => ' + ' + store.lojaName).join('')}`)
@@ -1258,11 +1225,13 @@ td.subtotal-val { font-weight:bold; font-size:10.5pt; text-align:right; backgrou
 .soma-total td { font-weight:bold; font-size:11pt; padding:2.5mm 3mm; }
 .soma-label { text-align:left; }
 .soma-valor { text-align:right; width:35%; }
-@media print { @page { size: A4; margin: 12mm; } .toolbar { display:none; } }
+@media print { .toolbar { display:none; } }
+${ORIENTACAO_CSS}
 </style></head><body>
 <div class="toolbar">
   <button class="btn-print" onclick="window.print()">Imprimir</button>
   <button class="btn-close" onclick="window.close()">Fechar</button>
+  ${ORIENTACAO_SELETOR}
 </div>
 <div class="content">
   <div class="header">
@@ -1278,6 +1247,7 @@ td.subtotal-val { font-weight:bold; font-size:10.5pt; text-align:right; backgrou
     </tr></table>
   </div>
 </div>
+${orientacaoScript({ padrao: 'auto', margem: '12mm', ajustar: { seletor: '.content', util: { portrait: 210 - 54, landscape: 297 - 54 } } })}
 </body></html>`
 
     await window.electron.invoke(IPC.PRINT_HTML, html, `Cobrança — ${periodoLabel}`)
@@ -1523,7 +1493,19 @@ function PorProdutoTab() {
       th,td{border:1px solid #ccc;padding:5px 8px;text-align:left}
       th{background:#f3f3f3;font-weight:600} .total{font-weight:bold;background:#f9f9f9}
       .right{text-align:right}
+      .toolbar{display:flex;align-items:center;gap:8px;padding:8px 14px;background:#1e293b;margin:-20px -20px 16px}
+      .btn-print{padding:6px 18px;background:#16a34a;color:#fff;border:none;border-radius:4px;font-size:13px;font-weight:bold;cursor:pointer}
+      .btn-close{padding:6px 14px;background:#475569;color:#fff;border:none;border-radius:4px;font-size:13px;cursor:pointer}
+      .content{padding:0}
+      @media print{.toolbar{display:none} body{padding:0}}
+      ${ORIENTACAO_CSS}
     </style></head><body>
+    <div class="toolbar">
+      <button class="btn-print" onclick="window.print()">Imprimir</button>
+      <button class="btn-close" onclick="window.close()">Fechar</button>
+      ${ORIENTACAO_SELETOR}
+    </div>
+    <div class="content">
     <h1>Relatório Por Produto — ${rede?.nome ?? ''}</h1>
     <p>${meses[mes-1]} ${ano} — ${periodoStr}</p>
     ${comDados.map(r => `
@@ -1543,8 +1525,10 @@ function PorProdutoTab() {
           </tr>
         </tbody>
       </table>`).join('')}
+    </div>
+    ${orientacaoScript({ padrao: 'auto', margem: '12mm', ajustar: { seletor: '.content', util: { portrait: 210 - 24, landscape: 297 - 24 } } })}
     </body></html>`
-    window.electron.invoke(IPC.PRINT_HTML, html)
+    window.electron.invoke(IPC.PRINT_HTML, html, 'Relatório Por Produto')
   }
 
   async function handleCompartilharPorProduto() {

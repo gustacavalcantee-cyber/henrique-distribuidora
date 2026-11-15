@@ -1,6 +1,19 @@
 import { eq, inArray } from 'drizzle-orm'
 import { getDb } from '../db/client-local'
 import { pedidos, itensPedido, produtos, lojas, redes, configuracoes } from '../db/schema-local'
+import { ORIENTACAO_CSS, ORIENTACAO_SELETOR, orientacaoScript } from '../../shared/print-orientacao'
+
+// Vertical: the two vias go one above the other instead of side by side
+const PEDIDO_VERTICAL_CSS = `
+html[data-orient=portrait] .page { flex-direction: column; width: 190mm; height: 277mm; }
+html[data-orient=portrait] .via { width: 100%; height: 50%; }
+html[data-orient=portrait] .div-line { border-left: none; border-top: 1px dashed #999; }
+html[data-orient=portrait] .sig-line { padding-top: 12mm; }
+@media print {
+  html[data-orient=portrait] .page { width: 210mm; height: 297mm; }
+  html[data-orient=portrait] .via { width: 100%; height: 148.5mm; }
+}
+${ORIENTACAO_CSS}`
 
 export interface PrintData {
   nomeFornecedor: string
@@ -354,11 +367,12 @@ th.c-qty, th.c-un, th.c-val, th.c-tot { text-align: center; font-weight: normal;
 .sig-line { flex: 1; padding-top: 20mm; border-bottom: 1px solid #000; }
 .div-line { border-left: 1px dashed #999; align-self: stretch; }
 @media print { @page { size: A4 landscape; margin: 0; } body { background: #fff; } .toolbar { display: none; } .page-wrap { padding: 0; } .page { width: 297mm; height: 210mm; flex-direction: row; } .via { width: 50%; height: 210mm; padding: 8mm 9mm; } }
+${preview ? PEDIDO_VERTICAL_CSS : ''}
 </style>
 </head>
 <script>document.addEventListener('keydown', function(e){ if(e.key==='Escape') window.close(); });</script>
 <body>
-${preview ? `<div class="toolbar"><button class="btn-print" onclick="window.print()">🖨️ Imprimir</button><button class="btn-close" onclick="window.close()">✕ Fechar</button></div>` : ''}
+${preview ? `<div class="toolbar"><button class="btn-print" onclick="window.print()">🖨️ Imprimir</button><button class="btn-close" onclick="window.close()">✕ Fechar</button>${ORIENTACAO_SELETOR}</div>` : ''}
 <div class="page-wrap">
   <div class="page">
     ${via()}
@@ -366,6 +380,7 @@ ${preview ? `<div class="toolbar"><button class="btn-print" onclick="window.prin
     ${via()}
   </div>
 </div>
+${preview ? orientacaoScript({ padrao: 'landscape', margem: '0' }) : ''}
 </body>
 </html>`
 }
@@ -439,14 +454,16 @@ th.c-qty, th.c-un, th.c-val, th.c-tot { text-align: center; font-weight: normal;
 .sig-line { flex: 1; padding-top: 20mm; border-bottom: 1px solid #000; }
 .div-line { border-left: 1px dashed #999; align-self: stretch; }
 @media print { @page { size: A4 landscape; margin: 0; } body { background: #fff; } .toolbar { display: none; } .page-wrap { padding: 0; gap: 0; } .page { width: 297mm; height: 210mm; flex-direction: row; margin: 0 !important; } .via { width: 50%; height: 210mm; padding: 8mm 9mm; } }
+${preview ? PEDIDO_VERTICAL_CSS : ''}
 </style>
 </head>
 <script>document.addEventListener('keydown', function(e){ if(e.key==='Escape') window.close(); });</script>
 <body>
-${preview ? `<div class="toolbar"><button class="btn-print" onclick="window.print()">🖨️ Imprimir Tudo (${dataArray.length})</button><button class="btn-close" onclick="window.close()">✕ Fechar</button><span class="batch-info">${dataArray.length} pedido${dataArray.length === 1 ? '' : 's'} para impressão</span></div>` : ''}
+${preview ? `<div class="toolbar"><button class="btn-print" onclick="window.print()">🖨️ Imprimir Tudo (${dataArray.length})</button><button class="btn-close" onclick="window.close()">✕ Fechar</button>${ORIENTACAO_SELETOR}<span class="batch-info">${dataArray.length} pedido${dataArray.length === 1 ? '' : 's'} para impressão</span></div>` : ''}
 <div class="page-wrap">
 ${pages}
 </div>
+${preview ? orientacaoScript({ padrao: 'landscape', margem: '0' }) : ''}
 </body>
 </html>`
 }

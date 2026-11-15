@@ -1,3 +1,4 @@
+import { ORIENTACAO_CSS, ORIENTACAO_SELETOR, orientacaoScript } from '../../shared/print-orientacao'
 export interface ListaPrecosItem {
   nome: string
   unidade: string
@@ -134,12 +135,13 @@ tr:nth-child(even) td { background: rgba(16,185,129,.04); }
 .c-preco { text-align: right; font-weight: 700; }
 .footer { margin-top: 6mm; padding-top: 3mm; border-top: 1px solid #e2e8f0; font-size: 8pt; color: #94a3b8; text-align: center; }
 @media print {
-  @page { size: A4 portrait; margin: 0; }
   body { background: #fff; }
   .toolbar { display: none; }
   .page-wrap { padding: 0; }
   .page { width: 210mm; margin: 0; padding: 14mm 16mm; min-height: 297mm; }
+  html[data-orient=landscape] .page { width: 297mm; min-height: 210mm; }
 }
+${ORIENTACAO_CSS}
 </style>
 </head>
 <script>document.addEventListener('keydown', function(e){ if(e.key==='Escape') window.close(); });</script>
@@ -147,6 +149,7 @@ tr:nth-child(even) td { background: rgba(16,185,129,.04); }
 <div class="toolbar">
   <button class="btn-print" onclick="window.print()">🖨️ Imprimir</button>
   <button class="btn-close" onclick="window.close()">✕ Fechar</button>
+  ${ORIENTACAO_SELETOR}
 </div>
 <div class="page-wrap">
   <div class="page">
@@ -169,6 +172,7 @@ tr:nth-child(even) td { background: rgba(16,185,129,.04); }
     <div class="footer">Preços sujeitos a alteração sem aviso prévio</div>
   </div>
 </div>
+${orientacaoScript({ padrao: 'portrait', margem: '0' })}
 </body>
 </html>`
 }
