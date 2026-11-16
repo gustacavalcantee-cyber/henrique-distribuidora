@@ -45,7 +45,7 @@ export function getLoteQuinzena(mes: number, ano: number, quinzena: 1 | 2): Lote
       AND p.data_pedido >= ?
       AND p.data_pedido <= ?
     LEFT JOIN itens_pedido ip ON ip.pedido_id = p.id
-    WHERE l.ativo = 1
+    WHERE l.ativo <> 0  -- suspended lojas (ativo = 2) still get billed for what they bought
     GROUP BY l.id
     HAVING total_venda > 0
     ORDER BY COALESCE(f.nome, 'ZZZZ'), l.nome, r.nome

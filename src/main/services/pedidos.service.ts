@@ -157,9 +157,11 @@ export function getLancamentosParaData(rede_id: number, data_pedido: string): La
   // On 27 lojas this cuts 55 synchronous SQLite calls down to 3.
   const sqlite = getRawSqlite()
 
+  // Suspended lojas (ativo = 2) stay out of the sales grid, except on dates where they have a pedido
   const todasLojas = sqlite.prepare(
-    'SELECT id, nome FROM lojas WHERE rede_id = ? AND ativo = 1'
-  ).all(rede_id) as { id: number; nome: string }[]
+    `SELECT id, nome FROM lojas WHERE rede_id = ? AND (ativo = 1 OR (ativo = 2 AND id IN (
+       SELECT loja_id FROM pedidos WHERE rede_id = ? AND data_pedido = ?)))`
+  ).all(rede_id, rede_id, data_pedido) as { id: number; nome: string }[]
 
   if (todasLojas.length === 0) return []
 
