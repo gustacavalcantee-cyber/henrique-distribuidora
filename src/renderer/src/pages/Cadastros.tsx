@@ -47,6 +47,10 @@ function CampoBusca({ value, onChange, placeholder, total, encontrados }: {
   )
 }
 
+// ativo for redes and lojas: 1 = active, 2 = suspended (hidden from Lançamentos, history kept).
+// A loja with ativo 0 is deleted.
+const SUSPENSA = 2
+
 // ---- Redes Tab ----
 function RedesTab() {
   const { data: redes, loading, reload } = useIpc<Rede[]>(IPC.REDES_LIST)
@@ -72,6 +76,13 @@ function RedesTab() {
   const handleSaveEdit = async (id: number) => {
     await window.electron.invoke(IPC.REDES_UPDATE, { id, nome: editNome.trim(), cor_tema: editCor })
     setEditId(null)
+    reload()
+  }
+
+  const alternarSuspensao = async (r: Rede) => {
+    const suspender = r.ativo !== SUSPENSA
+    if (suspender && !confirm(`Suspender a rede "${r.nome}"?\n\nEla e as lojas dela saem da tela de Lançamentos, mas todo o histórico de vendas continua guardado. Você pode reativar quando quiser.`)) return
+    await window.electron.invoke(IPC.REDES_UPDATE, { id: r.id, ativo: suspender ? SUSPENSA : 1 })
     reload()
   }
 
@@ -107,12 +118,12 @@ function RedesTab() {
               <tr className="bg-gray-50">
                 <th className="border px-3 py-2 text-left text-xs text-gray-600">NOME</th>
                 <th className="border px-3 py-2 text-center text-xs text-gray-600 w-24">COR</th>
-                <th className="border px-3 py-2 text-right text-xs text-gray-600 w-36">AÇÕES</th>
+                <th className="border px-3 py-2 text-right text-xs text-gray-600 w-56">AÇÕES</th>
               </tr>
             </thead>
             <tbody>
               {(redes ?? []).map(r => (
-                <tr key={r.id} className="hover:bg-gray-50">
+                <tr key={r.id} className={`hover:bg-gray-50 ${r.ativo === SUSPENSA ? 'bg-gray-50' : ''}`}>
                   {editId === r.id ? (
                     <>
                       <td className="border px-2 py-1">
@@ -134,7 +145,10 @@ function RedesTab() {
                     </>
                   ) : (
                     <>
-                      <td className="border px-3 py-1.5 font-medium text-gray-800">{r.nome}</td>
+                      <td className={`border px-3 py-1.5 font-medium ${r.ativo === SUSPENSA ? 'text-gray-400' : 'text-gray-800'}`}>
+                        {r.nome}
+                        {r.ativo === SUSPENSA && <span className="ml-2 px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 text-[10px] font-semibold align-middle">SUSPENSA</span>}
+                      </td>
                       <td className="border px-3 py-1.5 text-center">
                         <span
                           className="inline-block w-6 h-6 rounded-full border border-gray-200"
@@ -144,6 +158,9 @@ function RedesTab() {
                       </td>
                       <td className="border px-3 py-1.5 text-right">
                         <button onClick={() => startEdit(r)} className="text-blue-600 hover:text-blue-800 px-2 py-0.5 text-xs rounded hover:bg-blue-50">Editar</button>
+                        {r.ativo === SUSPENSA
+                          ? <button onClick={() => alternarSuspensao(r)} className="text-green-700 hover:text-green-800 px-2 py-0.5 text-xs rounded hover:bg-green-50">Reativar</button>
+                          : <button onClick={() => alternarSuspensao(r)} className="text-amber-600 hover:text-amber-700 px-2 py-0.5 text-xs rounded hover:bg-amber-50">Suspender</button>}
                         <button onClick={() => handleDelete(r.id, r.nome)} className="text-red-600 hover:text-red-800 px-2 py-0.5 text-xs rounded hover:bg-red-50">Excluir</button>
                       </td>
                     </>
@@ -164,8 +181,6 @@ function RedesTab() {
 }
 
 // ---- Lojas Tab ----
-// ativo: 1 = active, 2 = suspended (hidden from Lançamentos, history kept), 0 = deleted
-const LOJA_SUSPENSA = 2
 const EMPTY_LOJA_FORM = { nome: '', cnpj: '', razao_social: '', endereco: '', bairro: '', cep: '', municipio: '', uf: '', ie: '', telefone: '' }
 type LojaForm = typeof EMPTY_LOJA_FORM
 
@@ -191,9 +206,9 @@ function LojasTab() {
   }
 
   const alternarSuspensao = async (l: Loja) => {
-    const suspender = l.ativo !== LOJA_SUSPENSA
+    const suspender = l.ativo !== SUSPENSA
     if (suspender && !confirm(`Suspender a loja "${l.nome}"?\n\nEla sai da tela de Lançamentos, mas todo o histórico de vendas continua guardado. Você pode reativar quando quiser.`)) return
-    await window.electron.invoke(IPC.LOJAS_UPDATE, { id: l.id, ativo: suspender ? LOJA_SUSPENSA : 1 })
+    await window.electron.invoke(IPC.LOJAS_UPDATE, { id: l.id, ativo: suspender ? SUSPENSA : 1 })
     reload()
   }
 
@@ -324,11 +339,11 @@ function LojasTab() {
                 <tr><td colSpan={6} className="border px-3 py-4 text-center text-gray-400">Nenhuma loja encontrada</td></tr>
               )}
               {lojasFiltradas.map(l => (
-                <tr key={l.id} className={`hover:bg-gray-50 ${l.ativo === LOJA_SUSPENSA ? 'bg-gray-50 text-gray-400' : ''}`}>
+                <tr key={l.id} className={`hover:bg-gray-50 ${l.ativo === SUSPENSA ? 'bg-gray-50 text-gray-400' : ''}`}>
                   <td className="border px-3 py-1.5 text-gray-500 text-xs">{getRedeName(l.rede_id)}</td>
                   <td className="border px-3 py-1.5 font-medium">
                     {l.nome}
-                    {l.ativo === LOJA_SUSPENSA && <span className="ml-2 px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 text-[10px] font-semibold align-middle">SUSPENSA</span>}
+                    {l.ativo === SUSPENSA && <span className="ml-2 px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 text-[10px] font-semibold align-middle">SUSPENSA</span>}
                   </td>
                   <td className="border px-3 py-1.5 text-gray-500 font-mono text-xs">{l.cnpj ?? '—'}</td>
                   <td className="border px-3 py-1.5 text-gray-500 text-xs">{l.endereco ? `${l.endereco}${l.bairro ? ', ' + l.bairro : ''}` : '—'}</td>
@@ -336,7 +351,7 @@ function LojasTab() {
                   <td className="border px-3 py-1.5 text-right">
                     <div className="flex gap-1 justify-end">
                       <button onClick={() => startEdit(l)} className="text-blue-600 hover:text-blue-800 p-1 rounded hover:bg-blue-50 text-xs">Editar</button>
-                      {l.ativo === LOJA_SUSPENSA
+                      {l.ativo === SUSPENSA
                         ? <button onClick={() => alternarSuspensao(l)} className="text-green-700 hover:text-green-800 p-1 rounded hover:bg-green-50 text-xs">Reativar</button>
                         : <button onClick={() => alternarSuspensao(l)} className="text-amber-600 hover:text-amber-700 p-1 rounded hover:bg-amber-50 text-xs">Suspender</button>}
                       <button onClick={() => handleDelete(l.id, l.nome)} className="text-red-600 hover:text-red-800 p-1 rounded hover:bg-red-50 text-xs">Excluir</button>

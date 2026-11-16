@@ -71,7 +71,8 @@ export function Lancamentos() {
   // Load redes
   useEffect(() => {
     window.electron.invoke<Rede[]>(IPC.REDES_LIST).then(data => {
-      const ativos = data.filter(r => r.ativo)
+      // ativo: 1 = active, 2 = suspended in Cadastros (kept for history, hidden from sales)
+      const ativos = data.filter(r => r.ativo === 1)
       setRedes(ativos)
       if (ativos.length > 0) setActiveRedeId(ativos[0].id)
     })

@@ -23,14 +23,14 @@ export interface PrecoRow { produto_id: number; loja_id: number; preco_venda: nu
 
 export async function fetchRedes(): Promise<RedeRow[]> {
   const { data, error } = await getSupabase()
-    .from('redes').select('id, nome').eq('ativo', 1)
+    .from('redes').select('id, nome').neq('ativo', 0)  // suspended (2) still counts in sales reports
   if (error) throw new Error(`fetchRedes: ${error.message}`)
   return data ?? []
 }
 
 export async function fetchLojas(): Promise<LojaRow[]> {
   const { data, error } = await getSupabase()
-    .from('lojas').select('id, nome, rede_id').eq('ativo', 1)
+    .from('lojas').select('id, nome, rede_id').neq('ativo', 0)  // suspended (2) still counts in sales reports
   if (error) throw new Error(`fetchLojas: ${error.message}`)
   return data ?? []
 }
